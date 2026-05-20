@@ -1,3 +1,7 @@
+pub mod event_bus;
+pub mod metrics;
+pub mod healing;
+
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
