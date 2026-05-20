@@ -1,0 +1,24 @@
+# Rust derleme çıktıları
+target/
+Cargo.lock
+
+# CMake derleme çıktıları
+build/
+CMakeCache.txt
+CMakeFiles/
+
+# Visual Studio
+*.user
+*.suo
+*.sln
+.vs/
+
+# IDE
+.vscode/settings.json
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# PoC klasörleri — bunlar ana repoya dahil değil
+poc/

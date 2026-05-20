@@ -1,0 +1,12 @@
+[package]
+name    = "reji-orchestrator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio     = { workspace = true }
+crossbeam = { workspace = true }
+serde     = { workspace = true }
+redb      = { workspace = true }
+axum      = { workspace = true }
+tracing   = { workspace = true }

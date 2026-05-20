@@ -1,0 +1,21 @@
+[workspace]
+members = [
+    "src/orchestrator",
+]
+resolver = "2"
+
+[workspace.package]
+version     = "0.1.0"
+edition     = "2021"
+authors     = ["Reji Studio Contributors"]
+license     = "Apache-2.0"
+repository  = "https://github.com/reji-studio/reji-studio"
+
+[workspace.dependencies]
+tokio       = { version = "1",   features = ["full"] }
+crossbeam   = { version = "0.8" }
+serde       = { version = "1",   features = ["derive"] }
+serde_json  = { version = "1" }
+redb        = { version = "2" }
+axum        = { version = "0.7" }
+tracing     = { version = "0.1" }
