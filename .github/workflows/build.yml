@@ -1,0 +1,42 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-windows:
+    name: Windows Build
+    runs-on: windows-latest
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Rust kur
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: MSVC ortamını ayarla
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: CMake yapılandır
+        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: C++ derle
+        run: cmake --build build
+
+      - name: FFI sınır testini çalıştır
+        run: build\tests\test_ffi_boundary.exe
+
+      - name: Rust derle
+        run: cargo build --release
+
+      - name: Rust testleri çalıştır
+        run: cargo test
