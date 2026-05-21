@@ -1,0 +1,146 @@
+#pragma once
+#ifdef RJ_PLATFORM_WINDOWS
+
+#include "gpu_resource_manager.h"
+#include <cstdint>
+#include <memory>
+#include <wrl/client.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
+
+namespace reji {
+
+// ---------------------------------------------------------------------------
+// CaptureFrame — one captured desktop frame (non-owning view)
+//
+// Valid only between DxgiCaptureSession::acquire() and release_frame().
+// Do NOT cache or hold across frames.
+// ---------------------------------------------------------------------------
+struct CaptureFrame {
+    ID3D11Texture2D* texture      = nullptr;  ///< on display GPU; valid until release_frame()
+    uint32_t         width        = 0;
+    uint32_t         height       = 0;
+    DXGI_FORMAT      format       = DXGI_FORMAT_UNKNOWN;
+    LONGLONG         present_time = 0;        ///< QPC ticks from DXGI_OUTDUPL_FRAME_INFO
+};
+
+// ---------------------------------------------------------------------------
+// DxgiCaptureSession — wraps IDXGIOutputDuplication for one monitor output
+//
+// Lifetime rules:
+//   - Call acquire() to get a frame; it blocks for at most timeout_ms.
+//   - Always call release_frame() after a successful acquire(), even on error paths.
+//   - On DXGI_ERROR_ACCESS_LOST (screen lock, DPI change, remote session switch),
+//     needs_reinit() returns true. Call reinit() before the next acquire().
+// ---------------------------------------------------------------------------
+class DxgiCaptureSession {
+public:
+    struct Config {
+        uint32_t output_index = 0;   ///< 0 = primary monitor
+        uint32_t timeout_ms   = 17;  ///< per-acquire wait limit (~60 fps)
+    };
+
+    DxgiCaptureSession() = default;
+    ~DxgiCaptureSession() { shutdown(); }
+
+    DxgiCaptureSession(const DxgiCaptureSession&) = delete;
+    DxgiCaptureSession& operator=(const DxgiCaptureSession&) = delete;
+
+    bool init(ID3D11Device* device, IDXGIAdapter* adapter, const Config& cfg);
+    void shutdown();
+
+    /// Wait for and latch the next changed desktop frame.
+    /// Returns false on timeout (no new frame) or session loss (check needs_reinit()).
+    bool acquire(CaptureFrame& out_frame);
+
+    /// Release the current DXGI frame back to the duplication engine.
+    /// Must be called after every successful acquire() before the next acquire().
+    void release_frame();
+
+    /// Recreate IDXGIOutputDuplication after DXGI_ERROR_ACCESS_LOST.
+    bool reinit();
+
+    bool        needs_reinit()   const { return needs_reinit_; }
+    DXGI_FORMAT surface_format() const { return surface_format_; }
+    uint32_t    width()          const { return width_; }
+    uint32_t    height()         const { return height_; }
+
+private:
+    bool create_duplication();
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter>           adapter_;
+    Microsoft::WRL::ComPtr<ID3D11Device>           device_;
+    Microsoft::WRL::ComPtr<IDXGIOutputDuplication> duplication_;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D>        frame_tex_;  ///< ref held during frame
+
+    Config      config_;
+    DXGI_FORMAT surface_format_ = DXGI_FORMAT_UNKNOWN;
+    uint32_t    width_          = 0;
+    uint32_t    height_         = 0;
+    bool        frame_held_     = false;
+    bool        needs_reinit_   = false;
+    bool        initialized_    = false;
+};
+
+// ---------------------------------------------------------------------------
+// DxgiCapturePipeline — high-level desktop capture + cross-adapter transfer
+//
+// Owns the display GpuContext (AMD iGPU), the encode GpuContext (NVIDIA),
+// a DxgiCaptureSession, and a GpuResourceManager.
+//
+// capture_next() drives the full pipeline:
+//   AcquireNextFrame  →  GPU-blit to shared tex  →  return NVENC-ready texture
+//
+// Usage:
+//   DxgiCapturePipeline p;
+//   p.init(cfg);
+//   while (running) {
+//       if (auto* tex = p.capture_next()) {
+//           nvenc.submit(tex);
+//       }
+//   }
+// ---------------------------------------------------------------------------
+class DxgiCapturePipeline {
+public:
+    struct Config {
+        uint32_t output_index        = 0;     ///< which monitor to capture
+        uint32_t timeout_ms          = 17;    ///< per-frame acquire timeout
+        bool     allow_cross_adapter = true;  ///< false forces same-adapter path
+    };
+
+    DxgiCapturePipeline() = default;
+    ~DxgiCapturePipeline() { shutdown(); }
+
+    DxgiCapturePipeline(const DxgiCapturePipeline&) = delete;
+    DxgiCapturePipeline& operator=(const DxgiCapturePipeline&) = delete;
+
+    bool init(const Config& cfg);
+    void shutdown();
+
+    /// Capture next frame and transfer to encode GPU.
+    /// Returns NVENC-ready texture on encode GPU, nullptr on timeout or error.
+    ID3D11Texture2D* capture_next();
+
+    GpuContext* display_gpu()    const { return display_ctx_.get(); }
+    GpuContext* encode_gpu()     const { return encode_ctx_.get(); }
+    uint32_t    width()          const;
+    uint32_t    height()         const;
+    DXGI_FORMAT surface_format() const;
+    bool        is_cross_adapter() const;
+
+private:
+    bool find_display_adapter(IDXGIFactory1* factory, IDXGIAdapter** out);
+    bool find_encode_adapter(IDXGIFactory1* factory, IDXGIAdapter* display,
+                             IDXGIAdapter** out);
+
+    std::shared_ptr<D3D11GpuContext>     display_ctx_;
+    std::shared_ptr<D3D11GpuContext>     encode_ctx_;
+    std::unique_ptr<DxgiCaptureSession>  capture_;
+    std::unique_ptr<GpuResourceManager>  resource_mgr_;
+
+    Config config_;
+    bool   initialized_ = false;
+};
+
+} // namespace reji
+#endif // RJ_PLATFORM_WINDOWS

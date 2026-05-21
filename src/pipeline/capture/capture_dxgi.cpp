@@ -1,0 +1,326 @@
+#include "capture_dxgi.h"
+#ifdef RJ_PLATFORM_WINDOWS
+
+#include <cstdio>
+
+namespace reji {
+
+// ---------------------------------------------------------------------------
+// DxgiCaptureSession
+// ---------------------------------------------------------------------------
+
+bool DxgiCaptureSession::init(ID3D11Device* device, IDXGIAdapter* adapter,
+                               const Config& cfg) {
+    device_  = device;
+    adapter_ = adapter;
+    config_  = cfg;
+
+    if (!create_duplication()) { return false; }
+
+    initialized_ = true;
+    printf("[DxgiCapture] Session ready  output=%u  %ux%u  fmt=%u\n",
+           cfg.output_index, width_, height_,
+           static_cast<unsigned>(surface_format_));
+    return true;
+}
+
+bool DxgiCaptureSession::create_duplication() {
+    duplication_.Reset();
+    frame_tex_.Reset();
+    frame_held_   = false;
+    needs_reinit_ = false;
+
+    Microsoft::WRL::ComPtr<IDXGIOutput> output;
+    HRESULT hr = adapter_->EnumOutputs(config_.output_index, &output);
+    if (FAILED(hr)) {
+        printf("[DxgiCapture] EnumOutputs(%u) failed: 0x%08lX\n",
+               config_.output_index, hr);
+        return false;
+    }
+
+    DXGI_OUTPUT_DESC out_desc = {};
+    output->GetDesc(&out_desc);
+    width_  = static_cast<uint32_t>(out_desc.DesktopCoordinates.right
+                                  - out_desc.DesktopCoordinates.left);
+    height_ = static_cast<uint32_t>(out_desc.DesktopCoordinates.bottom
+                                  - out_desc.DesktopCoordinates.top);
+
+    Microsoft::WRL::ComPtr<IDXGIOutput1> output1;
+    hr = output.As(&output1);
+    if (FAILED(hr)) {
+        printf("[DxgiCapture] IDXGIOutput1 QI failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    hr = output1->DuplicateOutput(device_.Get(), &duplication_);
+    if (FAILED(hr)) {
+        // E_ACCESSDENIED: this adapter does not drive the display.
+        // DXGI_ERROR_UNSUPPORTED: running in a remote session without WDDM.
+        printf("[DxgiCapture] DuplicateOutput failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    DXGI_OUTDUPL_DESC dupl_desc = {};
+    duplication_->GetDesc(&dupl_desc);
+    surface_format_ = dupl_desc.ModeDesc.Format;
+
+    return true;
+}
+
+bool DxgiCaptureSession::reinit() {
+    // Ensure any held frame is released before tearing down the session.
+    if (frame_held_ && duplication_) {
+        duplication_->ReleaseFrame();
+        frame_held_ = false;
+    }
+    frame_tex_.Reset();
+    return create_duplication();
+}
+
+void DxgiCaptureSession::shutdown() {
+    if (frame_held_ && duplication_) {
+        duplication_->ReleaseFrame();
+        frame_held_ = false;
+    }
+    frame_tex_.Reset();
+    duplication_.Reset();
+    device_.Reset();
+    adapter_.Reset();
+    initialized_  = false;
+    needs_reinit_ = false;
+}
+
+bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
+    if (!initialized_ || needs_reinit_) { return false; }
+
+    // Guard against missing release_frame() call from the previous iteration.
+    if (frame_held_) {
+        duplication_->ReleaseFrame();
+        frame_tex_.Reset();
+        frame_held_ = false;
+    }
+
+    DXGI_OUTDUPL_FRAME_INFO info = {};
+    Microsoft::WRL::ComPtr<IDXGIResource> resource;
+
+    HRESULT hr = duplication_->AcquireNextFrame(config_.timeout_ms, &info, &resource);
+
+    if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+        return false;  // No desktop update in timeout window; not an error.
+    }
+    if (hr == DXGI_ERROR_ACCESS_LOST  ||
+        hr == DXGI_ERROR_DEVICE_REMOVED) {
+        // Screen locked, resolution changed, UAC prompt, remote session switch.
+        printf("[DxgiCapture] Session lost (0x%08lX); call reinit()\n", hr);
+        needs_reinit_ = true;
+        return false;
+    }
+    if (FAILED(hr)) {
+        printf("[DxgiCapture] AcquireNextFrame failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    // Skip pointer-only updates — no desktop content change.
+    // AccumulatedFrames == 0 means only cursor moved; texture is stale.
+    if (info.AccumulatedFrames == 0 && info.LastPresentTime.QuadPart == 0) {
+        duplication_->ReleaseFrame();
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
+    hr = resource.As(&tex);
+    if (FAILED(hr)) {
+        duplication_->ReleaseFrame();
+        return false;
+    }
+
+    frame_tex_            = tex;    // keep a ref so the texture survives release_frame()
+    frame_held_           = true;
+
+    out_frame.texture     = frame_tex_.Get();
+    out_frame.width       = width_;
+    out_frame.height      = height_;
+    out_frame.format      = surface_format_;
+    out_frame.present_time = info.LastPresentTime.QuadPart;
+    return true;
+}
+
+void DxgiCaptureSession::release_frame() {
+    if (!frame_held_) { return; }
+
+    // Release the duplication frame back to DXGI.
+    // frame_tex_ ref count drops here; actual D3D11 destruction deferred by runtime.
+    duplication_->ReleaseFrame();
+    frame_tex_.Reset();
+    frame_held_ = false;
+}
+
+// ---------------------------------------------------------------------------
+// DxgiCapturePipeline — adapter discovery
+// ---------------------------------------------------------------------------
+
+bool DxgiCapturePipeline::find_display_adapter(IDXGIFactory1* factory,
+                                                IDXGIAdapter** out_adapter) {
+    UINT idx = 0;
+    Microsoft::WRL::ComPtr<IDXGIAdapter1> candidate;
+
+    while (factory->EnumAdapters1(idx++, &candidate) != DXGI_ERROR_NOT_FOUND) {
+        DXGI_ADAPTER_DESC1 desc;
+        candidate->GetDesc1(&desc);
+
+        if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) { continue; }  // skip WARP
+
+        // A hardware adapter with the requested output drives the display.
+        Microsoft::WRL::ComPtr<IDXGIOutput> test_out;
+        if (SUCCEEDED(candidate->EnumOutputs(config_.output_index, &test_out))) {
+            wprintf(L"[DxgiCapture] Display adapter: %s\n", desc.Description);
+            *out_adapter = candidate.Detach();
+            return true;
+        }
+    }
+
+    printf("[DxgiCapture] No hardware adapter with output %u found\n",
+           config_.output_index);
+    return false;
+}
+
+bool DxgiCapturePipeline::find_encode_adapter(IDXGIFactory1* factory,
+                                               IDXGIAdapter*  display_adapter,
+                                               IDXGIAdapter** out_adapter) {
+    if (!config_.allow_cross_adapter) {
+        *out_adapter = display_adapter;
+        display_adapter->AddRef();
+        return true;
+    }
+
+    UINT idx = 0;
+    Microsoft::WRL::ComPtr<IDXGIAdapter1> candidate;
+
+    while (factory->EnumAdapters1(idx++, &candidate) != DXGI_ERROR_NOT_FOUND) {
+        DXGI_ADAPTER_DESC1 desc;
+        candidate->GetDesc1(&desc);
+
+        if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) { continue; }
+        if (candidate.Get() == display_adapter)       { continue; }
+
+        // NVIDIA VendorId 0x10DE — NVENC lives here.
+        if (desc.VendorId == 0x10DE) {
+            wprintf(L"[DxgiCapture] Encode adapter: %s (NVIDIA)\n", desc.Description);
+            *out_adapter = candidate.Detach();
+            return true;
+        }
+    }
+
+    // No discrete NVIDIA GPU found; fall back to same-adapter path.
+    wprintf(L"[DxgiCapture] No NVIDIA adapter found; using display adapter\n");
+    *out_adapter = display_adapter;
+    display_adapter->AddRef();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// DxgiCapturePipeline — lifecycle
+// ---------------------------------------------------------------------------
+
+bool DxgiCapturePipeline::init(const Config& cfg) {
+    config_ = cfg;
+
+    Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+    HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+    if (FAILED(hr)) {
+        printf("[DxgiCapture] CreateDXGIFactory1 failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> display_adapter;
+    if (!find_display_adapter(factory.Get(), &display_adapter)) { return false; }
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> encode_adapter;
+    if (!find_encode_adapter(factory.Get(), display_adapter.Get(), &encode_adapter)) {
+        return false;
+    }
+
+    display_ctx_ = std::make_shared<D3D11GpuContext>();
+    if (!display_ctx_->init(display_adapter.Get())) { return false; }
+
+    encode_ctx_ = std::make_shared<D3D11GpuContext>();
+    if (!encode_ctx_->init(encode_adapter.Get())) { return false; }
+
+    capture_ = std::make_unique<DxgiCaptureSession>();
+    DxgiCaptureSession::Config cap_cfg;
+    cap_cfg.output_index = cfg.output_index;
+    cap_cfg.timeout_ms   = cfg.timeout_ms;
+    if (!capture_->init(display_ctx_->d3d_device(),
+                        display_ctx_->dxgi_adapter(), cap_cfg)) {
+        return false;
+    }
+
+    resource_mgr_ = std::make_unique<GpuResourceManager>();
+    if (!resource_mgr_->init(
+            display_ctx_, encode_ctx_,
+            capture_->width(), capture_->height(), capture_->surface_format())) {
+        return false;
+    }
+
+    initialized_ = true;
+    printf("[DxgiCapture] Pipeline ready  %ux%u  cross_adapter=%s\n",
+           capture_->width(), capture_->height(),
+           resource_mgr_->same_adapter() ? "no" : "yes");
+    return true;
+}
+
+void DxgiCapturePipeline::shutdown() {
+    initialized_ = false;
+    resource_mgr_.reset();
+    capture_.reset();
+    encode_ctx_.reset();
+    display_ctx_.reset();
+}
+
+// ---------------------------------------------------------------------------
+// DxgiCapturePipeline — hot path
+// ---------------------------------------------------------------------------
+
+ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
+    if (!initialized_) { return nullptr; }
+
+    // Recover from screen lock / resolution change / remote session events.
+    if (capture_->needs_reinit()) {
+        printf("[DxgiCapture] Reinitializing after session loss\n");
+        if (!capture_->reinit()) { return nullptr; }
+    }
+
+    CaptureFrame frame;
+    if (!capture_->acquire(frame)) {
+        return nullptr;  // timeout or session loss — not an error
+    }
+
+    // GPU-blit frame to encode GPU (same or cross-adapter).
+    // For cross-adapter: CopyResource + keyed-mutex sync; no CPU copy.
+    ID3D11Texture2D* encode_tex = resource_mgr_->transfer(frame.texture);
+
+    // Release the DXGI frame now that the GPU copy is submitted.
+    // The shared / staging texture holds the data for NVENC.
+    capture_->release_frame();
+
+    return encode_tex;  // nullptr if transfer failed
+}
+
+uint32_t DxgiCapturePipeline::width() const {
+    return capture_ ? capture_->width() : 0;
+}
+
+uint32_t DxgiCapturePipeline::height() const {
+    return capture_ ? capture_->height() : 0;
+}
+
+DXGI_FORMAT DxgiCapturePipeline::surface_format() const {
+    return capture_ ? capture_->surface_format() : DXGI_FORMAT_UNKNOWN;
+}
+
+bool DxgiCapturePipeline::is_cross_adapter() const {
+    return resource_mgr_ && !resource_mgr_->same_adapter();
+}
+
+} // namespace reji
+#endif // RJ_PLATFORM_WINDOWS

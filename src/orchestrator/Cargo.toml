@@ -1,7 +1,10 @@
 [package]
-name    = "reji-orchestrator"
+name             = "reji-orchestrator"
 version.workspace = true
 edition.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 tokio     = { workspace = true }
