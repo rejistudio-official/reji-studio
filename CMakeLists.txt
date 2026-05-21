@@ -31,6 +31,7 @@ endif()
 # Alt projeler
 add_subdirectory(src/pipeline)
 add_subdirectory(src/ffi)
+add_subdirectory(src/ui)
 
 # Test
 enable_testing()
