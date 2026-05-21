@@ -12,6 +12,14 @@ add_library(reji_ui STATIC main_window.cpp)
 if(Qt6_FOUND)
     message(STATUS "Qt6 ${Qt6_VERSION} bulundu — tam UI etkinleştirildi")
 
+    # Widget + bridge sources (only compile when Qt6 is available)
+    target_sources(reji_ui PRIVATE
+        preview_widget.cpp
+        program_widget.cpp
+        rust_bridge.cpp
+        healing_overlay.cpp
+    )
+
     # AUTOMOC/AUTOUIC per-target — avoids polluting parent scope.
     set_target_properties(reji_ui PROPERTIES
         AUTOMOC ON
@@ -35,9 +43,9 @@ else()
 endif()
 
 target_include_directories(reji_ui PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}              # main_window.h için
+    ${CMAKE_CURRENT_SOURCE_DIR}              # main_window.h, widget headers için
     ${CMAKE_SOURCE_DIR}/src/pipeline/include # pipeline.h için
-    ${CMAKE_SOURCE_DIR}/src/ffi              # ffi_bridge.h için (v0.2)
+    ${CMAKE_SOURCE_DIR}/src/ffi              # ffi_bridge.h için
 )
 
 if(MSVC)

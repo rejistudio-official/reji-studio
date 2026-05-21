@@ -4,48 +4,38 @@
 
 // ---------------------------------------------------------------------------
 // QT6_AVAILABLE is defined by CMakeLists.txt when find_package(Qt6) succeeds.
-// Without it this header still compiles — MainWindow becomes a no-op stub.
+// Without it, MainWindow compiles as a no-op stub that preserves the public API.
 // ---------------------------------------------------------------------------
 #ifdef QT6_AVAILABLE
 
-#include <QLabel>
-#include <QListWidget>
 #include <QMainWindow>
-#include <QMenu>
-#include <QOpenGLFunctions>
-#include <QOpenGLWidget>
-#include <QPushButton>
 #include <QSettings>
-#include <QSystemTrayIcon>
-#include <QTimer>
 
 class QCloseEvent;
+class QLabel;
+class QListWidget;
+class QListWidgetItem;
+class QMenu;
+class QPushButton;
+class QSystemTrayIcon;
+class QTimer;
 
-// ---------------------------------------------------------------------------
-// PreviewGLWidget — shared by both the Preview and Program monitors.
-// v0.1: renders solid black.  Pipeline texture blit added in v0.2.
-// ---------------------------------------------------------------------------
-class PreviewGLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
-    Q_OBJECT
-public:
-    explicit PreviewGLWidget(QWidget* parent = nullptr);
-
-protected:
-    void initializeGL() override;
-    void resizeGL(int w, int h) override;
-    void paintGL() override;
-};
+namespace reji {
+    class PreviewWidget;
+    class ProgramWidget;
+    class HealingOverlay;
+    class RustBridge;
+}
 
 // ---------------------------------------------------------------------------
 // MainWindow — top-level application shell.
 //
 //  ┌─────────────────────────────────────────────────┐
-//  │  MenuBar (File · View · Help)                   │
+//  │  MenuBar (Dosya · Görünüm · Yardım)             │
 //  ├──────────────────────────────┬──────────────────┤
 //  │  Preview (GL) │ Program (GL) │  Sahneler        │
 //  │               │              │  ┌────────────┐  │
 //  │               │              │  │ Sahne 1    │  │
-//  │               │              │  │ Sahne 2    │  │
 //  │               │              │  └────────────┘  │
 //  ├──────────────────────────────┴──────────────────┤
 //  │  [CUT]  [FADE]                  [START]  [STOP] │
@@ -54,6 +44,7 @@ protected:
 //  └─────────────────────────────────────────────────┘
 //
 // Thread safety: all methods must be called from the Qt GUI thread.
+// RustBridge serialises every FFI call through a QMutex internally.
 // ---------------------------------------------------------------------------
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -65,18 +56,15 @@ public:
     bool initPipeline(const rj::Pipeline::Config& cfg);
 
 public slots:
-    /// Updates status bar labels. Called by metrics_timer_ (100 ms cadence).
+    /// Updates status-bar labels. Called by metrics_timer_ (100 ms cadence).
     void onMetricsUpdate(uint32_t bitrate_kbps, float fps_actual, bool connected);
 
-    /// Shows a system-tray balloon warning. Wire to Rust HealingEvent in v0.2.
+    /// Shows tray balloon + HealingOverlay. Wire to Rust HealingEvent in v0.2.
     void onHealingNotification(const QString& message);
 
 signals:
-    /// Emitted after Pipeline::start_stream() succeeds.
     void streamStarted();
-    /// Emitted after Pipeline::stop_stream().
     void streamStopped();
-    /// Emitted on scene-list double-click; index matches QListWidget row.
     void sceneActivated(int scene_index);
 
 protected:
@@ -87,9 +75,11 @@ private slots:
     void stopStream();
     void onCutTransition();
     void onFadeTransition();
-    /// 100 ms poll hook — v0.2: drain rj_metrics ring buffer (ffi_bridge.h).
+    /// 100 ms poll: drains rj_command_drain and updates status-bar metrics.
     void pollMetrics();
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
+    /// Shown when RustBridge emits reduceBitrate().
+    void onReduceBitrate(uint32_t target_kbps, const QString& reason);
 
 private:
     void buildMenuBar();
@@ -99,9 +89,9 @@ private:
     void saveWindowState();
     void loadWindowState();
 
-    // ── Monitor widgets ────────────────────────────────────────────────────
-    PreviewGLWidget* preview_widget_{nullptr};
-    PreviewGLWidget* program_widget_{nullptr};
+    // ── Video monitors ─────────────────────────────────────────────────────
+    reji::PreviewWidget* preview_widget_{nullptr};
+    reji::ProgramWidget* program_widget_{nullptr};
 
     // ── Scene panel ────────────────────────────────────────────────────────
     QListWidget* scene_list_{nullptr};
@@ -121,8 +111,10 @@ private:
     QSystemTrayIcon* tray_icon_{nullptr};
     QMenu*           tray_menu_{nullptr};
 
-    // ── Rust metrics poll (wired to rj_metrics ring buffer in v0.2) ────────
-    QTimer* metrics_timer_{nullptr};
+    // ── Rust bridge + self-healing overlay ─────────────────────────────────
+    reji::RustBridge*     rust_bridge_{nullptr};
+    reji::HealingOverlay* healing_overlay_{nullptr};
+    QTimer*               metrics_timer_{nullptr};
 
     // ── Pipeline ───────────────────────────────────────────────────────────
     rj::Pipeline         pipeline_;
@@ -136,9 +128,6 @@ private:
 // ===========================================================================
 #else // !QT6_AVAILABLE — minimal stub, compiles without Qt6 headers
 // ===========================================================================
-// Stub MainWindow: preserves the public interface so call-sites compile
-// unchanged even when Qt6 is absent.  No GUI functionality is provided.
-// ---------------------------------------------------------------------------
 class MainWindow {
 public:
     MainWindow()  = default;
@@ -150,10 +139,8 @@ public:
     void hide()    noexcept {}
     bool isVisible() const noexcept { return false; }
 
-    void onMetricsUpdate(uint32_t /*bitrate_kbps*/,
-                         float    /*fps_actual*/,
-                         bool     /*connected*/) noexcept {}
-    void onHealingNotification(const char* /*message*/) noexcept {}
+    void onMetricsUpdate(uint32_t, float, bool) noexcept {}
+    void onHealingNotification(const char*) noexcept {}
 
 private:
     rj::Pipeline         pipeline_;
