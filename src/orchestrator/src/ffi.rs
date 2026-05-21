@@ -5,10 +5,13 @@
 //! - C++ → Rust: metric_ring (256-slot, lock-free ArrayQueue).
 //! - Rust → C++: command_queue (64-slot, lock-free ArrayQueue).
 
+use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossbeam::queue::ArrayQueue;
+use tokio::sync::broadcast;
 use tokio::runtime::Runtime;
 use tokio::time::MissedTickBehavior;
 use tracing::warn;
@@ -36,6 +39,7 @@ struct FfiState {
     command_queue: Arc<ArrayQueue<RjCommand>>,
     _metric_state: Arc<MetricState>,
     _runtime:      Runtime,
+    media_tx:      broadcast::Sender<MediaEvent>,
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
@@ -148,6 +152,7 @@ pub extern "C" fn rj_start_monitor() {
             command_queue,
             _metric_state: metric_state,
             _runtime: runtime,
+            media_tx: event_bus.media.clone(),
         }
     });
 }
@@ -192,6 +197,22 @@ pub extern "C" fn rj_command_drain(out: *mut RjCommand, max: i32) -> i32 {
         }
     }
     count
+}
+
+/// SRT bağlantı kopuşunu event bus'a iletir; reason null-safe, UTF-8 beklenir.
+#[no_mangle]
+pub extern "C" fn rj_connection_lost(reason: *const c_char) {
+    let msg = if reason.is_null() {
+        "<null>".to_owned()
+    } else {
+        unsafe { CStr::from_ptr(reason) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    warn!(target: "rj_srt", "connection_lost reason={}", msg);
+    if let Some(state) = FFI_STATE.get() {
+        let _ = state.media_tx.send(MediaEvent::SourceDisconnected { source_id: 0 });
+    }
 }
 
 /// Pipeline durumu: 0 = hazır (monitor başlatılmış), -1 = başlatılmamış.

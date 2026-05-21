@@ -40,6 +40,8 @@ extern void rj_metrics_push(const RjMetricSample* sample);
 extern int  rj_command_drain(RjCommand* out, int max);
 extern int  rj_pipeline_status(void);
 extern void rj_start_monitor(void);
+/* SRT baglanti kopusunu Rust event bus'a iletir; reason UTF-8, null-safe. */
+extern void rj_connection_lost(const char* reason);
 
 /* Bu dosyadan export edilir */
 uint32_t rj_ffi_version(void);

@@ -19,6 +19,8 @@ target_include_directories(reji_pipeline PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/capture
     ${CMAKE_CURRENT_SOURCE_DIR}/encode
+    ${CMAKE_CURRENT_SOURCE_DIR}/output
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio
     ${CMAKE_SOURCE_DIR}/src/ffi
 )
 
@@ -26,6 +28,8 @@ if(WIN32)
     target_link_libraries(reji_pipeline PUBLIC
         d3d11.lib
         dxgi.lib
+        ole32.lib
+        avrt.lib
     )
 endif()
 
@@ -58,4 +62,65 @@ endif()
 if(MSVC)
     set_property(TARGET reji_pipeline PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+    # /EHa: SEH + C++ exception interop — WASAPI ve SRT modülleri için zorunlu.
+    # /EHa, /EHsc'nin üst kümesidir; mevcut kaynaklarla uyumlu.
+    target_compile_options(reji_pipeline PRIVATE /EHa)
+endif()
+
+# ---------------------------------------------------------------------------
+# WASAPI audio capture — Windows only
+# ---------------------------------------------------------------------------
+if(WIN32)
+    target_sources(reji_pipeline PRIVATE audio/wasapi_capture.cpp)
+    message(STATUS "WASAPI audio capture modülü etkinleştirildi")
+endif()
+
+# ---------------------------------------------------------------------------
+# Optional SRT output support — requires libsrt (vcpkg: libsrt)
+# Önerilen: cmake -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+# ---------------------------------------------------------------------------
+if(WIN32)
+    find_package(SRT CONFIG QUIET)
+
+    if(NOT SRT_FOUND AND NOT TARGET SRT::srt)
+        # vcpkg toolchain olmadan manuel arama — VCPKG_ROOT env veya argümanla.
+        if(NOT DEFINED VCPKG_ROOT)
+            set(VCPKG_ROOT "$ENV{VCPKG_ROOT}")
+        endif()
+        if(NOT VCPKG_ROOT)
+            set(VCPKG_ROOT "C:/vcpkg")
+        endif()
+
+        find_library(SRT_LIBRARY
+            NAMES srt srt_static
+            PATHS
+                "${VCPKG_ROOT}/installed/x64-windows/lib"
+                "${VCPKG_ROOT}/installed/x64-windows-static/lib"
+        )
+        find_path(SRT_INCLUDE_DIR srt/srt.h
+            PATHS
+                "${VCPKG_ROOT}/installed/x64-windows/include"
+                "${VCPKG_ROOT}/installed/x64-windows-static/include"
+        )
+
+        if(SRT_LIBRARY AND SRT_INCLUDE_DIR)
+            add_library(SRT::srt UNKNOWN IMPORTED)
+            set_target_properties(SRT::srt PROPERTIES
+                IMPORTED_LOCATION "${SRT_LIBRARY}"
+                INTERFACE_INCLUDE_DIRECTORIES "${SRT_INCLUDE_DIR}"
+            )
+            set(SRT_FOUND TRUE)
+            message(STATUS "SRT found (manual vcpkg): ${SRT_LIBRARY}")
+        endif()
+    endif()
+
+    if(SRT_FOUND OR TARGET SRT::srt)
+        message(STATUS "SRT output module enabled")
+        target_sources(reji_pipeline PRIVATE output/srt_output.cpp)
+        target_compile_definitions(reji_pipeline PRIVATE RJ_SRT_AVAILABLE)
+        target_link_libraries(reji_pipeline PUBLIC SRT::srt ws2_32.lib)
+    else()
+        message(STATUS "SRT not found — srt_output.cpp disabled. "
+                       "Install: vcpkg install libsrt:x64-windows")
+    endif()
 endif()
