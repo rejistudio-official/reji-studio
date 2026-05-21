@@ -357,6 +357,9 @@ struct SrtOutput::Impl {
                         srt_epoll_add_usock(epoll_id, sock, &oev);
                         connected.store(true, std::memory_order_release);
                         notified_lost.store(false, std::memory_order_release);
+                    } else {
+                        // accept failed — listen socket stays intact, no close
+                        OutputDebugStringA("[rj_srt] srt_accept failed, retaining listen socket\n");
                     }
                 } else if (e & (SRT_EPOLL_OUT | SRT_EPOLL_CONNECT)) {
                     update_state_from_socket();

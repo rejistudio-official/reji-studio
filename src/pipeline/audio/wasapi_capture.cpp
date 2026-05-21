@@ -455,7 +455,7 @@ void WasapiCapture::detect_silence_and_jitter(uint32_t frames, DWORD flags, int6
     bool glitch = (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
     if (glitch) {
         underrun_count_.fetch_add(1, std::memory_order_relaxed);
-        if (jitter_window_glitches_ < 255) ++jitter_window_glitches_;
+        ++jitter_window_glitches_;
     }
     if (++jitter_window_count_ >= 5) {
         if (jitter_window_glitches_ >= 3)

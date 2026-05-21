@@ -314,6 +314,7 @@ bool Pipeline::init(const Config& cfg_in) {
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (hr == RPC_E_CHANGED_MODE) {
         dbglog("[Pipeline] COM apartment set by caller — uninit skipped");
+        s.com_owned.store(false, std::memory_order_release);
     } else if (FAILED(hr)) {
         dbglog("[Pipeline] CoInitializeEx failed: 0x%08lX", hr);
         return false;
@@ -409,6 +410,12 @@ bool Pipeline::init(const Config& cfg_in) {
 bool Pipeline::start_stream() {
     if (!impl_ || !impl_->initialized.load(std::memory_order_acquire)) return false;
     if (impl_->streaming.exchange(true, std::memory_order_acq_rel)) return true;
+
+    if (!impl_->srt) {
+        impl_->streaming.store(false, std::memory_order_release);
+        dbglog("[Pipeline] start_stream: SRT not initialized");
+        return false;
+    }
 
     // Publish SRT pointer before any packet callback can observe it.
     impl_->srt_atomic.store(impl_->srt.get(), std::memory_order_release);

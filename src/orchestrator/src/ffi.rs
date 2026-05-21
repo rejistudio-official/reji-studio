@@ -205,6 +205,7 @@ pub extern "C" fn rj_connection_lost(reason: *const c_char) {
     let msg = if reason.is_null() {
         "<null>".to_owned()
     } else {
+        // to_string_lossy replaces invalid UTF-8 bytes with U+FFFD — safe for untrusted C strings
         unsafe { CStr::from_ptr(reason) }
             .to_string_lossy()
             .into_owned()

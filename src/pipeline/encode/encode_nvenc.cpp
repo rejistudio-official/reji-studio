@@ -356,7 +356,8 @@ NvencEncoder::NvencEncoder() : impl_(std::make_unique<Impl>()) {}
 NvencEncoder::~NvencEncoder() { shutdown(); }
 
 bool NvencEncoder::init(ID3D11Device* device, const Config& cfg, PacketCallback on_packet) {
-    if (!device) { return false; }
+    if (!device)          { return false; }
+    if (cfg.fps_num == 0) { return false; }
 
     impl_->config    = cfg;
     impl_->on_packet = std::move(on_packet);

@@ -4,7 +4,23 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git push *)",
-      "PowerShell($env:PATH += \";$env:USERPROFILE\\\\.cargo\\\\bin\"; cargo check 2>&1 | Select-Object -Last 8)"
+      "PowerShell($env:PATH += \";$env:USERPROFILE\\\\.cargo\\\\bin\"; cargo check 2>&1 | Select-Object -Last 8)",
+      "Bash(cmake --build build)",
+      "Bash(cmake -B build_vs -G \"Visual Studio 17 2022\" -A x64 -DCMAKE_TOOLCHAIN_FILE=\"C:/vcpkg/scripts/buildsystems/vcpkg.cmake\")",
+      "Bash(cmake -B build_ninja -G \"Ninja\" -DCMAKE_TOOLCHAIN_FILE=\"C:/vcpkg/scripts/buildsystems/vcpkg.cmake\" -DCMAKE_C_COMPILER=\"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe\" -DCMAKE_CXX_COMPILER=\"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe\")",
+      "Bash(cmake -B build_ninja -G \"Ninja\" -DCMAKE_MAKE_PROGRAM=\"C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe\" -DCMAKE_TOOLCHAIN_FILE=\"C:/vcpkg/scripts/buildsystems/vcpkg.cmake\" -DCMAKE_C_COMPILER=\"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe\" -DCMAKE_CXX_COMPILER=\"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe\")",
+      "Bash(ls \"C:/Program Files \\(x86\\)/Windows Kits/10/bin/10.0.26100.0/x64/rc.exe\" 2>/dev/null && echo found || echo not found)",
+      "Read(//c/Program Files \\(x86\\)/Windows Kits/10/bin/10.0.26100.0/x64/**)",
+      "Bash(RC=\"C:/Program Files \\(x86\\)/Windows Kits/10/bin/10.0.26100.0/x64/rc.exe\" cmake -B build_ninja -G \"Ninja\" -DCMAKE_MAKE_PROGRAM=\"C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe\" -DCMAKE_TOOLCHAIN_FILE=\"C:/vcpkg/scripts/buildsystems/vcpkg.cmake\" -DCMAKE_C_COMPILER=\"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe\" -DCMAKE_CXX_COMPILER=\"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe\" -DCMAKE_RC_COMPILER=\"C:/Program Files \\(x86\\)/Windows Kits/10/bin/10.0.26100.0/x64/rc.exe\")",
+      "Bash(ls \"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Auxiliary/Build/vcvars64.bat\" 2>/dev/null && echo found || echo not found)",
+      "Read(//c/Program Files/Microsoft Visual Studio/18/Community/VC/Auxiliary/Build/**)",
+      "Bash(cmd.exe /c \"\\\\\"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Auxiliary/Build/vcvars64.bat\\\\\" && cmake --build \\\\\"C:/reji-studio/build\\\\\" 2>&1\")",
+      "Bash(cmd /c \"\\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\\\\\" && cmake --build C:\\\\reji-studio\\\\build\")",
+      "Bash(cmd /c \"\\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\\\\\" 2>nul && cmake --build C:\\\\reji-studio\\\\build 2>&1\")",
+      "Bash(cmd /c \"\\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\\\\\" 2>nul && cmake --build C:\\\\reji-studio\\\\build 2>&1 && echo BUILD_SUCCESS || echo BUILD_FAILED\")",
+      "Bash(cmd /c \"C:\\\\reji-studio\\\\build_run.bat\")",
+      "Bash(cmd /c \"C:\\\\reji-studio\\\\build_run.bat > C:\\\\reji-studio\\\\build_output.txt 2>&1\")",
+      "Bash(cargo test *)"
     ]
   }
 }

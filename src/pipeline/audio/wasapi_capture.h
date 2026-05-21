@@ -177,7 +177,7 @@ private:
     std::atomic<uint32_t> overrun_count_{0};
     std::atomic<uint32_t> underrun_count_{0};
     std::atomic<uint32_t> frame_drops_{0};
-    uint8_t  jitter_window_glitches_{0};
+    uint32_t jitter_window_glitches_{0};
     uint8_t  jitter_window_count_{0};
     int64_t  silence_start_us_{0};
     bool     silence_logged_{false};
