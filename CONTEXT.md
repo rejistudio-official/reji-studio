@@ -145,6 +145,39 @@ cargo test
 
 ---
 
+## Kod Stili Kuralları
+
+### C++ Kuralları
+- Tüm public fonksiyonlar bool veya RjError döner — void yasak
+- shutdown() SEH ile sarılı olmalı
+- SEH içinde C++ nesnesi yasak — __declspec(noinline) leaf function kullan
+- /EHa derleyici bayrağı zorunlu (CMakeLists.txt'de)
+- run_frame single-thread varsayımı — her fonksiyonda belge yorumu
+- PTS kare düştüğünde artmaz — frame_drops_ artır
+- rj_command_drain dönüşü [0,8] arasında clamp edilmeli
+- rj_command_drain negatif dönüşünü logla
+- #pragma pack(push,1) + static_assert ile FFI struct boyutu doğrula
+- std::atomic<bool> ile thread-safe flag'ler
+- CoInitializeEx pipeline init'te çağrılmalı, CoUninitialize shutdown'da
+- srt_startup/cleanup std::call_once + instance counter ile yönet
+- Hot-path'de heap tahsis yasak
+- Blocking FFI çağrısı yasak
+- setjmp/longjmp yasak
+- Her public fonksiyonun doc comment'i olmalı
+
+### Rust Kuralları
+- Hata yönetimi Result<T, E> — unwrap() production kodunda yasak
+- Tüm extern "C" fonksiyonlarda catch_unwind zorunlu
+- Her public fonksiyonun doc comment'i olmalı
+- Her modülde en az 3 test
+
+### Genel
+- Fonksiyon isimleri snake_case, İngilizce
+- Her modülde en az 3 test
+- Fusion blind spot listesi her modül sonrası güncellenir
+
+---
+
 ## Kritik Kurallar (Unutma)
 
 1. **Hot-path'de JSON yasak** — struct pointer kullan
