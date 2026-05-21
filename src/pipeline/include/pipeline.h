@@ -1,55 +1,56 @@
 #pragma once
 #include <cstdint>
-#include <functional>
 #include <memory>
 
-#ifdef RJ_PLATFORM_WINDOWS
-#include "capture_dxgi.h"
-#include "encode_nvenc.h"
-#endif
+namespace rj {
 
-namespace reji {
-
-struct PipelineConfig {
-    uint32_t width        = 1920;
-    uint32_t height       = 1080;
-    uint32_t fps          = 60;
-    uint32_t output_index = 0;    ///< which monitor to capture
-};
-
+/// DXGI capture → NVENC encode → SRT transport pipeline controller.
+/// Thread safety: run_frame() is single-threaded; start/stop_stream()
+/// may be called from another thread.
+/// All public methods return bool (void return is prohibited per project rules).
 class Pipeline {
 public:
+    struct Config {
+        uint32_t width         = 1920;
+        uint32_t height        = 1080;
+        uint32_t fps           = 60;
+        uint32_t bitrate_kbps  = 6000;
+        bool     audio_enabled = false;
+        bool     loopback      = true;
+        char     srt_host[256] = {};
+        uint16_t srt_port      = 4200;
+    };
+
     Pipeline();
     ~Pipeline();
+    Pipeline(const Pipeline&)            = delete;
+    Pipeline& operator=(const Pipeline&) = delete;
 
-    bool init(const PipelineConfig& cfg);
-    void shutdown();
+    /// Init all subsystems: COM, QPC, DxgiCapturePipeline, NvencEncoder,
+    /// WasapiCapture (optional), SrtOutput, rj_start_monitor.
+    bool init(const Config& cfg);
 
-    /// Anlık telemetriyi Rust HealingMonitor'a gönderir (non-blocking).
-    void push_metrics(float cpu_pct, uint32_t bitrate_kbps,
-                      float fps, uint32_t frame_drops);
+    /// Activate SRT packet forwarding and audio capture.
+    /// Idempotent: returns true if already streaming.
+    bool start_stream();
 
-#ifdef RJ_PLATFORM_WINDOWS
-    /// Capture next desktop frame and transfer to encode GPU.
-    /// Returns NVENC-ready texture, nullptr on timeout or error.
-    ID3D11Texture2D* capture_next();
+    /// Deactivate SRT packet forwarding and audio capture.
+    /// Idempotent: returns true if already stopped.
+    bool stop_stream();
 
-    DxgiCapturePipeline* capture_pipeline() { return capture_.get(); }
-    NvencEncoder*        encoder()          { return encoder_.get(); }
+    /// True when both initialized and actively streaming.
+    bool is_running() const;
 
-    /// Set callback invoked with each compressed NAL packet.
-    /// Must be called before init() or will be ignored.
-    void set_packet_callback(NvencEncoder::PacketCallback cb);
-#endif
+    /// Process one frame: drain commands, capture, encode, push metrics, pace.
+    /// Single-thread assumption — do not call concurrently.
+    bool run_frame();
+
+    /// Graceful teardown of all subsystems. SEH-protected.
+    bool shutdown();
 
 private:
-    PipelineConfig config_;
-
-#ifdef RJ_PLATFORM_WINDOWS
-    std::unique_ptr<DxgiCapturePipeline> capture_;
-    std::unique_ptr<NvencEncoder>        encoder_;
-    NvencEncoder::PacketCallback         packet_cb_;
-#endif
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
-} // namespace reji
+} // namespace rj

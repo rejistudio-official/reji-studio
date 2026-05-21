@@ -30,6 +30,7 @@ if(WIN32)
         dxgi.lib
         ole32.lib
         avrt.lib
+        winmm.lib
     )
 endif()
 
