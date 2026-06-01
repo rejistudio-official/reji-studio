@@ -309,7 +309,9 @@ void MainWindow::onFadeTransition() {
 // ---------------------------------------------------------------------------
 void MainWindow::pollMetrics() {
     RjCommand cmds[8];
-    const int n = rj_command_drain(cmds, 8);
+    int n = rj_command_drain(cmds, 8);
+    if (n < 0) n = 0;
+    else if (n > 8) n = 8;
     for (int i = 0; i < n; ++i) {
         switch (cmds[i].cmd_type) {
             case RJ_CMD_BITRATE_SET:
