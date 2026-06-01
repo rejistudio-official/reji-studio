@@ -1,6 +1,7 @@
 #pragma once
 #ifdef QT6_AVAILABLE
 
+#include "render_capability.h"
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
 #include <memory>
@@ -30,6 +31,13 @@ public:
     // row_pitch: bytes per row (may include D3D11 alignment padding).
     // Thread-safe: may be called from the pipeline thread.
     void uploadFrame(const void* bgra_pixels, int width, int height, int row_pitch);
+
+    // Select GL upload path based on display adapter vendor_id.
+    // Must be called from the GL thread (or before the widget is shown) after
+    // pipeline init. Safe to call multiple times; re-initializes PBOs on change.
+    void selectRenderPath(uint32_t vendor_id);
+
+    RenderPath renderPath() const;
 
 protected:
     void initializeGL() override;

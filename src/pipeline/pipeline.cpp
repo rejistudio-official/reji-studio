@@ -572,6 +572,12 @@ bool Pipeline::shutdown() {
     return ok;
 }
 
+uint32_t Pipeline::display_vendor_id() const {
+    if (!impl_ || !impl_->capture) return 0;
+    const auto& scan = impl_->capture->gpu_scan();
+    return scan.count > 0 ? scan.entries[0].vendor_id : 0;
+}
+
 #endif // _WIN32
 
 } // namespace rj

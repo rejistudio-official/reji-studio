@@ -1,6 +1,7 @@
 #include "preview_widget.h"
 #ifdef QT6_AVAILABLE
 
+#include "render_capability.h"
 #include <QImage>
 #include <QMutex>
 #include <QMutexLocker>
@@ -8,6 +9,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QSurfaceFormat>
+#include <cstdio>
 
 namespace {
 
@@ -53,6 +55,15 @@ public:
     QMutex frame_mutex;
     QImage pending_frame;   // written by pipeline thread, consumed in paintGL
     bool   frame_dirty{false};
+
+    // --- Render path ---
+    RenderPath render_path{RenderPath::kPbo};
+
+    // --- PBO ping-pong (both kPbo and kNvDxInterop stub) ---
+    GLuint pbo[2]{0, 0};
+    int    pbo_idx{0};    // current write index; read index = pbo_idx ^ 1
+    int    pbo_frame{0};  // frames uploaded; guard: skip read until >= 1
+    size_t pbo_size{0};   // last allocated size = w * h * 4
 };
 
 PreviewWidget::PreviewWidget(QWidget* parent)
@@ -68,9 +79,21 @@ PreviewWidget::PreviewWidget(QWidget* parent)
 PreviewWidget::~PreviewWidget() {
     makeCurrent();
     if (d_->tex_id) glDeleteTextures(1, &d_->tex_id);
+    if (d_->pbo[0]) glDeleteBuffers(2, d_->pbo);
     d_->vbo.destroy();
     d_->vao.destroy();
     doneCurrent();
+}
+
+void PreviewWidget::selectRenderPath(uint32_t vendor_id) {
+    const RenderProfile profile = CapabilityDetector::detect(vendor_id);
+    d_->render_path = profile.path;
+    fprintf(stderr, "[PreviewWidget] render path: %s (vendor=0x%04X)\n",
+            profile.name, vendor_id);
+}
+
+RenderPath PreviewWidget::renderPath() const {
+    return d_->render_path;
 }
 
 void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, int row_pitch) {
@@ -114,6 +137,9 @@ void PreviewWidget::initializeGL() {
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
                           reinterpret_cast<void*>(2 * sizeof(float)));
     d_->vao.release();
+
+    // PBO objects — content allocated lazily on first frame (size unknown here).
+    glGenBuffers(2, d_->pbo);
 }
 
 void PreviewWidget::resizeGL(int w, int h) {
@@ -128,7 +154,24 @@ void PreviewWidget::paintGL() {
         QMutexLocker lock(&d_->frame_mutex);
         if (d_->frame_dirty && !d_->pending_frame.isNull()) {
             const QImage img = d_->pending_frame.convertToFormat(QImage::Format_RGBA8888);
-            if (!d_->tex_id || img.width() != d_->tex_w || img.height() != d_->tex_h) {
+
+            const size_t needed = static_cast<size_t>(img.width())
+                                * static_cast<size_t>(img.height()) * 4u;
+
+            // --- Resize / first-alloc: orphan both PBOs, reset texture and guard ---
+            if (needed != d_->pbo_size) {
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[0]);
+                glBufferData(GL_PIXEL_UNPACK_BUFFER,
+                             static_cast<GLsizeiptr>(needed),
+                             nullptr, GL_STREAM_DRAW);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[1]);
+                glBufferData(GL_PIXEL_UNPACK_BUFFER,
+                             static_cast<GLsizeiptr>(needed),
+                             nullptr, GL_STREAM_DRAW);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                d_->pbo_size  = needed;
+                d_->pbo_frame = 0;   // guard: read PBO not valid yet
+
                 if (d_->tex_id) glDeleteTextures(1, &d_->tex_id);
                 glGenTextures(1, &d_->tex_id);
                 glBindTexture(GL_TEXTURE_2D, d_->tex_id);
@@ -136,15 +179,35 @@ void PreviewWidget::paintGL() {
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
                              img.width(), img.height(), 0,
-                             GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
+                             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 d_->tex_w = img.width();
                 d_->tex_h = img.height();
-            } else {
+            }
+
+            const int write_idx = d_->pbo_idx;
+            const int read_idx  = d_->pbo_idx ^ 1;
+
+            // CPU → PBO[write] (async DMA start, returns immediately)
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[write_idx]);
+            glBufferData(GL_PIXEL_UNPACK_BUFFER,
+                         static_cast<GLsizeiptr>(needed),
+                         img.constBits(), GL_STREAM_DRAW);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+            // PBO[read] → texture (GPU DMA from previous frame's PBO)
+            // Guard: skip on frame 0 — read PBO is still empty.
+            if (d_->pbo_frame >= 1) {
                 glBindTexture(GL_TEXTURE_2D, d_->tex_id);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[read_idx]);
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
                                 img.width(), img.height(),
-                                GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
+                                GL_RGBA, GL_UNSIGNED_BYTE,
+                                nullptr);  // offset into PBO
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
             }
+
+            d_->pbo_idx ^= 1;
+            d_->pbo_frame++;
             d_->frame_dirty = false;
         }
     }

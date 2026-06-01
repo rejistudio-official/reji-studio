@@ -54,6 +54,10 @@ public:
     /// Graceful teardown of all subsystems. SEH-protected.
     bool shutdown();
 
+    /// vendor_id of the display adapter found during init (e.g. 0x10DE = NVIDIA).
+    /// Returns 0 if not yet initialized or no adapter found.
+    uint32_t display_vendor_id() const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
