@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 namespace rj {
@@ -40,6 +41,11 @@ public:
 
     /// True when both initialized and actively streaming.
     bool is_running() const;
+
+    /// Set a callback to receive preview frames (CPU copy, BGRA, called from run_frame thread).
+    /// Set to nullptr to disable. Not thread-safe — call before init() or from same thread.
+    using PreviewCallback = std::function<void(const void* bgra, int width, int height, int row_pitch)>;
+    bool set_preview_callback(PreviewCallback cb);
 
     /// Process one frame: drain commands, capture, encode, push metrics, pace.
     /// Single-thread assumption — do not call concurrently.

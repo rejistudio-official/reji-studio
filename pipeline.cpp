@@ -1,20 +1,20 @@
-// src/pipeline/pipeline.cpp
+﻿// src/pipeline/pipeline.cpp
 //
-// Reji Studio Pipeline � DXGI capture � NVENC encode � SRT transport
+// Reji Studio Pipeline — DXGI capture → NVENC encode → SRT transport
 // Compiler flag REQUIRED: /EHa  (mixed SEH + C++ exception handling)
 // Language: C++17
 //
 // Rules enforced:
-//   � RAII � no owning raw pointers
-//   � Every extern-"C" FFI call wrapped in __declspec(noinline) SEH leaf
-//   � No C++ objects with non-trivial destructors as locals in __try scope
-//   � Hot-path: no heap allocation
-//   � All public methods return bool (void prohibited)
-//   � CoInitializeEx / CoUninitialize paired
-//   � timeBeginPeriod(1) / timeEndPeriod(1) paired
-//   � rj_command_drain clamped [0,8]; negative return logged
-//   � frame_drops delta: exchange(0) after each metrics push
-//   � std::atomic<SrtOutput*> srt_atomic_ for start/stop_stream thread safety
+//   • RAII — no owning raw pointers
+//   • Every extern-"C" FFI call wrapped in __declspec(noinline) SEH leaf
+//   • No C++ objects with non-trivial destructors as locals in __try scope
+//   • Hot-path: no heap allocation
+//   • All public methods return bool (void prohibited)
+//   • CoInitializeEx / CoUninitialize paired
+//   • timeBeginPeriod(1) / timeEndPeriod(1) paired
+//   • rj_command_drain clamped [0,8]; negative return logged
+//   • frame_drops delta: exchange(0) after each metrics push
+//   • std::atomic<SrtOutput*> srt_atomic_ for start/stop_stream thread safety
 
 #include "include/pipeline.h"
 
@@ -40,7 +40,7 @@
 #include <functional>
 #include <memory>
 
-// ��� FFI struct size verification ��������������������������������������������
+// ─── FFI struct size verification ────────────────────────────────────────────
 // Natural alignment (no pack pragma) matches Rust #[repr(C)].
 // RjMetricSample: 4 + 4(pad) + 8 + 4 + 4 + 4 + 4 + 4(trail-pad) = 40
 // RjCommand:      4 + 4(pad) + 8 + 4 + 4                         = 24
@@ -49,13 +49,13 @@ static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI drift");
 
 namespace {
 
-// ��� Constants ���������������������������������������������������������������
+// ─── Constants ───────────────────────────────────────────────────────────────
 constexpr uint32_t kMetricMagic    = RJ_METRIC_MAGIC;
 constexpr int      kCmdDrainMax    = 8;
-constexpr uint32_t kCaptureTimeout = 17;   // ms � 60 Hz budget
+constexpr uint32_t kCaptureTimeout = 17;   // ms — 60 Hz budget
 constexpr int64_t  kResyncFrames   = 4;    // catch-up spiral guard
 
-// ��� QPC helpers �������������������������������������������������������������
+// ─── QPC helpers ─────────────────────────────────────────────────────────────
 inline int64_t qpc_ticks() noexcept {
     LARGE_INTEGER c{}; QueryPerformanceCounter(&c); return c.QuadPart;
 }
@@ -69,7 +69,7 @@ inline void dbglog(const char* fmt, ...) noexcept {
     fprintf(stderr, "[reji] %s\n", buf); fflush(stderr);
 }
 
-// ��� SEH leaf functions �������������������������������������������������������
+// ─── SEH leaf functions ───────────────────────────────────────────────────────
 // Rules: __declspec(noinline), only POD params, no destructible locals.
 
 __declspec(noinline)
@@ -108,7 +108,7 @@ static int seh_srt_send(SrtSendArgs* a) noexcept {
     __except(EXCEPTION_EXECUTE_HANDLER) { return -2; }
 }
 
-// Shutdown subsystems via raw pointers � no C++ destructors in scope.
+// Shutdown subsystems via raw pointers — no C++ destructors in scope.
 __declspec(noinline)
 static bool seh_shutdown_subsystems(
     reji::pipeline::audio::WasapiCapture* audio,
@@ -124,7 +124,7 @@ static bool seh_shutdown_subsystems(
     return ok;
 }
 
-// ��� CPU meter ����������������������������������������������������������������
+// ─── CPU meter ────────────────────────────────────────────────────────────────
 class CpuMeter {
 public:
     CpuMeter() noexcept {
@@ -161,9 +161,9 @@ private:
 
 namespace rj {
 
-// �����������������������������������������������������������������������������
+// ─────────────────────────────────────────────────────────────────────────────
 // Pipeline::Impl
-// �����������������������������������������������������������������������������
+// ─────────────────────────────────────────────────────────────────────────────
 #ifdef _WIN32
 struct Pipeline::Impl {
     Pipeline::Config cfg{};
@@ -197,8 +197,10 @@ struct Pipeline::Impl {
     // Stored so TDR recovery can re-pass it to encoder->init.
     std::function<void(const reji::NvencEncoder::Packet&)> packet_cb;
 
-    // Preview callback � called from run_frame() with CPU-mapped BGRA frame
+    // Preview callback — called from run_frame() with CPU-mapped BGRA frame
     Pipeline::PreviewCallback        preview_cb;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> preview_staging;
+    bool                             preview_staging_ready{false};
 
     void apply_command(const RjCommand& c) noexcept {
         switch (c.cmd_type) {
@@ -230,7 +232,7 @@ struct Pipeline::Impl {
             self->frame_drops.fetch_add(1, std::memory_order_relaxed);
     }
 
-    // Audio callback � v0.1 stub; SRT mux not yet implemented.
+    // Audio callback — v0.1 stub; SRT mux not yet implemented.
     static void on_audio(const float*, uint32_t, uint32_t, uint32_t,
                          int64_t, void*) noexcept {}
 
@@ -283,9 +285,9 @@ struct Pipeline::Impl {
 struct Pipeline::Impl {};
 #endif // _WIN32
 
-// �����������������������������������������������������������������������������
-// Pipeline � public API
-// �����������������������������������������������������������������������������
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipeline — public API
+// ─────────────────────────────────────────────────────────────────────────────
 
 Pipeline::Pipeline()  = default;
 Pipeline::~Pipeline() { (void)shutdown(); }
@@ -315,10 +317,10 @@ bool Pipeline::init(const Config& cfg_in) {
     s.cfg          = cfg_in;
     s.bitrate_kbps = cfg_in.bitrate_kbps;
 
-    // �� COM ������������������������������������������������������������������
+    // ── COM ──────────────────────────────────────────────────────────────────
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (hr == RPC_E_CHANGED_MODE) {
-        dbglog("[Pipeline] COM apartment set by caller � uninit skipped");
+        dbglog("[Pipeline] COM apartment set by caller — uninit skipped");
         s.com_owned.store(false, std::memory_order_release);
     } else if (FAILED(hr)) {
         dbglog("[Pipeline] CoInitializeEx failed: 0x%08lX", hr);
@@ -327,11 +329,11 @@ bool Pipeline::init(const Config& cfg_in) {
         s.com_owned.store(true, std::memory_order_release);
     }
 
-    // �� Timer resolution (timeEndPeriod in shutdown) ��������������������������
+    // ── Timer resolution (timeEndPeriod in shutdown) ──────────────────────────
     if (timeBeginPeriod(1) == TIMERR_NOERROR)
         s.timer_set.store(true, std::memory_order_release);
 
-    // �� QPC ������������������������������������������������������������������
+    // ── QPC ──────────────────────────────────────────────────────────────────
     LARGE_INTEGER freq{};
     if (!QueryPerformanceFrequency(&freq) || freq.QuadPart == 0) {
         dbglog("[Pipeline] QueryPerformanceFrequency failed");
@@ -342,7 +344,7 @@ bool Pipeline::init(const Config& cfg_in) {
     s.pts_origin    = qpc_ticks();
     s.next_deadline = qpc_ticks() + s.frame_ticks;
 
-    // �� DxgiCapturePipeline ���������������������������������������������������
+    // ── DxgiCapturePipeline ───────────────────────────────────────────────────
     reji::DxgiCapturePipeline::Config cap_cfg;
     cap_cfg.timeout_ms          = kCaptureTimeout;
     cap_cfg.allow_cross_adapter = true;
@@ -355,7 +357,7 @@ bool Pipeline::init(const Config& cfg_in) {
     s.cfg.width  = s.capture->width();
     s.cfg.height = s.capture->height();
 
-    // �� NvencEncoder ���������������������������������������������������������
+    // ── NvencEncoder ─────────────────────────────────────────────────────────
     reji::NvencEncoder::Config enc_cfg;
     enc_cfg.width            = s.cfg.width;
     enc_cfg.height           = s.cfg.height;
@@ -373,7 +375,7 @@ bool Pipeline::init(const Config& cfg_in) {
         s.encoder.reset();  // encode olmadan devam et
     }
 
-    // �� WasapiCapture (optional) ����������������������������������������������
+    // ── WasapiCapture (optional) ──────────────────────────────────────────────
     if (cfg_in.audio_enabled) {
         reji::pipeline::audio::WasapiCapture::Config acfg{};
         acfg.exclusive_mode = false;
@@ -384,12 +386,12 @@ bool Pipeline::init(const Config& cfg_in) {
         acfg.loopback       = cfg_in.loopback;
         s.audio = std::make_unique<reji::pipeline::audio::WasapiCapture>();
         if (!s.audio->init(acfg, &Impl::on_audio)) {
-            dbglog("[Pipeline] WasapiCapture::init failed � audio disabled");
+            dbglog("[Pipeline] WasapiCapture::init failed — audio disabled");
             s.audio.reset();
         }
     }
 
-    // �� SrtOutput ������������������������������������������������������������
+    // ── SrtOutput ────────────────────────────────────────────────────────────
     rj::pipeline::output::SrtOutput::Config scfg{};
     std::strncpy(scfg.host, cfg_in.srt_host, sizeof(scfg.host) - 1);
     scfg.port           = cfg_in.srt_port;
@@ -402,13 +404,7 @@ bool Pipeline::init(const Config& cfg_in) {
         s.srt.reset();  // SRT olmadan devam et
     }
 
-    // �� Rust monitor ���������������������������������������������������������
-
-    // v0.2 preview staging — allocate once, no hot-path heap
-    if (s.preview_cb) {
-        if (!s.capture->init_preview_staging())
-            dbglog("[Pipeline] init_preview_staging failed -- preview disabled");
-    }
+    // ── Rust monitor ─────────────────────────────────────────────────────────
     seh_start_monitor();
 
     s.initialized.store(true, std::memory_order_release);
@@ -452,20 +448,19 @@ bool Pipeline::is_running() const {
 }
 
 bool Pipeline::set_preview_callback(PreviewCallback cb) {
-    if (!impl_) impl_ = std::make_unique<Impl>();
+    if (!impl_) return false;
     impl_->preview_cb = std::move(cb);
-    fprintf(stderr, "[Pipeline] preview_cb set OK\n"); fflush(stderr);
     return true;
 }
 
 bool Pipeline::run_frame() {
     if (!impl_) return false;
-    if (!impl_->capture) return false;  // capture yoksa �al��ma
+    if (!impl_->capture) return false;  // capture yoksa çalışma
     auto& s = *impl_;
 
     const int64_t frame_start = qpc_ticks();
 
-    // 1) Command drain � clamp [0,8]; log negative
+    // 1) Command drain — clamp [0,8]; log negative
     int n = seh_command_drain(s.cmd_buf.data(), kCmdDrainMax);
     if (n < 0) {
         dbglog("[Pipeline] rj_command_drain negative: %d", n);
@@ -483,29 +478,60 @@ bool Pipeline::run_frame() {
                 ticks_to_us(frame_start - s.pts_origin, s.qpc_freq);
             if (s.encoder && !s.encoder->encode_frame(tex, pts_us)) {
                 s.frame_drops.fetch_add(1, std::memory_order_relaxed);
-                // 3) GPU TDR check � outside __try, free to use C++ objects
+                // 3) GPU TDR check — outside __try, free to use C++ objects
                 (void)s.handle_device_lost();
             }
-            // v0.2 CPU preview: staging was populated in capture_next()
-            if (s.preview_cb) {
-                const void* data = nullptr; int pitch = 0;
-                if (s.capture->map_preview_frame(&data, &pitch)) {
-                    static int cnt = 0;
-                    if (++cnt == 1)
-                        printf("[Preview] First frame: %dx%d pitch=%d\n",
-                               (int)s.capture->width(), (int)s.capture->height(), pitch);
-                    s.preview_cb(data, (int)s.capture->width(),
-                                 (int)s.capture->height(), pitch);
-                    s.capture->unmap_preview_frame();
+            // Preview frame — capture display GPU texture directly
+            if (impl_->preview_cb && s.capture) {
+                auto& ps = *impl_;
+                if (!ps.preview_staging_ready) {
+                    D3D11_TEXTURE2D_DESC desc{};
+                    desc.Width     = ps.capture->width();
+                    desc.Height    = ps.capture->height();
+                    desc.MipLevels = 1;
+                    desc.ArraySize = 1;
+                    desc.Format    = DXGI_FORMAT_B8G8R8A8_UNORM;
+                    desc.SampleDesc.Count = 1;
+                    desc.Usage     = D3D11_USAGE_STAGING;
+                    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                    auto* dev = ps.capture->display_gpu()->d3d_device();
+                    if (SUCCEEDED(dev->CreateTexture2D(&desc, nullptr, &ps.preview_staging))) {
+                        ps.preview_staging_ready = true;
+                        printf("[Preview] Staging texture created %ux%u\n",
+                               ps.capture->width(), ps.capture->height());
+                    }
+                }
+                if (ps.preview_staging_ready) {
+                    auto* display_tex = tex;
+                    if (display_tex) {
+                        auto* ctx = ps.capture->display_gpu()->d3d_context();
+                        ctx->CopyResource(ps.preview_staging.Get(), display_tex);
+                        D3D11_MAPPED_SUBRESOURCE mapped{};
+                        // Map hatasını logla
+                        HRESULT map_hr = ctx->Map(ps.preview_staging.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+                        if (FAILED(map_hr)) {
+                            static int fail_count = 0;
+                            if (++fail_count <= 3)
+                                printf("[Preview] Map failed: 0x%08lX display_tex=%p\n", map_hr, display_tex);
+                        } else {
+                            static int cnt = 0;
+                            if (++cnt == 1) printf("[Preview] First frame: %dx%d pitch=%d\n",
+                                (int)ps.capture->width(), (int)ps.capture->height(), (int)mapped.RowPitch);
+                            ps.preview_cb(mapped.pData,
+                                         (int)ps.capture->width(),
+                                         (int)ps.capture->height(),
+                                         (int)mapped.RowPitch);
+                            ctx->Unmap(ps.preview_staging.Get(), 0);
+                        }
+                    }
                 }
             }
-
         } else {
             s.frame_drops.fetch_add(1, std::memory_order_relaxed);
         }
     }
 
-    // 4) Metrics push � frame_drops as delta
+    // 4) Metrics push — frame_drops as delta
     {
         RjMetricSample m{};
         m.magic_head   = kMetricMagic;
@@ -522,13 +548,13 @@ bool Pipeline::run_frame() {
     }
     s.last_frame_ticks = frame_start;
 
-    // 5) Frame pacing � absolute deadline
+    // 5) Frame pacing — absolute deadline
     s.next_deadline += s.frame_ticks;
     int64_t now    = qpc_ticks();
     int64_t remain = s.next_deadline - now;
 
     if (remain < -s.frame_ticks * kResyncFrames) {
-        s.next_deadline = now + s.frame_ticks;  // resync � prevent catch-up spiral
+        s.next_deadline = now + s.frame_ticks;  // resync — prevent catch-up spiral
     } else if (remain > 0) {
         int64_t remain_us = ticks_to_us(remain, s.qpc_freq);
         if (remain_us > 1500)
@@ -547,11 +573,11 @@ bool Pipeline::shutdown() {
     s.streaming.store(false, std::memory_order_release);
     s.srt_atomic.store(nullptr, std::memory_order_release);
 
-    // SEH-protected teardown � raw pointers only, no C++ destructors in scope.
+    // SEH-protected teardown — raw pointers only, no C++ destructors in scope.
     bool ok = seh_shutdown_subsystems(
         s.audio.get(), s.encoder.get(), s.srt.get());
 
-    // RAII reset outside __try � destructors run safely here.
+    // RAII reset outside __try — destructors run safely here.
     s.audio.reset();
     s.srt.reset();
     s.encoder.reset();
@@ -561,7 +587,7 @@ bool Pipeline::shutdown() {
         timeEndPeriod(1);
 
     // CoUninitialize only if we called CoInitializeEx.
-    // Only locals here are bool ok and reference s � no non-trivial destructors.
+    // Only locals here are bool ok and reference s — no non-trivial destructors.
     if (s.com_owned.exchange(false, std::memory_order_acq_rel)) {
         __try   { CoUninitialize(); }
         __except(EXCEPTION_EXECUTE_HANDLER) { ok = false; }

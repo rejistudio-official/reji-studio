@@ -119,11 +119,69 @@ DXGI Desktop Duplication AMD adapter'ında çalışıyor, NVIDIA'da değil.
 - [x] Event bus iskeleti (event_bus.rs)
 - [x] Metrik modülü (metrics.rs)
 - [x] Self-healing monitör (healing.rs)
-- [ ] Rust event bus → C++ FFI entegrasyonu
-- [ ] DXGI ekran yakalama (capture_dxgi.cpp)
-- [ ] NVENC encode entegrasyonu (encode_nvenc.cpp)
-- [ ] Qt6 UI iskeleti
-- [ ] SRT çıkış entegrasyonu
+- [x] reji_app.exe linker hatası düzelt
+- [x] Qt6 UI iskeleti
+- [x] Qt6 pencere aç
+- [x] Rust event bus → C++ FFI entegrasyonu
+- [x] DXGI ekran yakalama (capture_dxgi.cpp)
+- [x] NVENC encode entegrasyonu (encode_nvenc.cpp)
+- [x] SRT çıkış entegrasyonu
+- [x] Temel sahne yönetimi
+- [x] Qt DLL'lerini kalıcı PATH'e ekle
+- [x] monitor_splitter setSizes düzeltmesi (setStretchFactor ile çözüldü)
+
+---
+
+## v0.2 Yol Haritası
+
+### Pipeline → UI Frame Akışı
+→ [x] Staging + CPU copy — DxgiCapturePipeline::init_preview_staging / map_preview_frame / unmap_preview_frame
+→ [x] GPU Tarama: scan_gpus() — DXGI Factory ile tüm adapter'lar listelenir, loglanır
+→ [x] GpuResourceManager::init() — display_info_ / encode_info_ (vendor, VRAM) kaydedilir
+→ [x] Self-healing UI entegrasyonu (startMonitor aktif, main_window.cpp)
+→ [ ] Sahne yönetimi genişletme (gerçek sahne içerikleri)
+
+## v0.3 Yol Haritası
+
+### Preview Optimizasyonu
+→ Staging + Çift PBO (Double Buffering DMA)
+→ Adaptif mod seçimi:
+   - AMD/Intel veya hibrit (AMD+NVIDIA) → PBO modu
+   - Tek NVIDIA → v0.4'e hazır
+
+## v0.4 Yol Haritası
+
+### Zero-Copy Preview
+→ WGL_NV_DX_interop (sadece tek NVIDIA GPU sistemlerde)
+→ Otomatik mod anahtarlaması:
+   [GPU Tarama]
+       → NVIDIA yok veya hibrit → PBO modu (v0.3)
+       → Tek NVIDIA         → WGL_NV_DX_interop (v0.4)
+
+## Bilinen Mimari Kararlar
+
+- Çift DMA (Double Buffering PBO) doğrudan v0.3 hedefi — v0.2'ye eklenmez
+- Donanım keşfi (GPU tarama) v0.2'de başlar, mod anahtarlaması v0.3/v0.4'te
+- wglDXRegisterObjectNV sadece "encode ve display aynı NVIDIA GPU" senaryosunda
+
+---
+
+## Build Durumu
+
+| Hedef | Durum | Tarih |
+|---|---|---|
+| reji_app.exe | ✓ — v0.1 pencere açılıyor | 2026-05-22 |
+| reji_app.exe | ✓ — v0.1 tüm işler tamamlandı | 2026-05-22 |
+| reji_app.exe | ✓ — v0.2 GPU scan + preview staging düzeltildi | 2026-06-01 |
+
+---
+
+## Bilinen Sorunlar
+
+- **Qt6 QSplitter setSizes() crash**: `setSizes()` `QOpenGLWidget` içeren splitter'da crash ediyor (Qt6.8 + MSVC bug). `setStretchFactor()` kullan — `setSizes()` çağırma.
+- **Qt6 addPermanentWidget + showMessage**: `statusBar()->showMessage()` permanent widget'ları gizliyor. `lbl_status_` `QLabel` kullan.
+- **QSplitter setChildrenCollapsible(false)**: `QOpenGLWidget` içeren splitter'da crash ediyor — kaldırıldı.
+- **QSplitter setSizes() QOpenGLWidget ile**: crash ediyor — `setStretchFactor()` kullan.
 
 ---
 
@@ -201,4 +259,4 @@ cargo test
 
 ---
 
-*Son güncelleme: 2026-05-20 | ARCHITECTURE.md v0.5 ile senkronize*
+*Son güncelleme: 2026-05-22 | ARCHITECTURE.md v0.5 ile senkronize*

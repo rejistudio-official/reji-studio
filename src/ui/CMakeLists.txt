@@ -53,3 +53,56 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
     target_compile_options(reji_ui PRIVATE /W4 /WX-)
 endif()
+
+# ---------------------------------------------------------------------------
+# reji_app — executable entry point
+# ---------------------------------------------------------------------------
+add_executable(reji_app main.cpp)
+
+# ---------------------------------------------------------------------------
+# Rust orchestrator static library (rj_command_drain, rj_metrics_push, …)
+# Cargo build tipi: -DRUST_BUILD_TYPE=debug (varsayılan) veya release.
+# Önce cmake -DRUST_BUILD_TYPE=release ile release lib kullanılabilir.
+# ---------------------------------------------------------------------------
+if(NOT DEFINED RUST_BUILD_TYPE)
+    set(RUST_BUILD_TYPE "debug")
+endif()
+
+set(RUST_LIB "${CMAKE_SOURCE_DIR}/target/${RUST_BUILD_TYPE}/reji_orchestrator.lib")
+
+if(NOT EXISTS "${RUST_LIB}")
+    message(WARNING
+        "Rust kütüphanesi bulunamadı: ${RUST_LIB}\n"
+        "  Önce çalıştırın: cargo build  (proje kökünde)\n"
+        "  Release için:    cargo build --release  ve -DRUST_BUILD_TYPE=release")
+endif()
+
+# Import as an IMPORTED static library so CMake handles it correctly.
+add_library(reji_orchestrator STATIC IMPORTED)
+set_target_properties(reji_orchestrator PROPERTIES
+    IMPORTED_LOCATION         "${RUST_LIB}"
+    IMPORTED_LOCATION_DEBUG   "${CMAKE_SOURCE_DIR}/target/debug/reji_orchestrator.lib"
+    IMPORTED_LOCATION_RELEASE "${CMAKE_SOURCE_DIR}/target/release/reji_orchestrator.lib"
+)
+
+target_link_libraries(reji_app PRIVATE
+    reji_ui
+    reji_ffi
+    reji_orchestrator
+    # Rust runtime dependencies on Windows
+    ws2_32 bcrypt userenv ntdll
+)
+
+if(Qt6_FOUND)
+    set_target_properties(reji_app PROPERTIES
+        AUTOMOC ON
+        WIN32_EXECUTABLE OFF  # TEMP: debug için konsol açık
+    )
+    target_link_libraries(reji_app PRIVATE Qt6::Widgets)
+    target_compile_definitions(reji_app PRIVATE QT6_AVAILABLE)
+endif()
+
+if(MSVC)
+    set_property(TARGET reji_app PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+endif()

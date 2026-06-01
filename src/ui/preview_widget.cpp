@@ -7,6 +7,7 @@
 #include <QOpenGLBuffer>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
+#include <QSurfaceFormat>
 
 namespace {
 
@@ -58,6 +59,10 @@ PreviewWidget::PreviewWidget(QWidget* parent)
     : QOpenGLWidget(parent), d_(std::make_unique<Impl>())
 {
     setMinimumSize(320, 180);
+    QSurfaceFormat fmt;
+    fmt.setVersion(3, 3);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    setFormat(fmt);
 }
 
 PreviewWidget::~PreviewWidget() {
@@ -90,9 +95,12 @@ void PreviewWidget::initializeGL() {
     initializeOpenGLFunctions();
     glClearColor(0.f, 0.f, 0.f, 1.f);
 
-    d_->shader.addShaderFromSourceCode(QOpenGLShader::Vertex,   kVertSrc);
-    d_->shader.addShaderFromSourceCode(QOpenGLShader::Fragment, kFragSrc);
-    d_->shader.link();
+    bool vs_ok = d_->shader.addShaderFromSourceCode(QOpenGLShader::Vertex,   kVertSrc);
+    bool fs_ok = d_->shader.addShaderFromSourceCode(QOpenGLShader::Fragment, kFragSrc);
+    bool lk_ok = d_->shader.link();
+    fprintf(stderr, "[PreviewWidget] shader compile vs=%d fs=%d link=%d\n", vs_ok, fs_ok, lk_ok);
+    if (!lk_ok) fprintf(stderr, "[PreviewWidget] shader log: %s\n",
+                        d_->shader.log().toStdString().c_str());
 
     d_->vao.create();
     d_->vao.bind();

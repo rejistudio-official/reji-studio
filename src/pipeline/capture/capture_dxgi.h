@@ -11,6 +11,20 @@
 namespace reji {
 
 // ---------------------------------------------------------------------------
+// GpuScan — inventory of all hardware adapters found at init time
+// ---------------------------------------------------------------------------
+struct GpuScanEntry {
+    wchar_t  description[128];
+    uint32_t vendor_id;
+    uint64_t dedicated_vram_mb;
+};
+
+struct GpuScan {
+    GpuScanEntry entries[8];
+    uint32_t     count;
+};
+
+// ---------------------------------------------------------------------------
 // CaptureFrame — one captured desktop frame (non-owning view)
 //
 // Valid only between DxgiCaptureSession::acquire() and release_frame().
@@ -60,10 +74,11 @@ public:
     /// Recreate IDXGIOutputDuplication after DXGI_ERROR_ACCESS_LOST.
     bool reinit();
 
-    bool        needs_reinit()   const { return needs_reinit_; }
-    DXGI_FORMAT surface_format() const { return surface_format_; }
-    uint32_t    width()          const { return width_; }
-    uint32_t    height()         const { return height_; }
+    bool             needs_reinit()   const { return needs_reinit_; }
+    DXGI_FORMAT      surface_format() const { return surface_format_; }
+    uint32_t         width()          const { return width_; }
+    uint32_t         height()         const { return height_; }
+    ID3D11Texture2D* last_frame_tex() const { return frame_tex_.Get(); }
 
 private:
     bool create_duplication();
@@ -118,15 +133,33 @@ public:
     void shutdown();
 
     /// Capture next frame and transfer to encode GPU.
+    /// Also copies to preview staging (if init_preview_staging() was called).
     /// Returns NVENC-ready texture on encode GPU, nullptr on timeout or error.
     ID3D11Texture2D* capture_next();
 
-    GpuContext* display_gpu()    const { return display_ctx_.get(); }
-    GpuContext* encode_gpu()     const { return encode_ctx_.get(); }
-    uint32_t    width()          const;
-    uint32_t    height()         const;
-    DXGI_FORMAT surface_format() const;
-    bool        is_cross_adapter() const;
+    /// Enumerate all hardware GPU adapters and log their info.
+    /// Must be called after CreateDXGIFactory1 succeeds.
+    static bool scan_gpus(IDXGIFactory1* factory, GpuScan& out);
+
+    /// Allocate the CPU-readable staging texture for preview.
+    /// Call once after init(), before the first run_frame() that uses preview.
+    bool init_preview_staging();
+
+    /// Map the staging texture written by the last capture_next().
+    /// Returns false if no frame is pending or Map fails.
+    /// Must call unmap_preview_frame() after use.
+    bool map_preview_frame(const void** out_data, int* out_pitch);
+
+    /// Unmap the staging texture. Pair with every successful map_preview_frame().
+    void unmap_preview_frame();
+
+    GpuContext*      display_gpu()    const { return display_ctx_.get(); }
+    GpuContext*      encode_gpu()     const { return encode_ctx_.get(); }
+    const GpuScan&   gpu_scan()       const { return gpu_scan_; }
+    uint32_t         width()          const;
+    uint32_t         height()         const;
+    DXGI_FORMAT      surface_format() const;
+    bool             is_cross_adapter() const;
 
 private:
     bool find_display_adapter(IDXGIFactory1* factory, IDXGIAdapter** out);
@@ -138,8 +171,13 @@ private:
     std::unique_ptr<DxgiCaptureSession>  capture_;
     std::unique_ptr<GpuResourceManager>  resource_mgr_;
 
-    Config config_;
-    bool   initialized_ = false;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> preview_staging_;
+    bool preview_staging_dirty_ = false;
+    bool preview_mapped_        = false;
+
+    GpuScan gpu_scan_{};
+    Config  config_;
+    bool    initialized_ = false;
 };
 
 } // namespace reji
