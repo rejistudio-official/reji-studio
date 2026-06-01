@@ -10,6 +10,7 @@
 #include <QOpenGLVertexArrayObject>
 #include <QSurfaceFormat>
 #include <cstdio>
+#include <dwmapi.h>
 
 namespace {
 
@@ -140,6 +141,8 @@ void PreviewWidget::initializeGL() {
 
     // PBO objects — content allocated lazily on first frame (size unknown here).
     glGenBuffers(2, d_->pbo);
+    glFinish();
+    DwmFlush();
 }
 
 void PreviewWidget::resizeGL(int w, int h) {
@@ -148,6 +151,7 @@ void PreviewWidget::resizeGL(int w, int h) {
 
 void PreviewWidget::paintGL() {
     // --- HOT-PATH: no heap allocation after the first frame ---
+    DwmFlush();
     glClear(GL_COLOR_BUFFER_BIT);
 
     {
