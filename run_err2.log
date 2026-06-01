@@ -1,5 +1,0 @@
-[Pipeline] preview_cb set OK
-[reji] [Pipeline] COM apartment set by caller � uninit skipped
-[reji] [Pipeline] NvencEncoder::init failed -- running in preview-only mode
-[reji] [Pipeline] SrtOutput::init failed -- running without SRT output
-[reji] [Pipeline] init OK 1920x1080@60 fps 6000 kbps audio=0 loopback=1
