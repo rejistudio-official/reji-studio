@@ -96,7 +96,7 @@ target_link_libraries(reji_app PRIVATE
 if(Qt6_FOUND)
     set_target_properties(reji_app PROPERTIES
         AUTOMOC ON
-        WIN32_EXECUTABLE OFF  # TEMP: debug için konsol açık
+        WIN32_EXECUTABLE ON
     )
     target_link_libraries(reji_app PRIVATE Qt6::Widgets)
     target_compile_definitions(reji_app PRIVATE QT6_AVAILABLE)

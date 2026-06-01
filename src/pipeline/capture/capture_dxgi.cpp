@@ -110,13 +110,8 @@ bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
     HRESULT hr = duplication_->AcquireNextFrame(config_.timeout_ms, &info, &resource);
 
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-        static int timeout_count = 0;
-        if (++timeout_count <= 5 || timeout_count % 100 == 0)
-            printf("[DxgiCapture] acquire: WAIT_TIMEOUT #%d\n", timeout_count);
         return false;
     }
-    printf("[DxgiCapture] acquire: hr=0x%08lX AccumFrames=%u PresentTime=%lld\n",
-           hr, info.AccumulatedFrames, info.LastPresentTime.QuadPart);
     if (hr == DXGI_ERROR_ACCESS_LOST  ||
         hr == DXGI_ERROR_DEVICE_REMOVED) {
         // Screen locked, resolution changed, UAC prompt, remote session switch.
@@ -125,7 +120,6 @@ bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
         return false;
     }
     if (FAILED(hr)) {
-        printf("[DxgiCapture] AcquireNextFrame failed: 0x%08lX\n", hr);
         return false;
     }
 
@@ -134,7 +128,7 @@ bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
     // Cursor-only update: still a valid frame for preview
     // return false;  // removed: preview needs these frames too
     if (info.AccumulatedFrames == 0 && info.LastPresentTime.QuadPart == 0) {
-        // No new desktop content — reuse last texture if we have one, else skip.
+        // No new desktop content ï¿½ reuse last texture if we have one, else skip.
         if (!frame_tex_) {
             duplication_->ReleaseFrame();
             return false;
@@ -155,7 +149,6 @@ bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
         frame_held_ = false;
         return false;
     }
-    printf("[DxgiCapture] acquire: texture OK %p\n", tex.Get());
     frame_tex_ = tex;
 
     out_frame.texture     = frame_tex_.Get();
@@ -178,7 +171,7 @@ void DxgiCaptureSession::release_frame() {
 }
 
 // ---------------------------------------------------------------------------
-// DxgiCapturePipeline — GPU scan
+// DxgiCapturePipeline ï¿½ GPU scan
 // ---------------------------------------------------------------------------
 
 bool DxgiCapturePipeline::scan_gpus(IDXGIFactory1* factory, GpuScan& out) {
@@ -205,7 +198,7 @@ bool DxgiCapturePipeline::scan_gpus(IDXGIFactory1* factory, GpuScan& out) {
 }
 
 // ---------------------------------------------------------------------------
-// DxgiCapturePipeline — adapter discovery
+// DxgiCapturePipeline ï¿½ adapter discovery
 // ---------------------------------------------------------------------------
 
 bool DxgiCapturePipeline::find_display_adapter(IDXGIFactory1* factory,
@@ -252,7 +245,7 @@ bool DxgiCapturePipeline::find_encode_adapter(IDXGIFactory1* factory,
         if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) { continue; }
         if (candidate.Get() == display_adapter)       { continue; }
 
-        // NVIDIA VendorId 0x10DE — NVENC lives here.
+        // NVIDIA VendorId 0x10DE ï¿½ NVENC lives here.
         if (desc.VendorId == 0x10DE) {
             wprintf(L"[DxgiCapture] Encode adapter: %s (NVIDIA)\n", desc.Description);
             *out_adapter = candidate.Detach();
@@ -268,7 +261,7 @@ bool DxgiCapturePipeline::find_encode_adapter(IDXGIFactory1* factory,
 }
 
 // ---------------------------------------------------------------------------
-// DxgiCapturePipeline — lifecycle
+// DxgiCapturePipeline ï¿½ lifecycle
 // ---------------------------------------------------------------------------
 
 bool DxgiCapturePipeline::init(const Config& cfg) {
@@ -329,7 +322,7 @@ void DxgiCapturePipeline::shutdown() {
 }
 
 // ---------------------------------------------------------------------------
-// DxgiCapturePipeline — hot path
+// DxgiCapturePipeline ï¿½ hot path
 // ---------------------------------------------------------------------------
 
 ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
@@ -343,7 +336,7 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
 
     CaptureFrame frame;
     if (!capture_->acquire(frame)) {
-        return nullptr;  // timeout or session loss — not an error
+        return nullptr;  // timeout or session loss ï¿½ not an error
     }
 
     // GPU-blit frame to encode GPU (same or cross-adapter).
@@ -366,10 +359,6 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
         if (++null_count <= 10)
             printf("[DxgiCapture] transfer() returned null (count=%d) tex=%p\n",
                    null_count, frame.texture);
-    } else {
-        static int ok_count = 0;
-        if (++ok_count <= 3)
-            printf("[DxgiCapture] transfer() OK encode_tex=%p\n", encode_tex);
     }
 
     return encode_tex;  // nullptr if transfer failed
