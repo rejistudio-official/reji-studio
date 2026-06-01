@@ -1,0 +1,50 @@
+name: Quality
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  quality:
+    name: Audit & Static Analysis
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust kur
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Rust güvenlik taraması
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: cppcheck kur
+        run: choco install cppcheck --yes --no-progress
+
+      - name: C++ statik analiz
+        run: >
+          cppcheck
+          --enable=warning,performance,portability
+          --error-exitcode=1
+          --suppress=missingIncludeSystem
+          --suppress=unmatchedSuppression
+          --inline-suppr
+          src/pipeline/
+
+      - name: MSVC ortamını ayarla
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: CMake yapılandır
+        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: C++ derle
+        run: cmake --build build
