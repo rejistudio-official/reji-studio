@@ -29,6 +29,30 @@
   - vswhere fallback: Program Files (x86) support
   - Durum: NMake compat ✓, Ninja configuration test (SDK linker debug needed)
 
+#### Teknik Düzeltmeler & Optimizasyonlar
+- **MSVC Compatibility** (strncpy → strncpy_s)
+  - `src/pipeline/pipeline.cpp:394` — std::strncpy → strncpy_s conversion
+  - MSVC /W4 secure CRT function
+
+- **Qt6 Modern API** (deprecated QMenu::addAction)
+  - `src/ui/main_window.cpp` — deprecated addAction signature'ları modernize
+  - File menu: New, Open, Save, Quit
+  - View menu: Full Screen
+  - Help menu: About
+  - Explicit signal/slot connections, forward compatible
+
+- **Preview Color Corruption Fix** (BGRA→RGBA)
+  - DXGI BGRA formatı doğrudan GPU'ya upload
+  - `src/ui/preview_widget.cpp:161` — QImage::Format_BGRA8888 kullan
+  - `glTexImage2D/SubImage2D` — GL_BGRA format (GL_RGBA değil)
+  - Red/Blue channel swap sorununu çözdü ✓ Renkler doğru
+
+- **Preview Performance Optimization** (QImage dönüşümü kaldır)
+  - `src/ui/preview_widget.cpp` — uploadFrame() QImage removed
+  - Raw BGRA buffer copy (row_pitch'i dikkate alarak)
+  - Direct glTexImage2D/glTexSubImage2D upload
+  - Hot-path hız artışı, memory allocation pattern basitleşti
+
 #### Dokumentasyon
 - docs/progress.md: Plugin roadmap, v0.4 plan, v0.5 prep, tech debt
 - CONTEXT.md: Build komutları güncellendi (scripts/build.bat), plugin sandbox görevler
@@ -36,9 +60,19 @@
 - docs/memory.md: Plugin güvenliği, Extism long-term çözüm
 - Auto-memory: Extism/WASM roadmap project memory kaydedildi
 
+#### Test & Verification
+- Build: `cmake --build build --target reji_app` ✓ Success
+- Runtime: reji_app.exe 3+ saniye test ✓ No crashes
+- PreviewWidget: Shader compile OK, pipeline init OK 1920x1080@60fps
+- Preview colors: BGRA correctly mapped ✓ No color corruption
+
 ### Commit Geçmişi (bu oturum)
 
 ```
+4a86042  perf: preview_widget uploadFrame() QImage dönüşümü kaldır, doğrudan BGRA upload
+7e489a2  fix: preview_widget.cpp BGRA→RGBA renk bozukluğu düzelt
+db06653  fix: main_window.cpp deprecated QMenu::addAction → Qt6 uyumlu API
+55f46d8  fix: pipeline.cpp strncpy → strncpy_s (MSVC /W4 uyumluluk)
 f94cb4f  chore: Ninja build sistemi geçişi başlat, build scripts ekle
 492f3d9  docs: v0.4 planı, v0.5 hazırlığı, teknik borç listesi ekle
 c38c139  docs: Extism/WASM plugin sandbox yol haritası ekle (v1.0→v1.5→v2.0)
