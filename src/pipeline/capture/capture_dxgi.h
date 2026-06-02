@@ -173,9 +173,7 @@ public:
 
     /// Set the FrameProfiler for timing DXGI acquire operations.
     /// Profiler is borrowed; caller must manage lifetime.
-    void setProfiler(rj::FrameProfiler* profiler) {
-        profiler_ = profiler;
-    }
+    void setProfiler(rj::FrameProfiler* profiler);
 
 private:
     bool find_display_adapter(IDXGIFactory1* factory, IDXGIAdapter** out);

@@ -326,6 +326,13 @@ void DxgiCapturePipeline::shutdown() {
     display_ctx_.reset();
 }
 
+
+void DxgiCapturePipeline::setProfiler(rj::FrameProfiler* profiler) {
+    profiler_ = profiler;
+    if (capture_) {
+        capture_->setProfiler(profiler);
+    }
+}
 // ---------------------------------------------------------------------------
 // DxgiCapturePipeline � hot path
 // ---------------------------------------------------------------------------
