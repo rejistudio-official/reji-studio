@@ -1,6 +1,8 @@
 #pragma once
 #ifdef QT6_AVAILABLE
 
+namespace rj { class FrameProfiler; }
+
 #include "render_capability.h"
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
