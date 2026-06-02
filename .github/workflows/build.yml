@@ -30,6 +30,16 @@ jobs:
         run: cargo build --release
         working-directory: ${{ github.workspace }}
 
+      - name: Verify Rust lib exists
+        run: |
+          if (!(Test-Path "target/release/reji_orchestrator.lib")) {
+            Write-Host "ERROR: reji_orchestrator.lib not found!"
+            Get-ChildItem target/release/ -ErrorAction SilentlyContinue
+            exit 1
+          }
+          Write-Host "OK: reji_orchestrator.lib found"
+        shell: pwsh
+
       - name: Install Google Test
         run: |
           git clone https://github.com/google/googletest.git
