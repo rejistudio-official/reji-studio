@@ -242,3 +242,29 @@ b7a7e8f  chore: .gitignore genislet, gecici dosyalari tracked listeden cikar
 3. Ed25519 + binary scan + code review
 4. Onaylandı: `reji marketplace:published/tag-name:v1.0`
 5. Kullanıcı: `reji plugin install marketplace/tag-name:v1.0` → sandbox'ta yüklenir, process izole
+
+---
+
+## NV_DX_INTEROP Yol Haritası (2026-06-02 — Kararı: Skip, Vulkan'a Pivot)
+
+**Karar:** v0.3'te `NV_DX_INTEROP` gerçek implementasyonu yapmıyoruz. Bunun yerine:
+1. **v0.3:** PBO ping-pong yeterli — çalışıyor, optimize etme
+2. **v0.4:** Benchmark — PBO performansı profile et
+3. **v0.5:** Vulkan external memory — cross-platform çözüm
+
+| Versiyon | Karar | Detay |
+|---|---|---|
+| **v0.3** | PBO ping-pong yeterli | Şu an çalışıyor, darboğaz yok |
+| **v0.4** | Benchmark | Frame timing, CPU overhead, GPU stall analizi |
+| **v0.5** | Vulkan external memory | `VK_KHR_external_memory_win32` + Qt6 Vulkan backend |
+| **v2.0+** | NV_DX_INTEROP opsiyonel | NVIDIA-only masaüstü, deprecated |
+
+**Neden NV_DX_INTEROP skip ediyoruz:**
+- `NvOptimusEnablement=0` (Qt Application default) → AMD iGPU context seçiliyor
+- NVIDIA DX resource'a erişim sınırlı/unstable
+- PBO + DwmFlush() zaten Optimus race condition'ı çözdü
+
+**Uzun vadeli çözüm:**
+- Vulkan external memory: cross-vendor (AMD/NVIDIA/Intel) + cross-platform (Windows/Linux/macOS)
+- Qt6 Vulkan backend: native Vulkan renderer
+- macOS Metal: long-term parity

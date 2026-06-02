@@ -115,8 +115,19 @@ C:\reji-studio\
 ## Açık Görevler
 
 ### v0.3 Devam
-- [ ] `NV_DX_INTEROP` gerçek implementasyonu (`wglDXRegisterObjectNV`)
 - [ ] Sahne yönetimi genişletme (gerçek içerikler)
+
+### v0.4 — GPU Optimization Benchmark
+- [ ] PBO performans profili: CPU overhead, GPU stall, frame timing
+  - Eğer CPU darboğaz varsa → v0.5'te DXGI shared handle dene
+  - Darboğaz yoksa → NV_DX_INTEROP skip et, Vulkan'a pivot
+
+### v0.5+ — Cross-Platform GPU Interop Roadmap
+- [ ] **Vulkan external memory** (`VK_KHR_external_memory_win32`)
+  - Qt6 Vulkan backend entegre
+  - Windows + Linux + macOS desteği
+  - DXGI → Vulkan zero-copy bridge
+- [ ] **macOS Metal backend** (long-term)
 
 ### Plugin Sandbox (Uzun Vadeli — v1.5+)
 - [ ] **v1.0 → v1.5:** Extism/WASM opsiyonel destek, "Sandbox plugin" UI rozeti
