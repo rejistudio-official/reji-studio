@@ -39,34 +39,44 @@ src/
 
 ## Build Komutları
 
-**Ninja build sistem kullanılıyor (hızlı, paralel):**
+**Önerilen: Python build script (`python scripts/build.py`)**
 
 ```cmd
-# İlk kez: configure + build
-scripts\configure.bat
-scripts\build.bat
+cd C:\reji-studio
 
-# Sonraki build'ler (tüm app)
-scripts\build.bat
+# Normal build (Release, reji_app)
+python scripts/build.py
+
+# Clean build
+python scripts/build.py --clean
 
 # Belirli hedef
-scripts\build.bat reji_pipeline
-scripts\build.bat reji_ui
+python scripts/build.py --target reji_pipeline
+python scripts/build.py --target all
 
-# Çalıştırma
-build\src\ui\reji_app.exe
+# Build + çalıştır
+python scripts/build.py --run
+
+# Debug modu
+python scripts/build.py --config Debug
+
+# Explicit generator
+python scripts/build.py --generator Ninja
+python scripts/build.py --generator NMake
 ```
 
-Scripts otomatik olarak:
-- `vswhere` ile VS'yi algılar
-- `vcvars64.bat` çalıştırır
-- Ninja ile configure eder
-- 8 thread paralel build
+**Script özellikler:**
+- ✅ `vswhere` ile VS 2022/2026 otomatik algılar
+- ✅ Ninja / NMake otomatik seçer (Ninja öncelikli)
+- ✅ Colorized output, build süresi göster
+- ✅ Hata log'a yaz, son 20 satırı göster
+- ✅ macOS / Linux stub'ları (v0.3+)
 
-**Eski NMake build hâlâ çalışıyor (compatibility için):**
+**Eski batch scripts (legacy, compatibility için):**
 ```cmd
+scripts\configure.bat
+scripts\build.bat
 cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target reji_app
 ```
 
 ---

@@ -148,26 +148,31 @@ C:\reji-studio\
 
 ## Build Komutları
 
-### Ninja Build (Önerilen — Hızlı, Paralel)
+### Python Build Script (Önerilen — Çapraz Platform)
 
-**İlk kez: Configure + Build**
 ```cmd
-C:\reji-studio\scripts\configure.bat
-C:\reji-studio\scripts\build.bat
+cd C:\reji-studio
+
+# Normal build (Release, reji_app)
+python scripts/build.py
+
+# Clean build
+python scripts/build.py --clean
+
+# Belirli hedef
+python scripts/build.py --target reji_pipeline   # sadece pipeline
+python scripts/build.py --target reji_ui         # sadece UI
+python scripts/build.py --target all             # tüm
+
+# Build + çalıştır
+python scripts/build.py --run
 ```
 
-**Sonraki build'ler:**
-```cmd
-C:\reji-studio\scripts\build.bat                  # tüm app (reji_app)
-C:\reji-studio\scripts\build.bat reji_pipeline   # sadece pipeline
-C:\reji-studio\scripts\build.bat reji_ui         # sadece UI
-```
-
-Scripts otomatik olarak:
-- Visual Studio'yu algılar (`vswhere`)
-- `vcvars64.bat` çalıştırır
-- Ninja generator ile configure eder
-- 8 thread paralel build (-j 8)
+**Script özellikler:**
+- ✅ `vswhere` ile VS 2022/2026 algılar
+- ✅ Ninja / NMake otomatik seçer (Ninja öncelikli)
+- ✅ Colorized output, build süresi
+- ✅ Hata reporting (log file + terminal)
 
 ### NMake Build (Eski, Yavaş — Uyumluluk için devam ediyor)
 
