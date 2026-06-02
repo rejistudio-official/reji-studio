@@ -19,7 +19,6 @@ add_executable(test_frame_profiler
 target_link_libraries(test_frame_profiler
     gtest gtest_main
     reji_pipeline
-    Qt6::Core
 )
 
 add_test(NAME FrameProfilerTest COMMAND test_frame_profiler)
