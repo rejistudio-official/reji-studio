@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include "frame_profiler.h"
 
 namespace rj {
 
@@ -58,9 +59,14 @@ public:
     /// Returns 0 if not yet initialized or no adapter found.
     uint32_t display_vendor_id() const;
 
+    /// Accessor for the frame profiler (initialized during init).
+    /// Returns nullptr before init() or if profiler creation failed.
+    rj::FrameProfiler* profiler() { return profiler_.get(); }
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    std::unique_ptr<rj::FrameProfiler> profiler_;
 };
 
 } // namespace rj

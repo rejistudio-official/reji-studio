@@ -80,6 +80,12 @@ public:
     uint32_t         height()         const { return height_; }
     ID3D11Texture2D* last_frame_tex() const { return frame_tex_.Get(); }
 
+    /// Set the FrameProfiler for timing acquire operations.
+    /// Profiler is borrowed; caller must manage lifetime.
+    void setProfiler(rj::FrameProfiler* profiler) {
+        profiler_ = profiler;
+    }
+
 private:
     bool create_duplication();
 
@@ -87,6 +93,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Device>           device_;
     Microsoft::WRL::ComPtr<IDXGIOutputDuplication> duplication_;
     Microsoft::WRL::ComPtr<ID3D11Texture2D>        frame_tex_;  ///< ref held during frame
+
+    rj::FrameProfiler* profiler_ = nullptr;  ///< Borrowed reference for timing
 
     Config      config_;
     DXGI_FORMAT surface_format_ = DXGI_FORMAT_UNKNOWN;
@@ -161,6 +169,12 @@ public:
     DXGI_FORMAT      surface_format() const;
     bool             is_cross_adapter() const;
 
+    /// Set the FrameProfiler for timing DXGI acquire operations.
+    /// Profiler is borrowed; caller must manage lifetime.
+    void setProfiler(rj::FrameProfiler* profiler) {
+        profiler_ = profiler;
+    }
+
 private:
     bool find_display_adapter(IDXGIFactory1* factory, IDXGIAdapter** out);
     bool find_encode_adapter(IDXGIFactory1* factory, IDXGIAdapter* display,
@@ -170,6 +184,8 @@ private:
     std::shared_ptr<D3D11GpuContext>     encode_ctx_;
     std::unique_ptr<DxgiCaptureSession>  capture_;
     std::unique_ptr<GpuResourceManager>  resource_mgr_;
+
+    rj::FrameProfiler* profiler_ = nullptr;  ///< Borrowed reference from Pipeline
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> preview_staging_;
     bool preview_staging_dirty_ = false;

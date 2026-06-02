@@ -2,6 +2,7 @@
 #ifdef QT6_AVAILABLE
 
 #include "render_capability.h"
+#include "../pipeline/include/frame_profiler.h"
 #include <QImage>
 #include <QMutex>
 #include <QMutexLocker>
@@ -109,6 +110,8 @@ void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
     //   wglDXLockObjectsNV / wglDXUnlockObjectsNV around each paintGL.
     QMutexLocker lock(&d_->frame_mutex);
 
+    if (profiler_) profiler_->markCopyStart();
+
     const size_t row_bytes = static_cast<size_t>(width) * 4u;
     d_->pending_buffer.resize(row_bytes * static_cast<size_t>(height));
 
@@ -119,6 +122,8 @@ void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
         src += row_pitch;
         dst += row_bytes;
     }
+
+    if (profiler_) profiler_->markCopyEnd();
 
     d_->pending_width = width;
     d_->pending_height = height;
@@ -161,6 +166,8 @@ void PreviewWidget::resizeGL(int w, int h) {
 }
 
 void PreviewWidget::paintGL() {
+    if (profiler_) profiler_->markPaintGLStart();
+
     // --- HOT-PATH: no heap allocation after the first frame ---
     DwmFlush();
     glClear(GL_COLOR_BUFFER_BIT);
@@ -240,6 +247,9 @@ void PreviewWidget::paintGL() {
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     d_->vao.release();
     d_->shader.release();
+    glFinish();
+
+    if (profiler_) profiler_->markPaintGLEnd();
 }
 
 } // namespace reji

@@ -1,6 +1,7 @@
 #include "capture_dxgi.h"
 #ifdef RJ_PLATFORM_WINDOWS
 
+#include "../include/frame_profiler.h"
 #include <cstdio>
 
 namespace reji {
@@ -107,7 +108,11 @@ bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
     DXGI_OUTDUPL_FRAME_INFO info = {};
     Microsoft::WRL::ComPtr<IDXGIResource> resource;
 
+    if (profiler_) profiler_->markAcquireStart();
+
     HRESULT hr = duplication_->AcquireNextFrame(config_.timeout_ms, &info, &resource);
+
+    if (profiler_) profiler_->markAcquireEnd();
 
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
         return false;

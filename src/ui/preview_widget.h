@@ -39,6 +39,12 @@ public:
 
     RenderPath renderPath() const;
 
+    // Wire profiler for CPU copy and paintGL timing.
+    // Profiler is borrowed; lifecycle managed by Pipeline.
+    void setProfiler(rj::FrameProfiler* profiler) {
+        profiler_ = profiler;
+    }
+
 protected:
     void initializeGL() override;
     void resizeGL(int w, int h) override;
@@ -47,6 +53,7 @@ protected:
 private:
     class Impl;
     std::unique_ptr<Impl> d_;
+    rj::FrameProfiler* profiler_ = nullptr;
 };
 
 } // namespace reji

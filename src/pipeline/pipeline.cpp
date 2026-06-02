@@ -17,6 +17,7 @@
 //   � std::atomic<SrtOutput*> srt_atomic_ for start/stop_stream thread safety
 
 #include "include/pipeline.h"
+#include "include/frame_profiler.h"
 
 #ifdef _WIN32
 #include "capture/capture_dxgi.h"
@@ -312,6 +313,10 @@ bool Pipeline::init(const Config& cfg_in) {
         dbglog("[Pipeline] init: fps=0 invalid");
         return false;
     }
+
+    // Initialize profiler
+    profiler_ = std::make_unique<rj::FrameProfiler>();
+
     s.cfg          = cfg_in;
     s.bitrate_kbps = cfg_in.bitrate_kbps;
 
@@ -351,6 +356,8 @@ bool Pipeline::init(const Config& cfg_in) {
         dbglog("[Pipeline] DxgiCapturePipeline::init failed");
         (void)shutdown(); return false;
     }
+    // Pass profiler to capture pipeline
+    s.capture->setProfiler(profiler_.get());
     // Authoritative dimensions come from the actual display output.
     s.cfg.width  = s.capture->width();
     s.cfg.height = s.capture->height();
@@ -546,6 +553,11 @@ bool Pipeline::shutdown() {
 
     s.streaming.store(false, std::memory_order_release);
     s.srt_atomic.store(nullptr, std::memory_order_release);
+
+    // Finalize profiler
+    if (profiler_) {
+        profiler_->finalize();
+    }
 
     // SEH-protected teardown � raw pointers only, no C++ destructors in scope.
     bool ok = seh_shutdown_subsystems(
