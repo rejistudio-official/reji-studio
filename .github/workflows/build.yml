@@ -30,8 +30,17 @@ jobs:
         run: cargo build --release
         working-directory: ${{ github.workspace }}
 
+      - name: Install Google Test
+        run: |
+          git clone https://github.com/google/googletest.git
+          cd googletest
+          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          cmake --install build --prefix C:/gtest
+        shell: cmd
+
       - name: CMake yapılandır
-        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DGTEST_ROOT=C:/gtest
 
       - name: C++ derle
         run: cmake --build build
