@@ -120,33 +120,43 @@ C:\reji-studio\
 
 ## Build Komutları
 
-### ÖNEMLI: Bu sistemde vcvarsall.bat Windows SDK'yı bulamıyor
-`vswhere.exe` ve `findstr.exe` PATH'te yok. INCLUDE/LIB/PATH **manuel** set edilmeli:
+### Ninja Build (Önerilen — Hızlı, Paralel)
+
+**İlk kez: Configure + Build**
+```cmd
+C:\reji-studio\scripts\configure.bat
+C:\reji-studio\scripts\build.bat
+```
+
+**Sonraki build'ler:**
+```cmd
+C:\reji-studio\scripts\build.bat                  # tüm app (reji_app)
+C:\reji-studio\scripts\build.bat reji_pipeline   # sadece pipeline
+C:\reji-studio\scripts\build.bat reji_ui         # sadece UI
+```
+
+Scripts otomatik olarak:
+- Visual Studio'yu algılar (`vswhere`)
+- `vcvars64.bat` çalıştırır
+- Ninja generator ile configure eder
+- 8 thread paralel build (-j 8)
+
+### NMake Build (Eski, Yavaş — Uyumluluk için devam ediyor)
+
+Şu an Ninja ile yan yana test ediliyor. İhtiyaç duyarsanız:
 
 ```powershell
-# PowerShell — her build oturumunda çalıştır
+# Manual MSVC setup
 $sdk    = "C:\Program Files (x86)\Windows Kits\10"
 $sdkVer = "10.0.26100.0"
 $msvc   = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231"
 
-$env:INCLUDE = "$msvc\include;$msvc\ATLMFC\include;" +
-               "$sdk\Include\$sdkVer\ucrt;$sdk\Include\$sdkVer\shared;" +
-               "$sdk\Include\$sdkVer\um;$sdk\Include\$sdkVer\winrt"
+$env:INCLUDE = "$msvc\include;$msvc\ATLMFC\include;$sdk\Include\$sdkVer\ucrt;$sdk\Include\$sdkVer\shared;$sdk\Include\$sdkVer\um;$sdk\Include\$sdkVer\winrt"
 $env:LIB     = "$msvc\lib\x64;$sdk\Lib\$sdkVer\ucrt\x64;$sdk\Lib\$sdkVer\um\x64"
 $env:PATH    = "$msvc\bin\HostX64\x64;C:\Program Files\CMake\bin;$env:PATH"
 
-Set-Location C:\reji-studio\build
-
-# Hedefler
-cmake --build . --target reji_pipeline   # sadece pipeline
-cmake --build . --target reji_ui         # sadece UI
-cmake --build . --target reji_app        # tüm uygulama
-```
-
-### CMake yeniden yapılandırma (nadiren gerekli)
-```powershell
-# Yukarıdaki env ayarı yapıldıktan sonra:
-cmake -B C:\reji-studio\build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug -S C:\reji-studio
+cd C:\reji-studio\build
+cmake --build . --target reji_app
 ```
 
 ### Rust

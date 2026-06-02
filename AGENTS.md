@@ -39,28 +39,34 @@ src/
 
 ## Build Komutları
 
-**ZORUNLU: x64 Native Tools Command Prompt kullan. PowerShell veya Git Bash'te MSVC araçları çalışmaz.**
+**Ninja build sistem kullanılıyor (hızlı, paralel):**
 
 ```cmd
-# Tam build
-cd C:\reji-studio
-cmake --build build --target reji_pipeline --clean-first
-cmake --build build --target reji_app
+# İlk kez: configure + build
+scripts\configure.bat
+scripts\build.bat
 
-# Hızlı build (sadece değişen hedef)
-cmake --build build --target reji_app
+# Sonraki build'ler (tüm app)
+scripts\build.bat
 
-# Yeniden configure (build dizini silindikten sonra)
-cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+# Belirli hedef
+scripts\build.bat reji_pipeline
+scripts\build.bat reji_ui
 
 # Çalıştırma
-cd build\src\ui
-reji_app.exe > C:\reji-studio\run.log 2>&1
+build\src\ui\reji_app.exe
 ```
 
-**⚠️ UYARI: `build/` dizinini silme. Silmek zorundaysan:**
+Scripts otomatik olarak:
+- `vswhere` ile VS'yi algılar
+- `vcvars64.bat` çalıştırır
+- Ninja ile configure eder
+- 8 thread paralel build
+
+**Eski NMake build hâlâ çalışıyor (compatibility için):**
 ```cmd
 cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target reji_app
 ```
 
 ---
