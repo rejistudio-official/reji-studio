@@ -105,7 +105,7 @@ Pipeline shutdown()
 |---|---|---|---|
 | 1 | **GPU performance benchmark** — PBO CPU overhead, frame timing profili | `src/ui/preview_widget.cpp` | Yüksek |
 | 2 | **Runtime Adaptation Seviye 3** — frame drop % → bitrate otomatik düşür/yükselt | `src/orchestrator/metrics.rs::AdaptationDecider` | Yüksek |
-| 3 | **Self-Healing UI bağlantısı** — HealingOverlay → pipeline command ring | `src/ui/healing_overlay.cpp` | Yüksek |
+| 3 | **Self-Healing UI bağlantısı** — HealingOverlay + Dört mod (Auto-Pilot/Co-Pilot/Assist/Manual) | `src/ui/healing_overlay.cpp`, `src/orchestrator/metrics.rs` | Yüksek |
 | 4 | **Çoklu monitör desteği** — `EnumOutputs()` dropdown, her monitör bağımsız capture | `src/pipeline/capture/capture_dxgi.cpp` | Orta |
 | 5 | **Frame rate limiter** — preview 30fps cap, encode 60fps cap (ayrı thread'ler) | `src/pipeline/frame_limiter.h` (yeni) | Orta |
 | 6 | **Bitrate göstergesi UI** — real-time graph (30s), frame drop %, GPU temp | `src/ui/stats_widget.cpp` (yeni) | Orta |
@@ -261,11 +261,25 @@ b7a7e8f  chore: .gitignore genislet, gecici dosyalari tracked listeden cikar
   - PBO fallback ile test edilmeli
   - Ref: `src/ui/preview_widget.cpp` (kNvDxInterop stub yerine)
 
-- **Self-Healing UI Bağlantısı**
-  - `HealingOverlay` → pipeline command ring arayüz
-  - Auto-Pilot: metric anomaly → otomatik bitrate düşür
-  - Co-Pilot: operatör onayı gerekli
-  - Impl: `src/ui/healing_overlay.cpp` + `rj_command_t` ring buffer
+- **Self-Healing UI Bağlantısı — Dört Davranış Modu**
+  
+  | Mod | Kullanıcı | Davranış | Örnek |
+  |---|---|---|---|
+  | **Auto-Pilot** | Başlangıç | Kritik + Orta aksiyonlar otomatik, bildirim | Frame drop → bitrate düşür |
+  | **Co-Pilot** | Standart | Aksiyonlar checkbox listesi, seçilenler otomatik | Kullanıcı seçer: "Kaynak reconnect" ✓, "Bitrate düşür" ✗ |
+  | **Assist** | Uzman | Kritik otomatik, orta/düşük log + bildirim | Thermal throttle → log, manual override |
+  | **Manual** | Uzman | Devre dışı, sadece log (uyarı dialog başlangıçta) | Tüm aksiyonlar kapalı |
+  
+  **Aksiyon Örnekleri:**
+  - Bitrate otomatik düşür (frame drop % > 10)
+  - Kaynak yeniden bağlan (timeout/disconnect)
+  - Çözünürlük düşür (GPU stall)
+  - Encode kalitesi değiştir (thermal throttle)
+  
+  **Impl:** 
+  - `src/ui/healing_overlay.cpp` — modu seçim UI, bildirim gösterimi
+  - `src/orchestrator/metrics.rs::AdaptationDecider` — aksiyon kararı
+  - `rj_command_t` ring buffer — pipeline komutları
 
 ### Güçlü Eklemeler
 - **Çoklu Monitör Desteği**

@@ -117,6 +117,27 @@ Bu sorunlar güvenlik kapsamında değil, ileride düzeltilmeli:
 
 ---
 
+## Self-Healing Modları
+
+Reji Studio'da dört self-healing davranış modu mevcuttur. Kullanıcı rolüne ve tercihine göre seçilir.
+
+| Kullanıcı modu | Self-healing modu | Davranış |
+|---|---|---|
+| **Başlangıç** | Auto-Pilot | Kritik + Orta önem aksiyonlar tam otomatik gerçekleşir, bildirim gönderilir |
+| **Standart** | Co-Pilot | Aksiyonlar kullanıcı onayına sunulur — checkbox listesiyle seçim, seçilmeyenler bildirim gösterir |
+| **Uzman** | Assist | Kritik otomatik, orta/düşük aksiyonlar log + bildirim (onay gerekmez) |
+| **Uzman** | Manual | Açılışta tek seferlik uyarı dialog, self-healing tamamen devre dışı, sadece log |
+
+**Co-Pilot Aksiyon Örnekleri:**
+- Bitrate otomatik düşür (frame drop % > 10)
+- Kaynak yeniden bağlan (timeout/disconnect)
+- Çözünürlük düşür (GPU stall)
+- Encode kalitesi değiştir (thermal throttle)
+
+**Implementasyon:** `src/ui/healing_overlay.cpp` + `src/orchestrator/metrics.rs::AdaptationDecider`
+
+---
+
 ## Plugin Güvenliği
 
 ### In-Process Plugin Riski (v0.x)
