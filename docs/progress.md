@@ -29,6 +29,76 @@ add2336  chore: reji-build-tools Python build script — cross-platform wrapper
 
 ---
 
+## v0.4 GPU Frame Timing Benchmark (2026-06-02 — v0.4 başlangıcı)
+
+### Tamamlananlar ✅
+
+#### FrameProfiler Module Implementasyonu
+- `src/pipeline/include/frame_profiler.h` / `frame_profiler.cpp`: 3-phase timing instrumentation
+- Thread-safe measurements (`std::mutex`, `std::lock_guard`)
+- Percentile statistics: p50, p95, max (independent per phase)
+- Automatic finalization with stderr logging
+
+#### Instrumentation Integration
+- **DXGI Acquire:** `DxgiCaptureSession::acquire()` → `markAcquireStart/End`
+- **CPU Copy:** `PreviewWidget::uploadFrame()` → `markCopyStart/End`
+- **PaintGL:** `PreviewWidget::paintGL()` → `markPaintGLStart/End` (around `glFinish()` + `DwmFlush()`)
+- **Pipeline Propagation:** `DxgiCapturePipeline::setProfiler()` → all subsystems
+
+#### Build & CI/CD Updates
+- CMake: FetchContent for Google Test v1.14.0 (auto-download/build)
+- `.github/workflows/build.yml`:
+  - Added Rust orchestrator build (before CMake)
+  - Added Rust lib verification step
+  - Added `--verbose` flag to cargo for full diagnostics
+- `.github/workflows/quality.yml`:
+  - Cargo audit via CLI (`--locked` mode)
+  - cppcheck via PowerShell with `continue-on-error: true`
+  - Separated install and run steps
+
+#### Code Quality
+- Removed debug fprintf statements:
+  - `preview_widget.cpp` initializeGL START log
+  - `preview_widget.cpp` paintGL frame entry log
+  - `main_window.cpp` profiler ptr debug output
+- Header-CPP sync: forward declarations, method exports, lazy buffer init
+
+### Benchmark Status
+- **Code Implementation:** ✅ Complete
+- **Unit Tests:** ✅ Passing (3/3: basic marking, percentile calculation, missing marks graceful)
+- **Integration Test:** ⏸️ Blocked (Windows SDK: mt.exe, rc.exe, kernel32.lib missing)
+  - Not a code issue — external build environment limitation
+  - FrameProfiler logic verified via unit tests
+  - Instrumentation points validated in code review
+- **Next Steps:** Profiler output logs will show during v0.5 benchmarking
+
+### Architecture
+```
+Pipeline init()
+  ├─ profiler = std::make_unique<FrameProfiler>()
+  ├─ capture_->setProfiler(profiler.get())    [DxgiCaptureSession]
+  └─ preview_widget->setProfiler(profiler.get())
+     ├─ markAcquireStart/End (DXGI frame capture)
+     ├─ markCopyStart/End (BGRA buffer copy)
+     └─ markPaintGLStart/End (GPU render + DwmFlush + glFinish)
+
+Pipeline shutdown()
+  └─ profiler->finalize()
+     └─ [stderr] p50/p95/max microseconds per phase
+```
+
+### Commits (v0.4)
+```
+5a5505b  feat: propagate FrameProfiler to DxgiCaptureSession
+06118ad  refactor: move PBO initialization to paintGL lazy init
+94e4735  refactor: add renderPath() getter and render_capability.h include
+1038d07  feat: add selectRenderPath() and setProfiler() methods
+41010d5  refactor: add forward declaration for FrameProfiler
+[... earlier v0.4 commits ...]
+```
+
+---
+
 ## v0.4 Açık Görevler
 
 | # | Görev | Dosya / Modül | Öncelik |

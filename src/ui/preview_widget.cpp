@@ -106,7 +106,7 @@ void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
     //   We deep-copy here so the caller can Unmap immediately after this call returns.
     //
     // v0.2: replace this function with WGL_NV_DX_INTEROP texture sharing to
-    //   avoid the CPU copy entirely â€” call wglDXRegisterObjectNV once, then just
+    //   avoid the CPU copy entirely ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â call wglDXRegisterObjectNV once, then just
     //   wglDXLockObjectsNV / wglDXUnlockObjectsNV around each paintGL.
     QMutexLocker lock(&d_->frame_mutex);
 
@@ -129,6 +129,10 @@ void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
     d_->pending_height = height;
     d_->frame_dirty = true;
     QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
+}
+
+void PreviewWidget::setProfiler(rj::FrameProfiler* profiler) {
+    profiler_ = profiler;
 }
 
 void PreviewWidget::initializeGL() {
@@ -220,7 +224,7 @@ void PreviewWidget::paintGL() {
                          bgra, GL_STREAM_DRAW);
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
-            // PBO[read] to texture (GPU DMA from previous frame’s PBO)
+            // PBO[read] to texture (GPU DMA from previous frameÃƒÂ¢Ã¢â€šÂ¬Ã¢â€Â¢s PBO)
             // Guard: skip on frame 0 - read PBO is still empty.
             if (d_->pbo_frame >= 1) {
                 glBindTexture(GL_TEXTURE_2D, d_->tex_id);
