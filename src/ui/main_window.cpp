@@ -192,11 +192,21 @@ void MainWindow::buildCentralWidget() {
 // ---------------------------------------------------------------------------
 void MainWindow::buildMenuBar() {
     QMenu* file_menu = menuBar()->addMenu(tr("&Dosya"));
-    file_menu->addAction(tr("&Yeni"),   this, [] {}, QKeySequence::New);
-    file_menu->addAction(tr("&Aç"),    this, [] {}, QKeySequence::Open);
-    file_menu->addAction(tr("&Kaydet"), this, [] {}, QKeySequence::Save);
+
+    auto *new_act = file_menu->addAction(tr("&Yeni"));
+    new_act->setShortcut(QKeySequence::New);
+
+    auto *open_act = file_menu->addAction(tr("&Aç"));
+    open_act->setShortcut(QKeySequence::Open);
+
+    auto *save_act = file_menu->addAction(tr("&Kaydet"));
+    save_act->setShortcut(QKeySequence::Save);
+
     file_menu->addSeparator();
-    file_menu->addAction(tr("Çı&kış"), qApp, &QApplication::quit, QKeySequence::Quit);
+
+    auto *quit_act = file_menu->addAction(tr("Çı&kış"));
+    quit_act->setShortcut(QKeySequence::Quit);
+    connect(quit_act, &QAction::triggered, qApp, &QApplication::quit);
 
     QMenu* view_menu = menuBar()->addMenu(tr("&Görünüm"));
     auto* studio_act = view_menu->addAction(tr("Studio Modu"));
@@ -204,12 +214,14 @@ void MainWindow::buildMenuBar() {
     studio_act->setChecked(true);
     connect(studio_act, &QAction::toggled, preview_widget_, &QWidget::setVisible);
 
-    view_menu->addAction(tr("Tam Ekran"), this,
-        [this] { isFullScreen() ? showNormal() : showFullScreen(); },
-        QKeySequence::FullScreen);
+    auto *fullscreen_act = view_menu->addAction(tr("Tam Ekran"));
+    fullscreen_act->setShortcut(QKeySequence::FullScreen);
+    connect(fullscreen_act, &QAction::triggered, this,
+        [this] { isFullScreen() ? showNormal() : showFullScreen(); });
 
     QMenu* help_menu = menuBar()->addMenu(tr("&Yardım"));
-    help_menu->addAction(tr("Hakkında"), this, [this] {
+    auto *about_act = help_menu->addAction(tr("Hakkında"));
+    connect(about_act, &QAction::triggered, this, [this] {
         QMessageBox::about(this, tr("Reji Studio"),
             tr("Reji Studio v0.1\n"
                "Açık kaynak canlı yayın yazılımı.\n\n"
