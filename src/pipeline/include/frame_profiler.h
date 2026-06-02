@@ -3,7 +3,7 @@
 
 #include <cstdint>
 #include <vector>
-#include <QMutex>
+#include <mutex>
 
 namespace rj {
 
@@ -45,7 +45,7 @@ private:
 
   std::vector<FrameTiming> samples_;
   Sample current_sample_;
-  mutable QMutex mutex_;
+  mutable std::mutex mutex_;
   bool finalized_ = false;
   size_t frame_count_ = 0;
 };

@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
-#include <QMutexLocker>
 
 namespace rj {
 
@@ -33,32 +32,32 @@ FrameProfiler::~FrameProfiler() {
 }
 
 void FrameProfiler::markAcquireStart() {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.acquire_start_us = now_us();
 }
 
 void FrameProfiler::markAcquireEnd() {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.acquire_end_us = now_us();
 }
 
 void FrameProfiler::markCopyStart() {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.copy_start_us = now_us();
 }
 
 void FrameProfiler::markCopyEnd() {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.copy_end_us = now_us();
 }
 
 void FrameProfiler::markPaintGLStart() {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.paintgl_start_us = now_us();
 }
 
 void FrameProfiler::markPaintGLEnd() {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.paintgl_end_us = now_us();
 
   // After paintGL ends, finalize the frame and store it
@@ -78,12 +77,12 @@ void FrameProfiler::markPaintGLEnd() {
 }
 
 size_t FrameProfiler::sampleCount() const {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   return samples_.size();
 }
 
 void FrameProfiler::finalize() {
-  QMutexLocker lock(&mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   if (finalized_) return;  // Idempotent
 
   if (samples_.empty()) {
