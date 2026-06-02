@@ -27,7 +27,7 @@ jobs:
           arch: x64
 
       - name: Build Rust orchestrator
-        run: cargo build --release
+        run: cargo build --release --verbose 2>&1
         working-directory: ${{ github.workspace }}
 
       - name: Verify Rust lib exists
