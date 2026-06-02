@@ -391,7 +391,7 @@ bool Pipeline::init(const Config& cfg_in) {
 
     // �� SrtOutput ������������������������������������������������������������
     rj::pipeline::output::SrtOutput::Config scfg{};
-    std::strncpy(scfg.host, cfg_in.srt_host, sizeof(scfg.host) - 1);
+    strncpy_s(scfg.host, sizeof(scfg.host), cfg_in.srt_host, sizeof(scfg.host) - 1);
     scfg.port           = cfg_in.srt_port;
     scfg.latency_ms     = 200;
     scfg.bandwidth_kbps = 0;
