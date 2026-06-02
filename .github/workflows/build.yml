@@ -26,17 +26,37 @@ jobs:
         with:
           arch: x64
 
+      - name: Build Rust orchestrator
+        run: cargo build --release --verbose 2>&1
+        working-directory: ${{ github.workspace }}
+
+      - name: Verify Rust lib exists
+        run: |
+          if (!(Test-Path "target/release/reji_orchestrator.lib")) {
+            Write-Host "ERROR: reji_orchestrator.lib not found!"
+            Get-ChildItem target/release/ -ErrorAction SilentlyContinue
+            exit 1
+          }
+          Write-Host "OK: reji_orchestrator.lib found"
+        shell: pwsh
+
+      - name: Install Google Test
+        run: |
+          git clone https://github.com/google/googletest.git
+          cd googletest
+          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          cmake --install build --prefix C:/gtest
+        shell: cmd
+
       - name: CMake yapılandır
-        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DGTEST_ROOT=C:/gtest
 
       - name: C++ derle
         run: cmake --build build
 
       - name: FFI sınır testini çalıştır
         run: build\tests\test_ffi_boundary.exe
-
-      - name: Rust derle
-        run: cargo build --release
 
       - name: Rust testleri çalıştır
         run: cargo test

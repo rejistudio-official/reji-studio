@@ -61,7 +61,7 @@ bool GpuResourceManager::create_same_adapter_staging(uint32_t w, uint32_t h,
     desc.Usage          = D3D11_USAGE_DEFAULT;
     desc.BindFlags      = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
-    HRESULT hr = encode_gpu_->d3d_device()->CreateTexture2D(
+    HRESULT hr = display_gpu_->d3d_device()->CreateTexture2D(
         &desc, nullptr, &encode_tex_);
     if (FAILED(hr)) {
         printf("[GpuRM] CreateTexture2D (staging) failed: 0x%08lX\n", hr);
@@ -78,12 +78,14 @@ bool GpuResourceManager::create_cross_adapter_shared(uint32_t w, uint32_t h,
     desc.Height     = h;
     desc.MipLevels  = 1;
     desc.ArraySize  = 1;
-    desc.Format     = fmt;
+    // AMD cross-adapter shared texture requires RGBA format, not BGRA
+    desc.Format     = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.SampleDesc = { 1, 0 };
     desc.Usage      = D3D11_USAGE_DEFAULT;
     desc.BindFlags  = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    desc.MiscFlags  = D3D11_RESOURCE_MISC_SHARED_NTHANDLE
-                    | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+    desc.MiscFlags  = D3D11_RESOURCE_MISC_SHARED;
+
+    printf("[GpuRM] Cross-adapter: forcing RGBA format (src fmt=%u)\n", static_cast<unsigned>(fmt));
 
     HRESULT hr = display_gpu_->d3d_device()->CreateTexture2D(
         &desc, nullptr, &shared_tex_display_);
@@ -92,47 +94,22 @@ bool GpuResourceManager::create_cross_adapter_shared(uint32_t w, uint32_t h,
         return false;
     }
 
-    // Export NT shared handle from display GPU.
-    Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_res;
+    // Export legacy shared handle from display GPU.
+    Microsoft::WRL::ComPtr<IDXGIResource> dxgi_res;
     hr = shared_tex_display_.As(&dxgi_res);
     if (FAILED(hr)) { return false; }
 
-    hr = dxgi_res->CreateSharedHandle(
-        nullptr,
-        DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
-        nullptr,
-        &shared_handle_);
+    hr = dxgi_res->GetSharedHandle(&shared_handle_);
     if (FAILED(hr)) {
-        printf("[GpuRM] CreateSharedHandle failed: 0x%08lX\n", hr);
+        printf("[GpuRM] GetSharedHandle failed: 0x%08lX\n", hr);
         return false;
     }
 
-    // Import on encode (NVIDIA) GPU.
-    Microsoft::WRL::ComPtr<ID3D11Device1> encode_dev1;
-    hr = encode_gpu_->d3d_device()->QueryInterface(IID_PPV_ARGS(&encode_dev1));
+    // Import on encode (NVIDIA) GPU using legacy handle.
+    hr = encode_gpu_->d3d_device()->OpenSharedResource(
+        shared_handle_, IID_PPV_ARGS(&encode_tex_));
     if (FAILED(hr)) {
-        printf("[GpuRM] QI ID3D11Device1 failed: 0x%08lX\n", hr);
-        return false;
-    }
-
-    hr = encode_dev1->OpenSharedResource1(shared_handle_, IID_PPV_ARGS(&encode_tex_));
-    if (FAILED(hr)) {
-        printf("[GpuRM] OpenSharedResource1 failed: 0x%08lX\n", hr);
-        return false;
-    }
-
-    // Keyed mutexes on both sides for cross-adapter exclusion.
-    hr = shared_tex_display_.As(&keyed_mutex_display_);
-    if (FAILED(hr)) { return false; }
-
-    hr = encode_tex_.As(&keyed_mutex_encode_);
-    if (FAILED(hr)) { return false; }
-
-    // GPU event query for tracking CopyResource completion before mutex release.
-    D3D11_QUERY_DESC qd = { D3D11_QUERY_EVENT, 0 };
-    hr = display_gpu_->d3d_device()->CreateQuery(&qd, &copy_fence_);
-    if (FAILED(hr)) {
-        printf("[GpuRM] CreateQuery failed: 0x%08lX\n", hr);
+        printf("[GpuRM] OpenSharedResource failed: 0x%08lX\n", hr);
         return false;
     }
 
@@ -162,7 +139,30 @@ bool GpuResourceManager::init(
     display_gpu_ = std::move(display_gpu);
     encode_gpu_  = std::move(encode_gpu);
 
-    same_adapter_ = (display_gpu_->dxgi_adapter() == encode_gpu_->dxgi_adapter());
+    // Fill GPU info from adapter descriptors.
+    auto fill_info = [](GpuInfo& info, GpuContext* gpu) {
+        Microsoft::WRL::ComPtr<IDXGIAdapter1> a1;
+        if (gpu->dxgi_adapter() &&
+            SUCCEEDED(gpu->dxgi_adapter()->QueryInterface(IID_PPV_ARGS(&a1)))) {
+            DXGI_ADAPTER_DESC1 d{};
+            a1->GetDesc1(&d);
+            wcsncpy_s(info.description, d.Description, 127);
+            info.vendor_id         = d.VendorId;
+            info.dedicated_vram_mb = d.DedicatedVideoMemory / (1024 * 1024);
+            info.valid             = true;
+        }
+    };
+    fill_info(display_info_, display_gpu_.get());
+    fill_info(encode_info_,  encode_gpu_.get());
+    wprintf(L"[GpuRM] Display: %s  vendor=0x%04X  VRAM=%lluMB\n",
+            display_info_.description, display_info_.vendor_id,
+            display_info_.dedicated_vram_mb);
+    wprintf(L"[GpuRM] Encode:  %s  vendor=0x%04X  VRAM=%lluMB\n",
+            encode_info_.description, encode_info_.vendor_id,
+            encode_info_.dedicated_vram_mb);
+
+    // Preview path: always use display GPU staging (bypass cross-adapter shared texture)
+    same_adapter_ = true;
 
     bool ok = same_adapter_
         ? create_same_adapter_staging(width, height, format)
@@ -188,46 +188,11 @@ ID3D11Texture2D* GpuResourceManager::transfer(ID3D11Texture2D* src) {
         return encode_tex_.Get();
     }
 
-    // Cross-adapter path.
-    // key=0: display GPU owns; key=1: encode GPU owns.
-
-    // Acquire write access on display side (waits for previous encode cycle).
-    HRESULT hr = keyed_mutex_display_->AcquireSync(0, 16 /* ms, one frame budget */);
-    if (hr == static_cast<HRESULT>(WAIT_TIMEOUT)) {
-        printf("[GpuRM] AcquireSync(display) timeout — frame dropped\n");
-        return nullptr;
-    }
-    if (FAILED(hr)) {
-        printf("[GpuRM] AcquireSync(display) failed: 0x%08lX\n", hr);
-        return nullptr;
-    }
-
-    // GPU-blit: DXGI frame texture (display VRAM) → shared texture (display VRAM).
-    // This is a VRAM-to-VRAM copy; no CPU memory involved.
+    // Cross-adapter path: simple CopyResource + Flush.
     auto* ctx = display_gpu_->d3d_context();
     ctx->CopyResource(shared_tex_display_.Get(), src);
     ctx->Flush();
-
-    // Wait for GPU to finish before releasing the keyed mutex.
-    // encode GPU must only see committed pixels.
     wait_display_gpu_idle();
-
-    // Hand ownership to encode GPU (key 0→1).
-    keyed_mutex_display_->ReleaseSync(1);
-
-    // Acquire encode side to assert exclusive access.
-    hr = keyed_mutex_encode_->AcquireSync(1, 16);
-    if (FAILED(hr)) {
-        printf("[GpuRM] AcquireSync(encode) failed: 0x%08lX\n", hr);
-        return nullptr;
-    }
-
-    // Release encode mutex immediately.
-    // Within a single D3D11 device context, NVENC commands submitted after
-    // AcquireSync execute after the shared texture write, so no further
-    // CPU synchronization is needed for synchronous NVENC use.
-    keyed_mutex_encode_->ReleaseSync(0);
-
     return encode_tex_.Get();
 }
 
@@ -238,11 +203,11 @@ void GpuResourceManager::shutdown() {
     keyed_mutex_display_.Reset();
     encode_tex_.Reset();
     shared_tex_display_.Reset();
-    if (shared_handle_) {
-        CloseHandle(shared_handle_);
-        shared_handle_ = nullptr;
-    }
+    shared_handle_ = nullptr;
 }
 
 } // namespace reji
 #endif // RJ_PLATFORM_WINDOWS
+
+
+

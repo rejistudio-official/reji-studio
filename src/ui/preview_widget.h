@@ -1,6 +1,7 @@
 #pragma once
 #ifdef QT6_AVAILABLE
 
+#include "render_capability.h"
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
 #include <memory>
@@ -31,6 +32,19 @@ public:
     // Thread-safe: may be called from the pipeline thread.
     void uploadFrame(const void* bgra_pixels, int width, int height, int row_pitch);
 
+    // Select GL upload path based on display adapter vendor_id.
+    // Must be called from the GL thread (or before the widget is shown) after
+    // pipeline init. Safe to call multiple times; re-initializes PBOs on change.
+    void selectRenderPath(uint32_t vendor_id);
+
+    RenderPath renderPath() const;
+
+    // Wire profiler for CPU copy and paintGL timing.
+    // Profiler is borrowed; lifecycle managed by Pipeline.
+    void setProfiler(rj::FrameProfiler* profiler) {
+        profiler_ = profiler;
+    }
+
 protected:
     void initializeGL() override;
     void resizeGL(int w, int h) override;
@@ -39,6 +53,7 @@ protected:
 private:
     class Impl;
     std::unique_ptr<Impl> d_;
+    rj::FrameProfiler* profiler_ = nullptr;
 };
 
 } // namespace reji

@@ -51,19 +51,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // v0.2: Pipeline init + preview callback
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
     pipeline_.set_preview_callback([this](const void* bgra, int w, int h, int pitch) {
-        // uploadFrame is thread-safe (mutex + internal invokeMethod for update()).
-        // Call directly so the deep-copy happens before the pipeline unmaps the staging texture.
-        preview_widget_->uploadFrame(bgra, w, h, pitch);
+        // Qt GUI thread'e geç
+        QMetaObject::invokeMethod(this, [this, bgra, w, h, pitch] {
+            preview_widget_->uploadFrame(bgra, w, h, pitch);
+        }, Qt::QueuedConnection);
     });
     if (!pipeline_.init(pcfg)) {
         qDebug() << "Pipeline init failed";
         lbl_status_->setText(tr("Pipeline init başarısız — NVENC SDK eksik olabilir"));
-    } else {
-        preview_widget_->selectRenderPath(pipeline_.display_vendor_id());
-        // Wire profiler to preview widget
-        if (pipeline_.profiler()) {
-            preview_widget_->setProfiler(pipeline_.profiler());
-        }
     }
 
     // run_frame() ayrı thread'de çalışsın
@@ -112,42 +107,24 @@ void MainWindow::buildCentralWidget() {
     monitor_splitter->setStretchFactor(1, 1);
 
     scene_list_ = new QListWidget(this);
-    scene_list_->setDragDropMode(QAbstractItemView::InternalMove);
-    for (int i = 1; i <= 3; ++i) {
-        auto* item = new QListWidgetItem(tr("Sahne %1").arg(i));
-        item->setFlags(item->flags() | Qt::ItemIsEditable);
-        scene_list_->addItem(item);
-    }
+    for (int i = 1; i <= 6; ++i)
+        scene_list_->addItem(QString("Sahne %1").arg(i));
     scene_list_->setCurrentRow(0);
     connect(scene_list_, &QListWidget::itemActivated,
-            this, [this](QListWidgetItem* item) {
+            this, [this](QListWidgetItem*) {
                 const int idx = scene_list_->currentRow();
-                const QString name = item ? item->text() : tr("Sahne %1").arg(idx + 1);
                 if (lbl_status_)
-                    lbl_status_->setText(tr("%1 → Program (CUT)").arg(name));
+                    lbl_status_->setText(tr("Sahne %1 → Program (CUT)").arg(idx + 1));
                 program_widget_->beginTransition(reji::ProgramWidget::Transition::Cut);
                 rust_bridge_->sendSceneSwitchEvent(static_cast<uint32_t>(idx));
                 emit sceneActivated(idx);
             });
-
-    btn_scene_add_    = new QPushButton("+", this);
-    btn_scene_remove_ = new QPushButton("−", this);
-    btn_scene_add_->setFixedSize(28, 24);
-    btn_scene_remove_->setFixedSize(28, 24);
-    btn_scene_add_->setToolTip(tr("Sahne ekle"));
-    btn_scene_remove_->setToolTip(tr("Sahne sil (min. 1)"));
-    auto* scene_btn_layout = new QHBoxLayout;
-    scene_btn_layout->setContentsMargins(0, 2, 0, 0);
-    scene_btn_layout->addWidget(btn_scene_add_);
-    scene_btn_layout->addWidget(btn_scene_remove_);
-    scene_btn_layout->addStretch();
 
     auto* scene_group  = new QGroupBox(tr("Sahneler"), this);
     scene_group->setMaximumWidth(220);
     auto* scene_layout = new QVBoxLayout(scene_group);
     scene_layout->setContentsMargins(4, 4, 4, 4);
     scene_layout->addWidget(scene_list_);
-    scene_layout->addLayout(scene_btn_layout);
 
     auto* top_splitter = new QSplitter(Qt::Horizontal, this);
     top_splitter->addWidget(monitor_splitter);
@@ -198,12 +175,10 @@ void MainWindow::buildCentralWidget() {
     vbox->addWidget(top_splitter, 1);
     vbox->addWidget(tbar_widget, 0);
 
-    connect(btn_cut_,          &QPushButton::clicked, this, &MainWindow::onCutTransition);
-    connect(btn_fade_,         &QPushButton::clicked, this, &MainWindow::onFadeTransition);
-    connect(btn_start_,        &QPushButton::clicked, this, &MainWindow::startStream);
-    connect(btn_stop_,         &QPushButton::clicked, this, &MainWindow::stopStream);
-    connect(btn_scene_add_,    &QPushButton::clicked, this, &MainWindow::addScene);
-    connect(btn_scene_remove_, &QPushButton::clicked, this, &MainWindow::removeScene);
+    connect(btn_cut_,   &QPushButton::clicked, this, &MainWindow::onCutTransition);
+    connect(btn_fade_,  &QPushButton::clicked, this, &MainWindow::onFadeTransition);
+    connect(btn_start_, &QPushButton::clicked, this, &MainWindow::startStream);
+    connect(btn_stop_,  &QPushButton::clicked, this, &MainWindow::stopStream);
 
     healing_overlay_ = new reji::HealingOverlay(this);
     healing_overlay_->hide();
@@ -216,21 +191,11 @@ void MainWindow::buildCentralWidget() {
 // ---------------------------------------------------------------------------
 void MainWindow::buildMenuBar() {
     QMenu* file_menu = menuBar()->addMenu(tr("&Dosya"));
-
-    auto *new_act = file_menu->addAction(tr("&Yeni"));
-    new_act->setShortcut(QKeySequence::New);
-
-    auto *open_act = file_menu->addAction(tr("&Aç"));
-    open_act->setShortcut(QKeySequence::Open);
-
-    auto *save_act = file_menu->addAction(tr("&Kaydet"));
-    save_act->setShortcut(QKeySequence::Save);
-
+    file_menu->addAction(tr("&Yeni"),   this, [] {}, QKeySequence::New);
+    file_menu->addAction(tr("&Aç"),    this, [] {}, QKeySequence::Open);
+    file_menu->addAction(tr("&Kaydet"), this, [] {}, QKeySequence::Save);
     file_menu->addSeparator();
-
-    auto *quit_act = file_menu->addAction(tr("Çı&kış"));
-    quit_act->setShortcut(QKeySequence::Quit);
-    connect(quit_act, &QAction::triggered, qApp, &QApplication::quit);
+    file_menu->addAction(tr("Çı&kış"), qApp, &QApplication::quit, QKeySequence::Quit);
 
     QMenu* view_menu = menuBar()->addMenu(tr("&Görünüm"));
     auto* studio_act = view_menu->addAction(tr("Studio Modu"));
@@ -238,14 +203,12 @@ void MainWindow::buildMenuBar() {
     studio_act->setChecked(true);
     connect(studio_act, &QAction::toggled, preview_widget_, &QWidget::setVisible);
 
-    auto *fullscreen_act = view_menu->addAction(tr("Tam Ekran"));
-    fullscreen_act->setShortcut(QKeySequence::FullScreen);
-    connect(fullscreen_act, &QAction::triggered, this,
-        [this] { isFullScreen() ? showNormal() : showFullScreen(); });
+    view_menu->addAction(tr("Tam Ekran"), this,
+        [this] { isFullScreen() ? showNormal() : showFullScreen(); },
+        QKeySequence::FullScreen);
 
     QMenu* help_menu = menuBar()->addMenu(tr("&Yardım"));
-    auto *about_act = help_menu->addAction(tr("Hakkında"));
-    connect(about_act, &QAction::triggered, this, [this] {
+    help_menu->addAction(tr("Hakkında"), this, [this] {
         QMessageBox::about(this, tr("Reji Studio"),
             tr("Reji Studio v0.1\n"
                "Açık kaynak canlı yayın yazılımı.\n\n"
@@ -329,26 +292,6 @@ void MainWindow::stopStream() {
 // ---------------------------------------------------------------------------
 // Transition slots
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Scene management
-// ---------------------------------------------------------------------------
-void MainWindow::addScene() {
-    const int n    = scene_list_->count();
-    auto* item     = new QListWidgetItem(tr("Sahne %1").arg(n + 1));
-    item->setFlags(item->flags() | Qt::ItemIsEditable);
-    scene_list_->addItem(item);
-    scene_list_->setCurrentItem(item);
-    scene_list_->editItem(item);
-}
-
-void MainWindow::removeScene() {
-    if (scene_list_->count() <= 1) return;
-    const int row = scene_list_->currentRow();
-    delete scene_list_->takeItem(row);
-    if (scene_list_->currentRow() < 0)
-        scene_list_->setCurrentRow(0);
-}
-
 void MainWindow::onCutTransition() {
     program_widget_->beginTransition(reji::ProgramWidget::Transition::Cut);
     lbl_status_->setText(tr("CUT"));
@@ -367,9 +310,7 @@ void MainWindow::onFadeTransition() {
 // ---------------------------------------------------------------------------
 void MainWindow::pollMetrics() {
     RjCommand cmds[8];
-    int n = rj_command_drain(cmds, 8);
-    if (n < 0) n = 0;
-    else if (n > 8) n = 8;
+    const int n = rj_command_drain(cmds, 8);
     for (int i = 0; i < n; ++i) {
         switch (cmds[i].cmd_type) {
             case RJ_CMD_BITRATE_SET:

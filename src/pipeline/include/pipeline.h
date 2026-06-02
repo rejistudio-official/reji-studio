@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include "frame_profiler.h"
 
 namespace rj {
 
@@ -41,6 +43,11 @@ public:
     /// True when both initialized and actively streaming.
     bool is_running() const;
 
+    /// Set a callback to receive preview frames (CPU copy, BGRA, called from run_frame thread).
+    /// Set to nullptr to disable. Not thread-safe — call before init() or from same thread.
+    using PreviewCallback = std::function<void(const void* bgra, int width, int height, int row_pitch)>;
+    bool set_preview_callback(PreviewCallback cb);
+
     /// Process one frame: drain commands, capture, encode, push metrics, pace.
     /// Single-thread assumption — do not call concurrently.
     bool run_frame();
@@ -48,9 +55,18 @@ public:
     /// Graceful teardown of all subsystems. SEH-protected.
     bool shutdown();
 
+    /// vendor_id of the display adapter found during init (e.g. 0x10DE = NVIDIA).
+    /// Returns 0 if not yet initialized or no adapter found.
+    uint32_t display_vendor_id() const;
+
+    /// Accessor for the frame profiler (initialized during init).
+    /// Returns nullptr before init() or if profiler creation failed.
+    rj::FrameProfiler* profiler() { return profiler_.get(); }
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    std::unique_ptr<rj::FrameProfiler> profiler_;
 };
 
 } // namespace rj

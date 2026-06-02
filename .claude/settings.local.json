@@ -20,7 +20,10 @@
       "Bash(cmd /c \"\\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\\\\\" 2>nul && cmake --build C:\\\\reji-studio\\\\build 2>&1 && echo BUILD_SUCCESS || echo BUILD_FAILED\")",
       "Bash(cmd /c \"C:\\\\reji-studio\\\\build_run.bat\")",
       "Bash(cmd /c \"C:\\\\reji-studio\\\\build_run.bat > C:\\\\reji-studio\\\\build_output.txt 2>&1\")",
-      "Bash(cargo test *)"
+      "Bash(cargo test *)",
+      "Bash(cmd *)",
+      "Bash(dir \"C:\\\\\\\\Program Files \\(x86\\)\\\\\\\\Windows Kits\\\\\\\\10\\\\\\\\Include\")",
+      "Bash(dir \"C:\\\\\\\\Program Files\\\\\\\\Windows Kits\")"
     ]
   }
 }

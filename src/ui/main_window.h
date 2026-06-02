@@ -17,7 +17,7 @@ class QListWidget;
 class QListWidgetItem;
 class QMenu;
 class QPushButton;
-class QSystemTrayIcon;
+class QThread;
 class QTimer;
 
 namespace reji {
@@ -77,15 +77,17 @@ private slots:
     void onFadeTransition();
     /// 100 ms poll: drains rj_command_drain and updates status-bar metrics.
     void pollMetrics();
-    void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
     /// Shown when RustBridge emits reduceBitrate().
     void onReduceBitrate(uint32_t target_kbps, const QString& reason);
+    /// Scene panel: add a new named scene.
+    void addScene();
+    /// Scene panel: remove the selected scene (minimum 1 scene enforced).
+    void removeScene();
 
 private:
     void buildMenuBar();
     void buildCentralWidget();
     void buildStatusBar();
-    void buildSystemTray();
     void saveWindowState();
     void loadWindowState();
 
@@ -95,6 +97,8 @@ private:
 
     // ── Scene panel ────────────────────────────────────────────────────────
     QListWidget* scene_list_{nullptr};
+    QPushButton* btn_scene_add_{nullptr};
+    QPushButton* btn_scene_remove_{nullptr};
 
     // ── Transition / stream control ────────────────────────────────────────
     QPushButton* btn_cut_{nullptr};
@@ -103,13 +107,10 @@ private:
     QPushButton* btn_stop_{nullptr};
 
     // ── Status bar ─────────────────────────────────────────────────────────
+    QLabel* lbl_status_{nullptr};
     QLabel* lbl_bitrate_{nullptr};
     QLabel* lbl_fps_{nullptr};
     QLabel* lbl_connection_{nullptr};
-
-    // ── System tray ────────────────────────────────────────────────────────
-    QSystemTrayIcon* tray_icon_{nullptr};
-    QMenu*           tray_menu_{nullptr};
 
     // ── Rust bridge + self-healing overlay ─────────────────────────────────
     reji::RustBridge*     rust_bridge_{nullptr};
@@ -120,6 +121,9 @@ private:
     rj::Pipeline         pipeline_;
     rj::Pipeline::Config pipeline_cfg_{};
     bool                 stream_active_{false};
+
+    // ── Frame thread — DXGI single-thread requirement ──────────────────────
+    QThread* frame_thread_{nullptr};
 
     // ── Persistent window state ────────────────────────────────────────────
     QSettings settings_{"RejiStudio", "RejiStudio"};

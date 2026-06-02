@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmd /c \"\\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\\\\\" >nul 2>&1 && cmake --build build --target reji_ui 2>&1\")"
+      "Bash(cmd /c \"\\\\\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\18\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\\\\\" >nul 2>&1 && cmake --build build --target reji_ui 2>&1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"C:\\\\reji-studio\\\\fix_pipeline.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"C:\\\\reji-studio\\\\fix_pipeline2.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Copy-Item -Path 'C:\\\\reji-studio\\\\src\\\\pipeline\\\\pipeline.cpp.tmp' -Destination 'C:\\\\reji-studio\\\\src\\\\pipeline\\\\pipeline.cpp' -Force; Write-Host 'COPY OK'\")"
     ]
   }
 }

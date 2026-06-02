@@ -23,3 +23,12 @@ desktop.ini
 # PoC klasörleri — bunlar ana repoya dahil değil
 poc/
 repo_snapshot.txt
+
+# Geçici ve üretilen dosyalar
+*.log
+*.png
+*.tmp
+*.obj
+*.ps1
+/pipeline.cpp
+fix_*.*
