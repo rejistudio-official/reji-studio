@@ -2,6 +2,50 @@
 
 ---
 
+## Oturum: 2026-06-02 (v0.4 planı + Ninja build geçişi)
+
+### Tamamlananlar
+
+#### Yol Haritası & Planlama
+- **Extism/WASM Plugin Sandbox Yol Haritası** eklendi
+  - v1.0: C ABI in-process + Ed25519 imza
+  - v1.5: Extism opsiyonel, "Sandbox plugin" rozeti, marketplace başlar
+  - v2.0: Extism zorunlu, in-process sadece certified core plugins
+  - Ref: github.com/extism/extism (WASI, 12 dil, Shopify/Discord production)
+
+- **v0.4 Planı** kapsamlı tasarlandı:
+  - Zorunlu: Runtime Adaptation Seviye 3, WGL_NV_DX_INTEROP real impl, Self-healing UI
+  - Güçlü: Çoklu monitör, preview kalite seçimi, frame limiter, UI stats
+  - Teknik Borç: strncpy→strncpy_s, QMenu deprecated, /EHs /EHa, Ninja, build.bat
+
+- **v0.5 Hazırlığı** başlandı (stubs):
+  - NDI output, virtual camera, OBS scene import
+
+#### Build Sistemi
+- **Ninja build sistemine kademeli geçiş başlatıldı**
+  - `scripts/configure.bat`: vswhere detection, cmake -G Ninja setup
+  - `scripts/build.bat`: parallel build (-j 8), otomatik MSVC environment
+  - VS 2024 Ninja path: `Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja`
+  - vswhere fallback: Program Files (x86) support
+  - Durum: NMake compat ✓, Ninja configuration test (SDK linker debug needed)
+
+#### Dokumentasyon
+- docs/progress.md: Plugin roadmap, v0.4 plan, v0.5 prep, tech debt
+- CONTEXT.md: Build komutları güncellendi (scripts/build.bat), plugin sandbox görevler
+- AGENTS.md: Build komutları Ninja-centric, NMake legacy note
+- docs/memory.md: Plugin güvenliği, Extism long-term çözüm
+- Auto-memory: Extism/WASM roadmap project memory kaydedildi
+
+### Commit Geçmişi (bu oturum)
+
+```
+f94cb4f  chore: Ninja build sistemi geçişi başlat, build scripts ekle
+492f3d9  docs: v0.4 planı, v0.5 hazırlığı, teknik borç listesi ekle
+c38c139  docs: Extism/WASM plugin sandbox yol haritası ekle (v1.0→v1.5→v2.0)
+```
+
+---
+
 ## Oturum: 2026-06-01 (v0.2 tamamlama + v0.3 başlangıcı)
 
 ### Tamamlananlar

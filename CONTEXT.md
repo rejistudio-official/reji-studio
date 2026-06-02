@@ -72,7 +72,7 @@ C:\reji-studio\
 
 ---
 
-## Mevcut Durum (2026-06-01)
+## Mevcut Durum (2026-06-02)
 
 ### v0.2 — Tamamlandı ✓
 - DXGI preview pipeline çalışıyor (AMD iGPU → staging → QImage → GL)
@@ -82,16 +82,33 @@ C:\reji-studio\
 - Debug printf'ler temizlendi
 - `.gitignore` kapsamlı
 
-### v0.3 — Başladı (bu oturum)
+### v0.3 — Başladı (2026-06-01)
 - `render_capability.h`: `CapabilityDetector` + `RenderProfile`
 - `pipeline.h`: `display_vendor_id()` eklendi
 - `preview_widget`: PBO ping-pong implementasyonu
   - AMD (0x1002) → `kPbo` ✓ (doğrulandı, çalışıyor)
   - NVIDIA (0x10DE) → `kNvDxInterop` stub (PBO çalışır)
 
+### v0.4 — Planlandı (2026-06-02)
+- **Roadmap**: Runtime Adaptation Seviye 3, WGL_NV_DX_INTEROP real impl, Self-healing UI
+- **Güçlü eklemeler**: Çoklu monitör, preview kalite, frame limiter, UI stats
+- **v0.5 hazırlık**: NDI, virtual camera, OBS import (stubs)
+
+### Build Sistemi — Ninja Geçişi Başladı (2026-06-02)
+- `scripts/configure.bat` + `scripts/build.bat` oluşturuldu
+- vswhere detection (Program Files / Program Files (x86))
+- Ninja 1.13.2 tespit edildi ✓
+- Configuration test: kernel32.lib SDK path (next session debug)
+- NMake build/ existing — compatibility maintained
+
 ### CI
 - `build.yml`: push/PR → build + FFI test + cargo test
 - `quality.yml`: push/PR + Pazartesi 09:00 UTC → cargo audit + cppcheck + build
+
+### Plugin Sandbox (Uzun Vadeli — 2026-06-02)
+- **Extism/WASM roadmap**: v1.0 (C ABI) → v1.5 (optional) → v2.0 (mandatory)
+- **Marketplace**: Ed25519 + binary scan + human review (v1.5+)
+- **Auto-memory**: Extism project roadmap kaydedildi
 
 ---
 
