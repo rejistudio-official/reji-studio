@@ -108,24 +108,42 @@ void MainWindow::buildCentralWidget() {
     monitor_splitter->setStretchFactor(1, 1);
 
     scene_list_ = new QListWidget(this);
-    for (int i = 1; i <= 6; ++i)
-        scene_list_->addItem(QString("Sahne %1").arg(i));
+    scene_list_->setDragDropMode(QAbstractItemView::InternalMove);
+    for (int i = 1; i <= 3; ++i) {
+        auto* item = new QListWidgetItem(tr("Sahne %1").arg(i));
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
+        scene_list_->addItem(item);
+    }
     scene_list_->setCurrentRow(0);
     connect(scene_list_, &QListWidget::itemActivated,
-            this, [this](QListWidgetItem*) {
+            this, [this](QListWidgetItem* item) {
                 const int idx = scene_list_->currentRow();
+                const QString name = item ? item->text() : tr("Sahne %1").arg(idx + 1);
                 if (lbl_status_)
-                    lbl_status_->setText(tr("Sahne %1 → Program (CUT)").arg(idx + 1));
+                    lbl_status_->setText(tr("%1 → Program (CUT)").arg(name));
                 program_widget_->beginTransition(reji::ProgramWidget::Transition::Cut);
                 rust_bridge_->sendSceneSwitchEvent(static_cast<uint32_t>(idx));
                 emit sceneActivated(idx);
             });
+
+    btn_scene_add_    = new QPushButton("+", this);
+    btn_scene_remove_ = new QPushButton("−", this);
+    btn_scene_add_->setFixedSize(28, 24);
+    btn_scene_remove_->setFixedSize(28, 24);
+    btn_scene_add_->setToolTip(tr("Sahne ekle"));
+    btn_scene_remove_->setToolTip(tr("Sahne sil (min. 1)"));
+    auto* scene_btn_layout = new QHBoxLayout;
+    scene_btn_layout->setContentsMargins(0, 2, 0, 0);
+    scene_btn_layout->addWidget(btn_scene_add_);
+    scene_btn_layout->addWidget(btn_scene_remove_);
+    scene_btn_layout->addStretch();
 
     auto* scene_group  = new QGroupBox(tr("Sahneler"), this);
     scene_group->setMaximumWidth(220);
     auto* scene_layout = new QVBoxLayout(scene_group);
     scene_layout->setContentsMargins(4, 4, 4, 4);
     scene_layout->addWidget(scene_list_);
+    scene_layout->addLayout(scene_btn_layout);
 
     auto* top_splitter = new QSplitter(Qt::Horizontal, this);
     top_splitter->addWidget(monitor_splitter);
@@ -176,10 +194,12 @@ void MainWindow::buildCentralWidget() {
     vbox->addWidget(top_splitter, 1);
     vbox->addWidget(tbar_widget, 0);
 
-    connect(btn_cut_,   &QPushButton::clicked, this, &MainWindow::onCutTransition);
-    connect(btn_fade_,  &QPushButton::clicked, this, &MainWindow::onFadeTransition);
-    connect(btn_start_, &QPushButton::clicked, this, &MainWindow::startStream);
-    connect(btn_stop_,  &QPushButton::clicked, this, &MainWindow::stopStream);
+    connect(btn_cut_,          &QPushButton::clicked, this, &MainWindow::onCutTransition);
+    connect(btn_fade_,         &QPushButton::clicked, this, &MainWindow::onFadeTransition);
+    connect(btn_start_,        &QPushButton::clicked, this, &MainWindow::startStream);
+    connect(btn_stop_,         &QPushButton::clicked, this, &MainWindow::stopStream);
+    connect(btn_scene_add_,    &QPushButton::clicked, this, &MainWindow::addScene);
+    connect(btn_scene_remove_, &QPushButton::clicked, this, &MainWindow::removeScene);
 
     healing_overlay_ = new reji::HealingOverlay(this);
     healing_overlay_->hide();
@@ -305,6 +325,26 @@ void MainWindow::stopStream() {
 // ---------------------------------------------------------------------------
 // Transition slots
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Scene management
+// ---------------------------------------------------------------------------
+void MainWindow::addScene() {
+    const int n    = scene_list_->count();
+    auto* item     = new QListWidgetItem(tr("Sahne %1").arg(n + 1));
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+    scene_list_->addItem(item);
+    scene_list_->setCurrentItem(item);
+    scene_list_->editItem(item);
+}
+
+void MainWindow::removeScene() {
+    if (scene_list_->count() <= 1) return;
+    const int row = scene_list_->currentRow();
+    delete scene_list_->takeItem(row);
+    if (scene_list_->currentRow() < 0)
+        scene_list_->setCurrentRow(0);
+}
+
 void MainWindow::onCutTransition() {
     program_widget_->beginTransition(reji::ProgramWidget::Transition::Cut);
     lbl_status_->setText(tr("CUT"));

@@ -79,6 +79,10 @@ private slots:
     void pollMetrics();
     /// Shown when RustBridge emits reduceBitrate().
     void onReduceBitrate(uint32_t target_kbps, const QString& reason);
+    /// Scene panel: add a new named scene.
+    void addScene();
+    /// Scene panel: remove the selected scene (minimum 1 scene enforced).
+    void removeScene();
 
 private:
     void buildMenuBar();
@@ -93,6 +97,8 @@ private:
 
     // ── Scene panel ────────────────────────────────────────────────────────
     QListWidget* scene_list_{nullptr};
+    QPushButton* btn_scene_add_{nullptr};
+    QPushButton* btn_scene_remove_{nullptr};
 
     // ── Transition / stream control ────────────────────────────────────────
     QPushButton* btn_cut_{nullptr};
