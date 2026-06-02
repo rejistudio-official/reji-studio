@@ -2,6 +2,46 @@
 
 ---
 
+## Oturum: 2026-06-02 (v0.3 tamamlandı, v0.4 planı)
+
+### v0.3 Tamamlandı ✅ — tag: v0.3
+
+**Commit geçmişi (bu oturum, v0.3 kapsamı):**
+
+```
+fab4111  feat(ui): sahne yönetimi — rename, add, remove (v0.3)
+310aeb9  fix(build): vswhere + cmake discovery, tek cmd.exe session
+add2336  chore: reji-build-tools Python build script — cross-platform wrapper
+1d7328d  decision: NV_DX_INTEROP skip (v0.3), benchmark → Vulkan pivot (v0.5)
+4fc4e14  docs: Oturum 2026-06-02 teknik düzeltmeleri ve optimizasyonlar
+```
+
+**v0.3 kapsamı özeti:**
+- `render_capability.h`: `RenderPath` enum, `RenderProfile`, `CapabilityDetector`
+- `pipeline.h/cpp`: `display_vendor_id()` eklendi
+- `preview_widget`: PBO ping-pong (AMD/Intel ✅, NVIDIA PBO fallback)
+- `preview_widget`: BGRA→GL_BGRA renk düzeltmesi, QImage dönüşümü kaldırıldı
+- `main_window`: Sahne listesi — rename (F2), ekleme (+), silme (−), drag-drop
+- `scripts/build.py`: Cross-platform build wrapper (VS 18/22 auto-detect)
+- **NV_DX_INTEROP kararı:** skip → v0.5 Vulkan external memory
+
+**Tag:** `v0.3` → `github.com/rejistudio-official/reji-studio/releases/tag/v0.3`
+
+---
+
+## v0.4 Açık Görevler
+
+| # | Görev | Dosya / Modül | Öncelik |
+|---|---|---|---|
+| 1 | **GPU performance benchmark** — PBO CPU overhead, frame timing profili | `src/ui/preview_widget.cpp` | Yüksek |
+| 2 | **Runtime Adaptation Seviye 3** — frame drop % → bitrate otomatik düşür/yükselt | `src/orchestrator/metrics.rs::AdaptationDecider` | Yüksek |
+| 3 | **Self-Healing UI bağlantısı** — HealingOverlay → pipeline command ring | `src/ui/healing_overlay.cpp` | Yüksek |
+| 4 | **Çoklu monitör desteği** — `EnumOutputs()` dropdown, her monitör bağımsız capture | `src/pipeline/capture/capture_dxgi.cpp` | Orta |
+| 5 | **Frame rate limiter** — preview 30fps cap, encode 60fps cap (ayrı thread'ler) | `src/pipeline/frame_limiter.h` (yeni) | Orta |
+| 6 | **Bitrate göstergesi UI** — real-time graph (30s), frame drop %, GPU temp | `src/ui/stats_widget.cpp` (yeni) | Orta |
+
+---
+
 ## Oturum: 2026-06-02 (v0.4 planı + Ninja build geçişi)
 
 ### Tamamlananlar
