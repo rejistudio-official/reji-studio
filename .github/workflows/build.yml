@@ -48,8 +48,5 @@ jobs:
       - name: FFI sınır testini çalıştır
         run: build\tests\test_ffi_boundary.exe
 
-      - name: Rust derle
-        run: cargo build --release
-
       - name: Rust testleri çalıştır
         run: cargo test
