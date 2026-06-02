@@ -34,6 +34,7 @@ if(Qt6_FOUND)
         Qt6::OpenGL
         Qt6::OpenGLWidgets
         reji_pipeline
+        dwmapi
     )
 else()
     message(STATUS "Qt6 bulunamadı — reji_ui stub olarak derleniyor. "
