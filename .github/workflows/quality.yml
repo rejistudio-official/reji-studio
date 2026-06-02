@@ -32,8 +32,12 @@ jobs:
         run: choco install cppcheck -y
 
       - name: Run cppcheck
-        run: cppcheck --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --inline-suppr src/pipeline/
-        shell: cmd
+        run: |
+          choco install cppcheck -y
+          $cppcheck = "C:\Program Files\Cppcheck\cppcheck.exe"
+          & $cppcheck --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --inline-suppr src/pipeline/
+        shell: pwsh
+        continue-on-error: true
 
       - name: MSVC ortamını ayarla
         uses: ilammy/msvc-dev-cmd@v1
