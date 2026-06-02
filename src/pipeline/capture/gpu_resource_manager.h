@@ -10,6 +10,16 @@
 namespace reji {
 
 // ---------------------------------------------------------------------------
+// GpuInfo — hardware properties for one physical GPU (filled during init)
+// ---------------------------------------------------------------------------
+struct GpuInfo {
+    wchar_t  description[128];
+    uint32_t vendor_id;
+    uint64_t dedicated_vram_mb;
+    bool     valid;
+};
+
+// ---------------------------------------------------------------------------
 // GpuContext — abstract GPU adapter + D3D11 device pair
 // ---------------------------------------------------------------------------
 class GpuContext {
@@ -93,6 +103,9 @@ public:
     bool same_adapter()   const { return same_adapter_; }
     bool is_initialized() const { return initialized_; }
 
+    const GpuInfo& display_info() const { return display_info_; }
+    const GpuInfo& encode_info()  const { return encode_info_; }
+
 private:
     bool create_same_adapter_staging(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     bool create_cross_adapter_shared(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
@@ -114,6 +127,9 @@ private:
 
     // GPU event query for CopyResource completion tracking (cross-adapter only)
     Microsoft::WRL::ComPtr<ID3D11Query> copy_fence_;
+
+    GpuInfo display_info_{};
+    GpuInfo encode_info_{};
 
     HANDLE shared_handle_ = nullptr;
     bool   same_adapter_  = false;

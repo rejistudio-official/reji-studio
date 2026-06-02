@@ -1,0 +1,51 @@
+name: Quality
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '0 9 * * 1'  # Her Pazartesi 09:00 UTC
+
+jobs:
+  quality:
+    name: Audit & Static Analysis
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust kur
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+        shell: cmd
+
+      - name: Install cppcheck
+        run: choco install cppcheck -y
+
+      - name: Run cppcheck
+        run: |
+          choco install cppcheck -y
+          $cppcheck = "C:\Program Files\Cppcheck\cppcheck.exe"
+          & $cppcheck --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --inline-suppr src/pipeline/
+        shell: pwsh
+        continue-on-error: true
+
+      - name: MSVC ortamını ayarla
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: CMake yapılandır
+        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: C++ derle
+        run: cmake --build build

@@ -1,12 +1,18 @@
 #include "preview_widget.h"
 #ifdef QT6_AVAILABLE
 
+#include "render_capability.h"
+#include "../pipeline/include/frame_profiler.h"
 #include <QImage>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QOpenGLBuffer>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
+#include <QSurfaceFormat>
+#include <cstdio>
+#include <cstring>
+#include <dwmapi.h>
 
 namespace {
 
@@ -50,22 +56,48 @@ public:
     int    tex_w{0}, tex_h{0};
 
     QMutex frame_mutex;
-    QImage pending_frame;   // written by pipeline thread, consumed in paintGL
+    std::vector<uint8_t> pending_buffer;  // raw BGRA data from DXGI
+    int    pending_width{0}, pending_height{0};
     bool   frame_dirty{false};
+
+    // --- Render path ---
+    RenderPath render_path{RenderPath::kPbo};
+
+    // --- PBO ping-pong (both kPbo and kNvDxInterop stub) ---
+    GLuint pbo[2]{0, 0};
+    int    pbo_idx{0};    // current write index; read index = pbo_idx ^ 1
+    int    pbo_frame{0};  // frames uploaded; guard: skip read until >= 1
+    size_t pbo_size{0};   // last allocated size = w * h * 4
 };
 
 PreviewWidget::PreviewWidget(QWidget* parent)
     : QOpenGLWidget(parent), d_(std::make_unique<Impl>())
 {
     setMinimumSize(320, 180);
+    QSurfaceFormat fmt;
+    fmt.setVersion(3, 3);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    setFormat(fmt);
 }
 
 PreviewWidget::~PreviewWidget() {
     makeCurrent();
     if (d_->tex_id) glDeleteTextures(1, &d_->tex_id);
+    if (d_->pbo[0]) glDeleteBuffers(2, d_->pbo);
     d_->vbo.destroy();
     d_->vao.destroy();
     doneCurrent();
+}
+
+void PreviewWidget::selectRenderPath(uint32_t vendor_id) {
+    const RenderProfile profile = CapabilityDetector::detect(vendor_id);
+    d_->render_path = profile.path;
+    fprintf(stderr, "[PreviewWidget] render path: %s (vendor=0x%04X)\n",
+            profile.name, vendor_id);
+}
+
+RenderPath PreviewWidget::renderPath() const {
+    return d_->render_path;
 }
 
 void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, int row_pitch) {
@@ -74,14 +106,27 @@ void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
     //   We deep-copy here so the caller can Unmap immediately after this call returns.
     //
     // v0.2: replace this function with WGL_NV_DX_INTEROP texture sharing to
-    //   avoid the CPU copy entirely — call wglDXRegisterObjectNV once, then just
+    //   avoid the CPU copy entirely â€” call wglDXRegisterObjectNV once, then just
     //   wglDXLockObjectsNV / wglDXUnlockObjectsNV around each paintGL.
     QMutexLocker lock(&d_->frame_mutex);
-    d_->pending_frame = QImage(
-        static_cast<const uchar*>(bgra_pixels),
-        width, height, row_pitch,
-        QImage::Format_ARGB32   // BGRA on little-endian == Qt's ARGB32
-    ).copy();
+
+    if (profiler_) profiler_->markCopyStart();
+
+    const size_t row_bytes = static_cast<size_t>(width) * 4u;
+    d_->pending_buffer.resize(row_bytes * static_cast<size_t>(height));
+
+    const uint8_t* src = static_cast<const uint8_t*>(bgra_pixels);
+    uint8_t* dst = d_->pending_buffer.data();
+    for (int y = 0; y < height; ++y) {
+        std::memcpy(dst, src, row_bytes);
+        src += row_pitch;
+        dst += row_bytes;
+    }
+
+    if (profiler_) profiler_->markCopyEnd();
+
+    d_->pending_width = width;
+    d_->pending_height = height;
     d_->frame_dirty = true;
     QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
 }
@@ -90,9 +135,12 @@ void PreviewWidget::initializeGL() {
     initializeOpenGLFunctions();
     glClearColor(0.f, 0.f, 0.f, 1.f);
 
-    d_->shader.addShaderFromSourceCode(QOpenGLShader::Vertex,   kVertSrc);
-    d_->shader.addShaderFromSourceCode(QOpenGLShader::Fragment, kFragSrc);
-    d_->shader.link();
+    bool vs_ok = d_->shader.addShaderFromSourceCode(QOpenGLShader::Vertex,   kVertSrc);
+    bool fs_ok = d_->shader.addShaderFromSourceCode(QOpenGLShader::Fragment, kFragSrc);
+    bool lk_ok = d_->shader.link();
+    fprintf(stderr, "[PreviewWidget] shader compile vs=%d fs=%d link=%d\n", vs_ok, fs_ok, lk_ok);
+    if (!lk_ok) fprintf(stderr, "[PreviewWidget] shader log: %s\n",
+                        d_->shader.log().toStdString().c_str());
 
     d_->vao.create();
     d_->vao.bind();
@@ -106,6 +154,11 @@ void PreviewWidget::initializeGL() {
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
                           reinterpret_cast<void*>(2 * sizeof(float)));
     d_->vao.release();
+
+    // PBO objects â€” content allocated lazily on first frame (size unknown here).
+    glGenBuffers(2, d_->pbo);
+    glFinish();
+    DwmFlush();
 }
 
 void PreviewWidget::resizeGL(int w, int h) {
@@ -113,30 +166,73 @@ void PreviewWidget::resizeGL(int w, int h) {
 }
 
 void PreviewWidget::paintGL() {
+    if (profiler_) profiler_->markPaintGLStart();
+
     // --- HOT-PATH: no heap allocation after the first frame ---
+    DwmFlush();
     glClear(GL_COLOR_BUFFER_BIT);
 
     {
         QMutexLocker lock(&d_->frame_mutex);
-        if (d_->frame_dirty && !d_->pending_frame.isNull()) {
-            const QImage img = d_->pending_frame.convertToFormat(QImage::Format_RGBA8888);
-            if (!d_->tex_id || img.width() != d_->tex_w || img.height() != d_->tex_h) {
+        if (d_->frame_dirty && !d_->pending_buffer.empty()) {
+            // Direct BGRA buffer upload from DXGI (no conversion)
+            const uint8_t* bgra = d_->pending_buffer.data();
+            const int width = d_->pending_width;
+            const int height = d_->pending_height;
+
+            const size_t needed = static_cast<size_t>(width)
+                                * static_cast<size_t>(height) * 4u;
+
+            // --- Resize / first-alloc: orphan both PBOs, reset texture and guard ---
+            if (needed != d_->pbo_size) {
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[0]);
+                glBufferData(GL_PIXEL_UNPACK_BUFFER,
+                             static_cast<GLsizeiptr>(needed),
+                             nullptr, GL_STREAM_DRAW);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[1]);
+                glBufferData(GL_PIXEL_UNPACK_BUFFER,
+                             static_cast<GLsizeiptr>(needed),
+                             nullptr, GL_STREAM_DRAW);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                d_->pbo_size  = needed;
+                d_->pbo_frame = 0;   // guard: read PBO not valid yet
+
                 if (d_->tex_id) glDeleteTextures(1, &d_->tex_id);
                 glGenTextures(1, &d_->tex_id);
                 glBindTexture(GL_TEXTURE_2D, d_->tex_id);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-                             img.width(), img.height(), 0,
-                             GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
-                d_->tex_w = img.width();
-                d_->tex_h = img.height();
-            } else {
-                glBindTexture(GL_TEXTURE_2D, d_->tex_id);
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-                                img.width(), img.height(),
-                                GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
+                             width, height, 0,
+                             GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
+                d_->tex_w = width;
+                d_->tex_h = height;
             }
+
+            const int write_idx = d_->pbo_idx;
+            const int read_idx  = d_->pbo_idx ^ 1;
+
+            // CPU to PBO[write] (async DMA start, returns immediately)
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[write_idx]);
+            glBufferData(GL_PIXEL_UNPACK_BUFFER,
+                         static_cast<GLsizeiptr>(needed),
+                         bgra, GL_STREAM_DRAW);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+            // PBO[read] to texture (GPU DMA from previous frame’s PBO)
+            // Guard: skip on frame 0 - read PBO is still empty.
+            if (d_->pbo_frame >= 1) {
+                glBindTexture(GL_TEXTURE_2D, d_->tex_id);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[read_idx]);
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                                width, height,
+                                GL_BGRA, GL_UNSIGNED_BYTE,
+                                nullptr);  // offset into PBO
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            }
+
+            d_->pbo_idx ^= 1;
+            d_->pbo_frame++;
             d_->frame_dirty = false;
         }
     }
@@ -151,6 +247,9 @@ void PreviewWidget::paintGL() {
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     d_->vao.release();
     d_->shader.release();
+    glFinish();
+
+    if (profiler_) profiler_->markPaintGLEnd();
 }
 
 } // namespace reji
