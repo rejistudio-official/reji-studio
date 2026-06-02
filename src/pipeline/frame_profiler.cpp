@@ -1,6 +1,7 @@
 #include "frame_profiler.h"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 
 namespace rj {
