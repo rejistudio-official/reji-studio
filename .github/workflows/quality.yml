@@ -28,18 +28,12 @@ jobs:
           cargo audit
         shell: cmd
 
-      - name: cppcheck kur
-        run: choco install cppcheck --yes --no-progress
+      - name: Install cppcheck
+        run: choco install cppcheck -y
 
-      - name: C++ statik analiz
-        run: >
-          cppcheck
-          --enable=warning,performance,portability
-          --error-exitcode=1
-          --suppress=missingIncludeSystem
-          --suppress=unmatchedSuppression
-          --inline-suppr
-          src/pipeline/
+      - name: Run cppcheck
+        run: cppcheck --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --inline-suppr src/pipeline/
+        shell: cmd
 
       - name: MSVC ortamını ayarla
         uses: ilammy/msvc-dev-cmd@v1
