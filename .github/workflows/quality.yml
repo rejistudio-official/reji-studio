@@ -22,10 +22,11 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Rust güvenlik taraması
-        uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+        shell: cmd
 
       - name: cppcheck kur
         run: choco install cppcheck --yes --no-progress
