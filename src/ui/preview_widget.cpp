@@ -154,9 +154,6 @@ void PreviewWidget::initializeGL() {
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
                           reinterpret_cast<void*>(2 * sizeof(float)));
     d_->vao.release();
-
-    // PBO objects â€” content allocated lazily on first frame (size unknown here).
-    glGenBuffers(2, d_->pbo);
     glFinish();
     DwmFlush();
 }
@@ -185,6 +182,10 @@ void PreviewWidget::paintGL() {
 
             // --- Resize / first-alloc: orphan both PBOs, reset texture and guard ---
             if (needed != d_->pbo_size) {
+                // Generate PBO handles on first frame (lazy init)
+                if (d_->pbo[0] == 0) {
+                    glGenBuffers(2, d_->pbo);
+                }
                 glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[0]);
                 glBufferData(GL_PIXEL_UNPACK_BUFFER,
                              static_cast<GLsizeiptr>(needed),
