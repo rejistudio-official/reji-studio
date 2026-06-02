@@ -59,6 +59,78 @@ b7a7e8f  chore: .gitignore genislet, gecici dosyalari tracked listeden cikar
 
 ---
 
+## v0.4 Planı (Sonraki Oturum)
+
+### Zorunlu
+- **Runtime Adaptation Seviye 3 Karar Motoru**
+  - Frame drop (%) → bitrate adaptasyonu (artar/azalır)
+  - GPU temp → kalite aşağı çekmesi (full → half → quarter resolution)
+  - Hedef: 60fps preview, sabit bitrate streaming
+  - Impl: `src/orchestrator/metrics.rs::AdaptationDecider` (state machine)
+
+- **WGL_NV_DX_INTEROP Gerçek Implementasyon**
+  - `wglDXRegisterObjectNV` → NVIDIA DX12 iGPU render
+  - PBO fallback ile test edilmeli
+  - Ref: `src/ui/preview_widget.cpp` (kNvDxInterop stub yerine)
+
+- **Self-Healing UI Bağlantısı**
+  - `HealingOverlay` → pipeline command ring arayüz
+  - Auto-Pilot: metric anomaly → otomatik bitrate düşür
+  - Co-Pilot: operatör onayı gerekli
+  - Impl: `src/ui/healing_overlay.cpp` + `rj_command_t` ring buffer
+
+### Güçlü Eklemeler
+- **Çoklu Monitör Desteği**
+  - `DXGI_OUTPUT` enumeration → dropdown seçim
+  - `EnumOutputs()` implementasyonu
+  - Preview her monitöre independently renderable
+
+- **Preview Kalite Seçimi**
+  - Tam (1:1) / Yarım (1:2) / Çeyrek (1:4) çözünürlük
+  - UI: quality combobox + frame rate impact göstergesi
+
+- **Frame Rate Limiter (Ayrı Threads)**
+  - Preview 30fps cap (power saving)
+  - Encode 60fps cap (bitrate vs quality trade-off)
+  - Impl: `src/pipeline/frame_limiter.h`
+
+- **UI Göstergeler**
+  - Bitrate real-time graph (past 30s)
+  - Frame drop counter + % warning
+  - GPU temp + throttle alert
+  - Impl: `src/ui/stats_widget.cpp`
+
+---
+
+## v0.5 Hazırlığı
+
+- [ ] **NDI Output Stub** (`src/pipeline/output/ndi_output_stub.cpp`)
+  - NewTek NDI protokolü (2024 SDK)
+  - v0.5'de entegrasyonu
+
+- [ ] **Sanal Kamera (DirectShow Filter)**
+  - Virtual camera device → OBS, Teams, Zoom
+  - Stub: `src/pipeline/output/virtualcam_stub.cpp`
+
+- [ ] **OBS Scene Import Parser**
+  - JSON (v28.0+) → Reji scene format
+  - Multi-source layout import
+  - Stub: `src/ui/obs_importer_stub.cpp`
+
+---
+
+## Teknik Borç
+
+| Sorun | Dosya | Öncelik | Detay |
+|---|---|---|---|
+| `strncpy` deprecated | `src/pipeline/*.cpp` | medium | MSVC /W4: `strncpy_s` veya `strcpy_n` |
+| `QMenu::addAction` deprecated | `src/ui/main_window.cpp` | low | Qt 6.8→6.9 geçişinde update |
+| `/EHs /EHa` çakışması | `src/CMakeLists.txt` | high | SEH + C++ exception karışması |
+| Ninja build geçişi | build system | low | NMake → Ninja (daha hızlı, parallel) |
+| `build.bat` script | repo root | low | Windows-first dev flow (PowerShell yerine) |
+
+---
+
 ## Önceki Oturumlar
 
 ### 2026-05-22 (v0.1 tamamlama)
