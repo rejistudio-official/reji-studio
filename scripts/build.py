@@ -80,47 +80,52 @@ class BuildSystem:
             self.error_exit(f"Failed to execute: {cmd}\n{e}")
 
     def find_vsdevcmd(self):
-        """Find VS 2022/2026 vcvars64.bat path."""
-        candidates = []
-
-        # Try vswhere.exe
-        code, stdout, _ = self.run_cmd(
-            'where vswhere.exe',
-            shell=True,
-            cwd=None,
-        )
-        if code == 0:
-            vswhere = stdout.strip()
+        """Find VS vcvars64.bat: vswhere first, then manual fallback."""
+        # vswhere.exe known locations
+        vswhere_paths = [
+            Path("C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"),
+            Path("C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"),
+        ]
+        for vswhere in vswhere_paths:
+            if not vswhere.exists():
+                continue
             code, stdout, _ = self.run_cmd(
                 f'"{vswhere}" -latest -property installationPath',
                 shell=True,
                 cwd=None,
             )
-            if code == 0:
+            if code == 0 and stdout.strip():
                 vs_path = Path(stdout.strip())
                 vcvars = vs_path / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
                 if vcvars.exists():
                     return vcvars
 
-        # Manual fallback: VS 2022, VS 2026
-        for year in [2026, 2025, 2024, 2022]:
+        # Manual fallback: VS 2022 (v17), VS 2024/2026 (v18)
+        for year in ["18", "17", "2026", "2025", "2024", "2022"]:
             for edition in ["Community", "Professional", "Enterprise"]:
                 for base in [
                     Path("C:/Program Files/Microsoft Visual Studio"),
                     Path("C:/Program Files (x86)/Microsoft Visual Studio"),
                 ]:
-                    vs_dir = base / str(year) / edition
-                    vcvars = vs_dir / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
+                    vcvars = base / year / edition / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
                     if vcvars.exists():
                         return vcvars
 
         return None
 
     def find_cmake(self):
-        """Find cmake.exe in PATH."""
+        """Find cmake.exe in PATH or known install locations."""
         code, stdout, _ = self.run_cmd('where cmake.exe', shell=True, cwd=None)
-        if code == 0:
-            return Path(stdout.strip()).parent
+        if code == 0 and stdout.strip():
+            return Path(stdout.strip().splitlines()[0]).parent
+
+        known = [
+            Path("C:/Program Files/CMake/bin"),
+            Path("C:/Program Files (x86)/CMake/bin"),
+        ]
+        for p in known:
+            if (p / "cmake.exe").exists():
+                return p
         return None
 
     def find_ninja(self):
@@ -162,7 +167,7 @@ class BuildSystem:
 
     def build_windows(self):
         """Build on Windows using MSVC + Ninja/NMake."""
-        self.log("🪟 Windows build", "INFO")
+        self.log("Windows build", "INFO")
 
         # Find VS developer command
         vcvars = self.find_vsdevcmd()
@@ -195,42 +200,41 @@ class BuildSystem:
 
         self.build_dir.mkdir(parents=True, exist_ok=True)
 
-        # Configure: wrap in vcvars
         config_type = "Release" if self.args.config == "Release" else "Debug"
-        configure_cmd = (
-            f'call "{vcvars}" x64 && '
-            f'cmake -B "{self.build_dir}" '
-            f'-G "{generator}" '
-            f'-DCMAKE_BUILD_TYPE={config_type} '
-            f'"{self.repo_root}"'
-        )
-        self.log(f"Configuring: {generator}")
-        code, stdout, stderr = self.run_cmd(configure_cmd, shell=True)
+        target      = self.args.target if self.args.target else "reji_app"
 
-        if code != 0:
-            self.log(f"CMake configure failed:\n{stderr}", "ERROR")
-            self._write_log(stderr)
-            sys.exit(1)
+        # vcvars64 env vars only survive within the same cmd.exe session.
+        # Configure + build must run in one call so PATH/LIB/INCLUDE stay set.
+        needs_configure = not (self.build_dir / "CMakeCache.txt").exists()
+        if needs_configure or self.args.clean:
+            self.log(f"Configuring: {generator}")
+            configure_part = (
+                f'cmake -B "{self.build_dir}" '
+                f'-G "{generator}" '
+                f'-DCMAKE_BUILD_TYPE={config_type} '
+                f'"{self.repo_root}" && '
+            )
+        else:
+            self.log("CMakeCache found — skipping configure")
+            configure_part = ""
 
-        # Build
-        target = self.args.target if self.args.target else "reji_app"
-        build_cmd = (
-            f'call "{vcvars}" x64 && '
+        j_flag = " -- -j 8" if generator == "Ninja" else ""
+        build_part = (
             f'cmake --build "{self.build_dir}" '
             f'--target {target} '
             f'--config {config_type}'
+            f'{j_flag}'
         )
-        if self.platform == "Windows" and generator == "Ninja":
-            build_cmd += " -- -j 8"
+
+        cmd = f'call "{vcvars}" x64 && {configure_part}{build_part}'
 
         self.log(f"Building {target}...")
-        code, stdout, stderr = self.run_cmd(build_cmd, shell=True)
+        code, stdout, stderr = self.run_cmd(cmd, shell=True)
 
         if code != 0:
-            self.log(f"Build failed", "ERROR")
+            self.log("Build failed", "ERROR")
             self._write_log(stderr)
-            # Show last 20 lines
-            lines = stderr.split('\n')
+            lines = (stdout + stderr).split('\n')
             self.log("Last 20 lines:", "ERROR")
             for line in lines[-20:]:
                 if line.strip():
@@ -239,18 +243,17 @@ class BuildSystem:
 
         self.log(f"Build succeeded: {target}", "OK")
         self._write_log(stdout)
-
         return target
 
     def build_macos(self):
         """Build on macOS (stub)."""
-        self.log("🍎 macOS build — desteği v0.3'te", "WARN")
+        self.log("macOS build -- destek v0.3'te", "WARN")
         self.log("Using: xcodebuild (detected)", "INFO")
         return None
 
     def build_linux(self):
         """Build on Linux (stub)."""
-        self.log("🐧 Linux build — desteği v0.4'te", "WARN")
+        self.log("Linux build -- destek v0.4'te", "WARN")
         self.log("Detected gcc/clang (stub)", "INFO")
         return None
 
