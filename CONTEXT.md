@@ -101,6 +101,16 @@ C:\reji-studio\
 - [ ] `NV_DX_INTEROP` gerçek implementasyonu (`wglDXRegisterObjectNV`)
 - [ ] Sahne yönetimi genişletme (gerçek içerikler)
 
+### Plugin Sandbox (Uzun Vadeli — v1.5+)
+- [ ] **v1.0 → v1.5:** Extism/WASM opsiyonel destek, "Sandbox plugin" UI rozeti
+  - Rust orchestrator'a `extism::PluginManager` entegrasyonu
+  - Plugin kodu Ed25519 imzalanmalı (CLI: `reji plugin submit --sign`)
+  - Güvenli marketplace başlama — binary scan + human code review workflow
+- [ ] **v1.5 → v2.0:** Extism zorunlu, in-process sadece certified core plugins
+  - In-process plugin loader kaldırılacak (breaking change)
+  - Tüm 3. parti plugin WASM sandbox'ta çalışacak
+  - Ref: https://github.com/extism/extism (WASI, 12 dil, Shopify/Discord production)
+
 ### Reliability Debt (güvenlik değil, ileride)
 - [ ] `copy_fence_` → `CreateQuery` eksik, cross-adapter aktifken crash
 - [ ] `wait_display_gpu_idle()` → `DXGI_ERROR_DEVICE_REMOVED` sonsuz döngü

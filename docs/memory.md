@@ -114,3 +114,18 @@ Bu sorunlar güvenlik kapsamında değil, ileride düzeltilmeli:
 | 0x1002 | AMD | `kPbo` |
 | 0x8086 | Intel | `kPbo` |
 | 0x0000 | Bilinmiyor / init yok | `kPbo` |
+
+---
+
+## Plugin Güvenliği
+
+### In-Process Plugin Riski (v0.x)
+**Sorun:** Şu an plugin'ler C ABI üzerinden in-process çalışıyor.
+Hastalıklı veya kötü amaçlı plugin tüm `reji_app.exe` süreci düşürebilir (segfault, infinite loop, memory leak).
+
+**Uzun Vadeli Çözüm:** Extism/WASM Sandbox
+- **Kaynağı:** https://github.com/extism/extism
+- **Özellikleri:** WASI tabanlı, 12 dil desteği (Rust, Go, Python, C, ...), production (Shopify, Discord)
+- **Avantajı:** Plugin kodu process-isolated, sandbox kaçış zor, memory-safe WASM
+- **Entegrasyon:** Rust orchestrator'a `extism::PluginManager`, v1.5'te opsiyonel, v2.0'de zorunlu
+- **Marketplace:** Ed25519 imza + binary scan + human review (v1.5+)

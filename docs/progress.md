@@ -71,3 +71,24 @@ b7a7e8f  chore: .gitignore genislet, gecici dosyalari tracked listeden cikar
 - Qt6 UI iskeleti — MainWindow, PreviewWidget, ProgramWidget, HealingOverlay, RustBridge
 - Self-healing monitör (healing.rs) Rust tarafı
 - Tüm FFI sınır testleri geçiyor
+
+---
+
+## Plugin Sandbox Yol Haritası (Uzun Vadeli)
+
+**Sorun:** In-process plugin C ABI güvenlik riski — hastalıklı plugin tüm süreci düşürebilir.
+
+**Çözüm:** Extism/WASM sandbox (https://github.com/extism/extism) — WASI tabanlı, 12 dil desteği.
+
+| Versiyon | Hedef | Detay |
+|---|---|---|
+| **v1.0** | C ABI in-process + Ed25519 imza | Plugin kodu imzalanmalı, marketplace yok |
+| **v1.5** | Extism/WASM opsiyonel | "Sandbox plugin" rozeti, güvenli marketplace başlar |
+| **v2.0** | Extism zorunlu | In-process sadece certified core plugins, 3. parti sandbox'ta |
+
+**Marketplace Akışı (v1.5+):**
+1. Plugin geliştirici WASM compile
+2. `reji plugin submit <wasm> --sign <privkey>`
+3. Ed25519 + binary scan + code review
+4. Onaylandı: `reji marketplace:published/tag-name:v1.0`
+5. Kullanıcı: `reji plugin install marketplace/tag-name:v1.0` → sandbox'ta yüklenir, process izole
