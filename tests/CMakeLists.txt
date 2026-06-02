@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Google Test — auto-download via FetchContent
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+)
+FetchContent_MakeAvailable(googletest)
+
 # FFI sinir testi
 add_executable(test_ffi_boundary
     test_ffi_boundary.cpp
