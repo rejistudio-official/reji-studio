@@ -157,7 +157,8 @@ void PreviewWidget::paintGL() {
     {
         QMutexLocker lock(&d_->frame_mutex);
         if (d_->frame_dirty && !d_->pending_frame.isNull()) {
-            const QImage img = d_->pending_frame.convertToFormat(QImage::Format_RGBA8888);
+            // DXGI sends BGRA data → convert to BGRA8888, not RGBA8888
+            const QImage img = d_->pending_frame.convertToFormat(QImage::Format_BGRA8888);
 
             const size_t needed = static_cast<size_t>(img.width())
                                 * static_cast<size_t>(img.height()) * 4u;
@@ -183,7 +184,7 @@ void PreviewWidget::paintGL() {
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
                              img.width(), img.height(), 0,
-                             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                             GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
                 d_->tex_w = img.width();
                 d_->tex_h = img.height();
             }
@@ -205,7 +206,7 @@ void PreviewWidget::paintGL() {
                 glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[read_idx]);
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
                                 img.width(), img.height(),
-                                GL_RGBA, GL_UNSIGNED_BYTE,
+                                GL_BGRA, GL_UNSIGNED_BYTE,
                                 nullptr);  // offset into PBO
                 glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
             }
