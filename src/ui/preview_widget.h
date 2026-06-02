@@ -3,6 +3,7 @@
 
 namespace rj { class FrameProfiler; }
 
+#include "render_capability.h"
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
 #include <memory>
@@ -37,6 +38,9 @@ public:
     // Must be called from the GL thread (or before the widget is shown) after
     // pipeline init. Safe to call multiple times; re-initializes PBOs on change.
     void selectRenderPath(uint32_t vendor_id);
+
+    // Get current render path.
+    RenderPath renderPath() const;
 
     // Wire profiler for CPU copy and paintGL timing.
     // Profiler is borrowed; lifecycle managed by Pipeline.
