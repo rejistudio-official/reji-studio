@@ -3,6 +3,7 @@ project(reji_pipeline CXX C)
 
 set(PIPELINE_SOURCES
     pipeline.cpp
+    frame_profiler.cpp
 )
 
 if(WIN32)
@@ -121,6 +122,7 @@ if(WIN32)
         target_compile_definitions(reji_pipeline PRIVATE RJ_SRT_AVAILABLE)
         target_link_libraries(reji_pipeline PUBLIC SRT::srt ws2_32.lib)
     else()
+        target_sources(reji_pipeline PRIVATE output/srt_output_stub.cpp)
         message(STATUS "SRT not found — srt_output.cpp disabled. "
                        "Install: vcpkg install libsrt:x64-windows")
     endif()

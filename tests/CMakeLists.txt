@@ -10,3 +10,16 @@ target_link_libraries(test_ffi_boundary
 )
 
 add_test(NAME ffi_boundary COMMAND test_ffi_boundary)
+
+# Frame profiler testi
+add_executable(test_frame_profiler
+    test_frame_profiler.cpp
+)
+
+target_link_libraries(test_frame_profiler
+    gtest gtest_main
+    reji_pipeline
+    Qt6::Core
+)
+
+add_test(NAME FrameProfilerTest COMMAND test_frame_profiler)
