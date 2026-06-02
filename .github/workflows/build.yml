@@ -26,6 +26,10 @@ jobs:
         with:
           arch: x64
 
+      - name: Build Rust orchestrator
+        run: cargo build --release
+        working-directory: ${{ github.workspace }}
+
       - name: CMake yapılandır
         run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
 
