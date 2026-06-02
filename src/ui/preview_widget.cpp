@@ -10,6 +10,7 @@
 #include <QOpenGLVertexArrayObject>
 #include <QSurfaceFormat>
 #include <cstdio>
+#include <cstring>
 #include <dwmapi.h>
 
 namespace {
@@ -54,7 +55,8 @@ public:
     int    tex_w{0}, tex_h{0};
 
     QMutex frame_mutex;
-    QImage pending_frame;   // written by pipeline thread, consumed in paintGL
+    std::vector<uint8_t> pending_buffer;  // raw BGRA data from DXGI
+    int    pending_width{0}, pending_height{0};
     bool   frame_dirty{false};
 
     // --- Render path ---
@@ -103,14 +105,23 @@ void PreviewWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
     //   We deep-copy here so the caller can Unmap immediately after this call returns.
     //
     // v0.2: replace this function with WGL_NV_DX_INTEROP texture sharing to
-    //   avoid the CPU copy entirely — call wglDXRegisterObjectNV once, then just
+    //   avoid the CPU copy entirely â€” call wglDXRegisterObjectNV once, then just
     //   wglDXLockObjectsNV / wglDXUnlockObjectsNV around each paintGL.
     QMutexLocker lock(&d_->frame_mutex);
-    d_->pending_frame = QImage(
-        static_cast<const uchar*>(bgra_pixels),
-        width, height, row_pitch,
-        QImage::Format_ARGB32   // BGRA on little-endian == Qt's ARGB32
-    ).copy();
+
+    const size_t row_bytes = static_cast<size_t>(width) * 4u;
+    d_->pending_buffer.resize(row_bytes * static_cast<size_t>(height));
+
+    const uint8_t* src = static_cast<const uint8_t*>(bgra_pixels);
+    uint8_t* dst = d_->pending_buffer.data();
+    for (int y = 0; y < height; ++y) {
+        std::memcpy(dst, src, row_bytes);
+        src += row_pitch;
+        dst += row_bytes;
+    }
+
+    d_->pending_width = width;
+    d_->pending_height = height;
     d_->frame_dirty = true;
     QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
 }
@@ -139,7 +150,7 @@ void PreviewWidget::initializeGL() {
                           reinterpret_cast<void*>(2 * sizeof(float)));
     d_->vao.release();
 
-    // PBO objects — content allocated lazily on first frame (size unknown here).
+    // PBO objects â€” content allocated lazily on first frame (size unknown here).
     glGenBuffers(2, d_->pbo);
     glFinish();
     DwmFlush();
@@ -156,12 +167,14 @@ void PreviewWidget::paintGL() {
 
     {
         QMutexLocker lock(&d_->frame_mutex);
-        if (d_->frame_dirty && !d_->pending_frame.isNull()) {
-            // DXGI sends BGRA data → convert to BGRA8888, not RGBA8888
-            const QImage img = d_->pending_frame.convertToFormat(QImage::Format_BGRA8888);
+        if (d_->frame_dirty && !d_->pending_buffer.empty()) {
+            // Direct BGRA buffer upload from DXGI (no conversion)
+            const uint8_t* bgra = d_->pending_buffer.data();
+            const int width = d_->pending_width;
+            const int height = d_->pending_height;
 
-            const size_t needed = static_cast<size_t>(img.width())
-                                * static_cast<size_t>(img.height()) * 4u;
+            const size_t needed = static_cast<size_t>(width)
+                                * static_cast<size_t>(height) * 4u;
 
             // --- Resize / first-alloc: orphan both PBOs, reset texture and guard ---
             if (needed != d_->pbo_size) {
@@ -183,29 +196,29 @@ void PreviewWidget::paintGL() {
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-                             img.width(), img.height(), 0,
+                             width, height, 0,
                              GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
-                d_->tex_w = img.width();
-                d_->tex_h = img.height();
+                d_->tex_w = width;
+                d_->tex_h = height;
             }
 
             const int write_idx = d_->pbo_idx;
             const int read_idx  = d_->pbo_idx ^ 1;
 
-            // CPU → PBO[write] (async DMA start, returns immediately)
+            // CPU to PBO[write] (async DMA start, returns immediately)
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[write_idx]);
             glBufferData(GL_PIXEL_UNPACK_BUFFER,
                          static_cast<GLsizeiptr>(needed),
-                         img.constBits(), GL_STREAM_DRAW);
+                         bgra, GL_STREAM_DRAW);
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
-            // PBO[read] → texture (GPU DMA from previous frame's PBO)
-            // Guard: skip on frame 0 — read PBO is still empty.
+            // PBO[read] to texture (GPU DMA from previous frame’s PBO)
+            // Guard: skip on frame 0 - read PBO is still empty.
             if (d_->pbo_frame >= 1) {
                 glBindTexture(GL_TEXTURE_2D, d_->tex_id);
                 glBindBuffer(GL_PIXEL_UNPACK_BUFFER, d_->pbo[read_idx]);
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-                                img.width(), img.height(),
+                                width, height,
                                 GL_BGRA, GL_UNSIGNED_BYTE,
                                 nullptr);  // offset into PBO
                 glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
