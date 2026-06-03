@@ -13,6 +13,14 @@ if(WIN32)
         capture/gpu_resource_manager.cpp
         encode/encode_nvenc.cpp
     )
+
+    # Vulkan support (requires Vulkan SDK)
+    if(NOT REJI_VULKAN_MOCK)
+        list(APPEND PIPELINE_SOURCES
+            gpu/vulkan_initializer.cpp
+            gpu/external_memory_bridge.cpp
+        )
+    endif()
 endif()
 
 add_library(reji_pipeline STATIC ${PIPELINE_SOURCES})
@@ -36,6 +44,10 @@ if(WIN32)
         avrt.lib
         winmm.lib
     )
+
+    if(Vulkan_FOUND)
+        target_link_libraries(reji_pipeline PUBLIC Vulkan::Vulkan)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------

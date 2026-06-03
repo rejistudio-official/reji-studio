@@ -19,7 +19,13 @@ if(Qt6_FOUND)
         rust_bridge.cpp
         healing_overlay.cpp
         settings_dialog.cpp
+        render_capability.cpp
+        shader_cache.cpp
     )
+
+    # Vulkan-specific sources (only when not in mock mode)
+    if(NOT REJI_VULKAN_MOCK AND Vulkan_FOUND)
+    endif()
 
     # AUTOMOC/AUTOUIC per-target — avoids polluting parent scope.
     set_target_properties(reji_ui PROPERTIES
@@ -37,6 +43,10 @@ if(Qt6_FOUND)
         reji_pipeline
         dwmapi
     )
+
+    if(Vulkan_FOUND)
+        target_link_libraries(reji_ui PUBLIC Vulkan::Vulkan)
+    endif()
 else()
     message(STATUS "Qt6 bulunamadı — reji_ui stub olarak derleniyor. "
                    "Etkinleştirmek için: cmake -DQt6_DIR=<yol> veya Qt6_ROOT env ayarla.")

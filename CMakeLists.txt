@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(reji_studio VERSION 0.1.0 LANGUAGES CXX C)
 
+# Generator support: Ninja (recommended, x64 Native Tools) + NMake fallback
+# Usage: cmake -B build -G Ninja  (or -G "NMake Makefiles")
+# scripts/build.py auto-selects Ninja if available, falls back to NMake
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -21,6 +25,23 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+
+# Vulkan SDK (optional, required for real hardware)
+if(REJI_VULKAN_MOCK)
+    message(STATUS "Vulkan mock mode: CI testing (no physical GPU)")
+else()
+    find_package(Vulkan REQUIRED)
+    message(STATUS "Vulkan: ${Vulkan_VERSION}")
+endif()
+
+# Vulkan mock flag (CI: SwiftShader lacks KHR_external_memory_win32)
+option(REJI_VULKAN_MOCK "Enable Vulkan mock mode for CI (SwiftShader)" OFF)
+if(REJI_VULKAN_MOCK)
+    add_compile_definitions(REJI_VULKAN_MOCK=1)
+    message(STATUS "Vulkan mock mode: ON (CI)")
+else()
+    message(STATUS "Vulkan mock mode: OFF (real hardware)")
+endif()
 
 # CRT tutarliligi (Windows)
 if(MSVC)
