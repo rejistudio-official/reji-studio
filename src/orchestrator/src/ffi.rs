@@ -54,7 +54,6 @@ pub struct RjAction {
     pub action_type: RjActionType,
     pub param1: i32,
     pub param2: i32,
-    pub timestamp_us: u64,
     pub canary: u32,
 }
 

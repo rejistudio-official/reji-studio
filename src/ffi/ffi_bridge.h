@@ -70,7 +70,6 @@ typedef struct {
     RjActionType action_type;
     int32_t param1;                /* step_kbps, fps_limit, scale_factor*1000, etc */
     int32_t param2;                /* reserved */
-    uint64_t timestamp_us;         /* action creation timestamp */
     uint32_t canary;               /* = RJ_METRIC_MAGIC (0xEEFF1234) */
 } RjAction;
 

@@ -73,7 +73,6 @@ pub mod ffi {
         pub action_type: RjActionType,
         pub param1: i32,
         pub param2: i32,
-        pub timestamp_us: u64,
         pub canary: u32,
     }
 
@@ -114,7 +113,6 @@ pub fn action_to_ffi(action: &Action) -> ffi::RjAction {
         action_type,
         param1,
         param2: 0,
-        timestamp_us,
         canary: 0xEEFF1234,
     }
 }

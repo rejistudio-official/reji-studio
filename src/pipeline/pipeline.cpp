@@ -49,7 +49,7 @@
 // New total: 56 bytes (x64 MSVC natural alignment)
 static_assert(sizeof(RjMetricSample) == 56, "RjMetricSample ABI drift — expected 56 bytes (v0.4)");
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI drift");
-static_assert(sizeof(RjAction)       == 28, "RjAction ABI drift — expected 28 bytes (v0.4)");
+static_assert(sizeof(RjAction)       == 20, "RjAction ABI drift — expected 20 bytes (v0.4)");
 
 namespace {
 
