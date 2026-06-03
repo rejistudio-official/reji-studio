@@ -1,6 +1,8 @@
 #include "vulkan_initializer.h"
 
 #ifndef REJI_VULKAN_MOCK
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include <vulkan/vulkan_win32.h>
 #else
 // Mock mode: define extension names as string constants
