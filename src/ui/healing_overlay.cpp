@@ -8,6 +8,9 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QMessageBox>
+#include <QAbstractItemModel>
+#include <algorithm>
 
 namespace reji {
 
@@ -112,6 +115,112 @@ void HealingOverlay::onTick() {
         return;
     }
     d_->lbl_countdown->setText(QString("%1s").arg(d_->remaining_ms / 1000));
+}
+
+void HealingOverlay::onActionEvent(const ActionEvent& event) {
+    // Add to history
+    d_->history_list->insertItem(0, QString("[%1] %2")
+        .arg(event.timestamp, event.description));
+
+    // Keep only last 10
+    while (d_->history_list->count() > 10) {
+        delete d_->history_list->takeItem(d_->history_list->count() - 1);
+    }
+
+    // Mode-specific behavior
+    switch (d_->healing_mode) {
+        case HealingMode::AutoPilot: {
+            d_->lbl_message->setText(QString("Auto: %1").arg(event.description));
+            d_->history_list->show();
+            show();
+            raise();
+            d_->remaining_ms = 5000;
+            d_->lbl_countdown->setText("5s");
+            d_->timer->start();
+            break;
+        }
+
+        case HealingMode::CoPilot: {
+            d_->lbl_message->setText(tr("Eylem onayını bekleyen (30s zaman aşımı):"));
+            d_->action_list->clear();
+            d_->action_list->show();
+
+            auto* item = new QListWidgetItem(event.description);
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(Qt::Unchecked);
+            d_->action_list->addItem(item);
+
+            d_->current_action_id = event.id;
+
+            connect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
+                    this, [this, id = event.id](const QModelIndex&, const QModelIndex&) {
+                auto item = d_->action_list->item(0);
+                if (item && item->checkState() == Qt::Checked) {
+                    emit actionApproved(id);
+                    d_->action_list->clear();
+                    d_->action_list->hide();
+                    d_->co_pilot_timeout->stop();
+                }
+            });
+
+            show();
+            raise();
+            d_->co_pilot_timeout->start();
+            break;
+        }
+
+        case HealingMode::Assist: {
+            d_->lbl_message->setText(tr("Kayıt (Assist modu):"));
+            d_->history_list->show();
+            show();
+            raise();
+            d_->remaining_ms = 3000;
+            d_->lbl_countdown->setText("3s");
+            d_->timer->start();
+            break;
+        }
+
+        case HealingMode::Manual: {
+            d_->history_list->show();
+            if (!d_->manual_mode_warned) {
+                d_->manual_mode_warned = true;
+                QMessageBox::warning(this, tr("Healing Disabled"),
+                    tr("Healing is disabled (Manual mode).\nYou must adjust settings manually."));
+            }
+            break;
+        }
+    }
+}
+
+void HealingOverlay::onCoPilotTimeout() {
+    d_->co_pilot_timeout->stop();
+    d_->action_list->clear();
+    d_->action_list->hide();
+    d_->lbl_message->setText(tr("Eylem zaman aşımına uğradı (iptal edildi)"));
+    d_->remaining_ms = 2000;
+    d_->lbl_countdown->setText("2s");
+    d_->timer->start();
+}
+
+void HealingOverlay::setHealingMode(HealingMode mode) {
+    d_->healing_mode = mode;
+    if (mode == HealingMode::Manual) {
+        d_->manual_mode_warned = false;
+    }
+}
+
+HealingMode HealingOverlay::healingMode() const {
+    return d_->healing_mode;
+}
+
+QStringList HealingOverlay::actionHistory(int limit) const {
+    QStringList result;
+    int count = std::min(limit, d_->history_list->count());
+    for (int i = 0; i < count; ++i) {
+        auto item = d_->history_list->item(i);
+        result << item->text();
+    }
+    return result;
 }
 
 void HealingOverlay::paintEvent(QPaintEvent*) {
