@@ -130,76 +130,103 @@ impl RuleEngine {
     }
 
     /// Evaluate condition string against metrics
+    /// Supports: &&, ||, >, <, >=, <=, == operators
+    /// Examples: "frame_drop_pct > 10 && gpu_temp_c > 85"
+    ///           "frame_drop_pct < 5 || cpu_load_pct < 50"
     fn eval_condition(&self, condition: &str, metrics: &Metrics) -> bool {
-        // Simple expression evaluator for now
-        // TODO: Use a real expression parser (e.g., `rhai` or `mun`) for v0.4.1+
-        // For now: support basic patterns like "frame_drop_pct > 10", "gpu_temp_c > 85"
+        // Split by logical operators (|| and &&)
+        if let Some(pos) = condition.find("||") {
+            let left = &condition[..pos];
+            let right = &condition[pos + 2..];
+            return self.eval_condition(left, metrics) || self.eval_condition(right, metrics);
+        }
 
-        // Remove whitespace
-        let cond = condition.replace(" ", "");
+        if let Some(pos) = condition.find("&&") {
+            let left = &condition[..pos];
+            let right = &condition[pos + 2..];
+            return self.eval_condition(left, metrics) && self.eval_condition(right, metrics);
+        }
 
-        // Pattern 1: "frame_drop_pct > N"
-        if cond.contains("frame_drop_pct>") {
-            if let Some(pos) = cond.find("frame_drop_pct>") {
-                let rest = &cond[pos + 15..];
-                if let Ok(threshold) = rest.parse::<u32>() {
-                    return metrics.frame_drop_pct > threshold;
+        // Single comparison: "metric op value"
+        self.eval_single_comparison(condition, metrics)
+    }
+
+    /// Evaluate a single comparison: "frame_drop_pct > 10"
+    fn eval_single_comparison(&self, condition: &str, metrics: &Metrics) -> bool {
+        let cond = condition.trim();
+
+        // Try each operator in order (longest first to avoid ">=" matching ">")
+        for (op, metric_name) in &[
+            (">=", "frame_drop_pct"),
+            ("<=", "frame_drop_pct"),
+            (">", "frame_drop_pct"),
+            ("<", "frame_drop_pct"),
+            (">=", "gpu_temp_c"),
+            ("<=", "gpu_temp_c"),
+            (">", "gpu_temp_c"),
+            ("<", "gpu_temp_c"),
+            (">=", "cpu_temp_c"),
+            ("<=", "cpu_temp_c"),
+            (">", "cpu_temp_c"),
+            ("<", "cpu_temp_c"),
+            (">=", "cpu_load_pct"),
+            ("<=", "cpu_load_pct"),
+            (">", "cpu_load_pct"),
+            ("<", "cpu_load_pct"),
+            (">=", "memory_usage_pct"),
+            ("<=", "memory_usage_pct"),
+            (">", "memory_usage_pct"),
+            ("<", "memory_usage_pct"),
+        ] {
+            let pattern = format!("{}{}",metric_name, op);
+            if cond.contains(&pattern) {
+                if let Some(pos) = cond.find(&pattern) {
+                    let value_str = cond[pos + pattern.len()..].trim();
+
+                    // Parse the threshold value
+                    if let Ok(threshold) = value_str.parse::<i32>() {
+                        return self.compare_metric(
+                            *metric_name,
+                            threshold,
+                            *op,
+                            metrics,
+                        );
+                    }
                 }
             }
         }
 
-        // Pattern 2: "frame_drop_pct < N"
-        if cond.contains("frame_drop_pct<") {
-            if let Some(pos) = cond.find("frame_drop_pct<") {
-                let rest = &cond[pos + 15..];
-                if let Ok(threshold) = rest.parse::<u32>() {
-                    return metrics.frame_drop_pct < threshold;
-                }
-            }
-        }
-
-        // Pattern 3: "gpu_temp_c > N"
-        if cond.contains("gpu_temp_c>") {
-            if let Some(pos) = cond.find("gpu_temp_c>") {
-                let rest = &cond[pos + 11..];
-                if let Ok(threshold) = rest.parse::<i16>() {
-                    return metrics.gpu_temp_c > threshold;
-                }
-            }
-        }
-
-        // Pattern 4: "gpu_temp_c < N"
-        if cond.contains("gpu_temp_c<") {
-            if let Some(pos) = cond.find("gpu_temp_c<") {
-                let rest = &cond[pos + 11..];
-                if let Ok(threshold) = rest.parse::<i16>() {
-                    return metrics.gpu_temp_c < threshold;
-                }
-            }
-        }
-
-        // Pattern 5: "cpu_load_pct > N"
-        if cond.contains("cpu_load_pct>") {
-            if let Some(pos) = cond.find("cpu_load_pct>") {
-                let rest = &cond[pos + 13..];
-                if let Ok(threshold) = rest.parse::<u32>() {
-                    return metrics.cpu_load_pct > threshold;
-                }
-            }
-        }
-
-        // Pattern 6: "memory_usage_pct > N"
-        if cond.contains("memory_usage_pct>") {
-            if let Some(pos) = cond.find("memory_usage_pct>") {
-                let rest = &cond[pos + 17..];
-                if let Ok(threshold) = rest.parse::<u32>() {
-                    return metrics.memory_usage_pct > threshold;
-                }
-            }
-        }
-
-        // Default: condition not recognized
+        // Condition not recognized
         false
+    }
+
+    /// Compare a metric against a threshold using the given operator
+    fn compare_metric(
+        &self,
+        metric_name: &str,
+        threshold: i32,
+        operator: &str,
+        metrics: &Metrics,
+    ) -> bool {
+        let metric_value = match metric_name {
+            "frame_drop_pct" => metrics.frame_drop_pct as i32,
+            "gpu_temp_c" => metrics.gpu_temp_c as i32,
+            "cpu_temp_c" => metrics.cpu_temp_c as i32,
+            "cpu_load_pct" => metrics.cpu_load_pct as i32,
+            "memory_usage_pct" => metrics.memory_usage_pct as i32,
+            "network_rtt_ms" => metrics.network_rtt_ms as i32,
+            "network_loss_pct" => metrics.network_loss_pct as i32,
+            _ => return false,
+        };
+
+        match operator {
+            ">" => metric_value > threshold,
+            "<" => metric_value < threshold,
+            ">=" => metric_value >= threshold,
+            "<=" => metric_value <= threshold,
+            "==" => metric_value == threshold,
+            _ => false,
+        }
     }
 
     /// Create action from rule
@@ -372,5 +399,100 @@ mod tests {
         let actions = engine.evaluate(&metrics);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].rule_id, "test_reduce");
+    }
+
+    #[test]
+    fn test_eval_condition_with_and() {
+        let engine = RuleEngine::new();
+        let metrics = Metrics {
+            frame_drop_pct: 12,
+            gpu_temp_c: 87,
+            cpu_temp_c: 55,
+            memory_usage_pct: 50,
+            cpu_load_pct: 60,
+            network_rtt_ms: 20,
+            network_loss_pct: 0,
+        };
+
+        assert!(engine.eval_condition("frame_drop_pct > 10 && gpu_temp_c > 85", &metrics));
+        assert!(!engine.eval_condition("frame_drop_pct > 10 && gpu_temp_c > 90", &metrics));
+        assert!(!engine.eval_condition("frame_drop_pct > 15 && gpu_temp_c > 85", &metrics));
+    }
+
+    #[test]
+    fn test_eval_condition_with_or() {
+        let engine = RuleEngine::new();
+        let metrics = Metrics {
+            frame_drop_pct: 12,
+            gpu_temp_c: 65,
+            cpu_temp_c: 55,
+            memory_usage_pct: 50,
+            cpu_load_pct: 60,
+            network_rtt_ms: 20,
+            network_loss_pct: 0,
+        };
+
+        assert!(engine.eval_condition("frame_drop_pct > 10 || gpu_temp_c > 85", &metrics));
+        assert!(!engine.eval_condition("frame_drop_pct > 15 || gpu_temp_c > 85", &metrics));
+    }
+
+    #[test]
+    fn test_eval_condition_gte() {
+        let engine = RuleEngine::new();
+        let metrics = Metrics {
+            frame_drop_pct: 10,
+            gpu_temp_c: 65,
+            cpu_temp_c: 55,
+            memory_usage_pct: 50,
+            cpu_load_pct: 60,
+            network_rtt_ms: 20,
+            network_loss_pct: 0,
+        };
+
+        assert!(engine.eval_condition("frame_drop_pct >= 10", &metrics));
+        assert!(!engine.eval_condition("frame_drop_pct >= 11", &metrics));
+    }
+
+    #[test]
+    fn test_eval_condition_lte() {
+        let engine = RuleEngine::new();
+        let metrics = Metrics {
+            frame_drop_pct: 5,
+            gpu_temp_c: 65,
+            cpu_temp_c: 55,
+            memory_usage_pct: 50,
+            cpu_load_pct: 60,
+            network_rtt_ms: 20,
+            network_loss_pct: 0,
+        };
+
+        assert!(engine.eval_condition("frame_drop_pct <= 5", &metrics));
+        assert!(!engine.eval_condition("frame_drop_pct <= 4", &metrics));
+    }
+
+    #[test]
+    fn test_eval_condition_complex() {
+        let engine = RuleEngine::new();
+        let metrics = Metrics {
+            frame_drop_pct: 12,
+            gpu_temp_c: 87,
+            cpu_temp_c: 70,
+            memory_usage_pct: 85,
+            cpu_load_pct: 95,
+            network_rtt_ms: 20,
+            network_loss_pct: 0,
+        };
+
+        // Multiple conditions
+        assert!(engine.eval_condition(
+            "frame_drop_pct > 10 && gpu_temp_c > 85 && cpu_load_pct > 90",
+            &metrics
+        ));
+
+        // Mixed && and ||
+        assert!(engine.eval_condition(
+            "frame_drop_pct < 5 || gpu_temp_c > 85 && cpu_load_pct > 90",
+            &metrics
+        ));
     }
 }

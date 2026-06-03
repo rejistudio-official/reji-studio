@@ -1,0 +1,152 @@
+# Reji Studio Runtime Adaptation Rules (TOML format)
+# v0.4 — Alternative format to JSON
+#
+# Edit and save to ~/.reji/rules.toml
+# Hot-reload: NamedEvent or SIGHUP signal
+
+[metadata]
+version = "1.0"
+description = "Reji Studio Runtime Adaptation Rules — v0.4 TOML format"
+author = "Reji Studio Team"
+last_updated = "2026-06-03"
+
+# Global settings
+hysteresis_ms = 10000
+default_mode = "co-pilot"
+
+# ============================================================================
+# Frame Drop Rules
+# ============================================================================
+
+[[rules]]
+id = "frame_drop_mild"
+description = "Frame drop 5-10% — mild bitrate reduction"
+condition = "frame_drop_pct > 5 && frame_drop_pct <= 10"
+action = "bitrate_reduce"
+modes = ["auto-pilot", "co-pilot", "assist"]
+
+[rules.params]
+step_kbps = 250
+
+[[rules]]
+id = "frame_drop_high"
+description = "Frame drop >10% — aggressive bitrate reduction"
+condition = "frame_drop_pct > 10"
+action = "bitrate_reduce"
+modes = ["auto-pilot", "co-pilot", "assist"]
+
+[rules.params]
+step_kbps = 500
+
+[[rules]]
+id = "frame_drop_recovery"
+description = "Frame drop <5% — gradual bitrate recovery"
+condition = "frame_drop_pct < 5"
+action = "bitrate_recover"
+modes = ["auto-pilot", "co-pilot"]
+
+[rules.params]
+step_kbps = 250
+
+# ============================================================================
+# Thermal Scaling Rules
+# ============================================================================
+
+[[rules]]
+id = "gpu_thermal_throttle"
+description = "GPU temp >85°C — scale preview to half resolution"
+condition = "gpu_temp_c > 85"
+action = "scale_resolution"
+modes = ["auto-pilot", "co-pilot"]
+
+[rules.params]
+scale_factor = 0.5
+
+[[rules]]
+id = "gpu_thermal_warning"
+description = "GPU temp 80-85°C — log warning (no action)"
+condition = "gpu_temp_c > 80 && gpu_temp_c <= 85"
+action = "log_only"
+modes = ["auto-pilot", "co-pilot", "assist", "manual"]
+
+[rules.params]
+message = "GPU temperature approaching throttle threshold"
+
+[[rules]]
+id = "gpu_thermal_restore"
+description = "GPU temp <70°C — restore full resolution"
+condition = "gpu_temp_c < 70"
+action = "restore_resolution"
+modes = ["auto-pilot", "co-pilot"]
+
+[rules.params]
+
+# ============================================================================
+# CPU Load Rules
+# ============================================================================
+
+[[rules]]
+id = "cpu_load_high"
+description = "CPU >90% load — cap preview FPS to 30"
+condition = "cpu_load_pct > 90"
+action = "cap_fps"
+modes = ["auto-pilot", "co-pilot"]
+
+[rules.params]
+fps_limit = 30
+
+[[rules]]
+id = "cpu_load_recovery"
+description = "CPU <70% load — restore preview FPS"
+condition = "cpu_load_pct < 70"
+action = "restore_fps"
+modes = ["auto-pilot", "co-pilot"]
+
+[rules.params]
+
+# ============================================================================
+# Memory Pressure Rules
+# ============================================================================
+
+[[rules]]
+id = "memory_pressure_high"
+description = "RAM >85% usage — scale preview to quarter resolution"
+condition = "memory_usage_pct > 85"
+action = "scale_resolution"
+modes = ["auto-pilot", "co-pilot", "assist"]
+
+[rules.params]
+scale_factor = 0.25
+
+[[rules]]
+id = "memory_pressure_recovery"
+description = "RAM <70% usage — restore resolution"
+condition = "memory_usage_pct < 70"
+action = "restore_resolution"
+modes = ["auto-pilot", "co-pilot"]
+
+[rules.params]
+
+# ============================================================================
+# Network Quality Rules (v0.4.1+ optional)
+# ============================================================================
+
+[[rules]]
+id = "network_rtt_high"
+description = "Network RTT >50ms — log warning"
+condition = "network_rtt_ms > 50"
+action = "log_only"
+modes = ["assist", "manual"]
+
+[rules.params]
+message = "High network latency detected"
+
+[[rules]]
+id = "network_loss_high"
+description = "Packet loss >5% — log warning"
+condition = "network_loss_pct > 5"
+action = "log_only"
+modes = ["assist", "manual"]
+
+[rules.params]
+message = "High packet loss detected, stream quality may degrade"

@@ -1,0 +1,175 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "description": "Reji Studio Runtime Adaptation Rules — v0.4",
+    "author": "Reji Studio Team",
+    "last_updated": "2026-06-03"
+  },
+  "rules": [
+    {
+      "id": "frame_drop_mild",
+      "description": "Frame drop 5-10% — mild bitrate reduction",
+      "condition": "frame_drop_pct > 5 && frame_drop_pct <= 10",
+      "action": "bitrate_reduce",
+      "params": {
+        "step_kbps": 250
+      },
+      "modes": [
+        "auto-pilot",
+        "co-pilot",
+        "assist"
+      ]
+    },
+    {
+      "id": "frame_drop_high",
+      "description": "Frame drop >10% — aggressive bitrate reduction",
+      "condition": "frame_drop_pct > 10",
+      "action": "bitrate_reduce",
+      "params": {
+        "step_kbps": 500
+      },
+      "modes": [
+        "auto-pilot",
+        "co-pilot",
+        "assist"
+      ]
+    },
+    {
+      "id": "frame_drop_recovery",
+      "description": "Frame drop <5% — gradual bitrate recovery",
+      "condition": "frame_drop_pct < 5",
+      "action": "bitrate_recover",
+      "params": {
+        "step_kbps": 250
+      },
+      "modes": [
+        "auto-pilot",
+        "co-pilot"
+      ]
+    },
+    {
+      "id": "gpu_thermal_throttle",
+      "description": "GPU temp >85°C — scale preview to half resolution",
+      "condition": "gpu_temp_c > 85",
+      "action": "scale_resolution",
+      "params": {
+        "scale_factor": 0.5
+      },
+      "modes": [
+        "auto-pilot",
+        "co-pilot"
+      ]
+    },
+    {
+      "id": "gpu_thermal_warning",
+      "description": "GPU temp 80-85°C — log warning (no action)",
+      "condition": "gpu_temp_c > 80 && gpu_temp_c <= 85",
+      "action": "log_only",
+      "params": {
+        "message": "GPU temperature approaching throttle threshold"
+      },
+      "modes": [
+        "auto-pilot",
+        "co-pilot",
+        "assist",
+        "manual"
+      ]
+    },
+    {
+      "id": "gpu_thermal_restore",
+      "description": "GPU temp <70°C — restore full resolution",
+      "condition": "gpu_temp_c < 70",
+      "action": "restore_resolution",
+      "params": {},
+      "modes": [
+        "auto-pilot",
+        "co-pilot"
+      ]
+    },
+    {
+      "id": "cpu_load_high",
+      "description": "CPU >90% load — cap preview FPS to 30",
+      "condition": "cpu_load_pct > 90",
+      "action": "cap_fps",
+      "params": {
+        "fps_limit": 30
+      },
+      "modes": [
+        "auto-pilot",
+        "co-pilot"
+      ]
+    },
+    {
+      "id": "cpu_load_recovery",
+      "description": "CPU <70% load — restore preview FPS",
+      "condition": "cpu_load_pct < 70",
+      "action": "restore_fps",
+      "params": {},
+      "modes": [
+        "auto-pilot",
+        "co-pilot"
+      ]
+    },
+    {
+      "id": "memory_pressure_high",
+      "description": "RAM >85% usage — scale preview to quarter resolution",
+      "condition": "memory_usage_pct > 85",
+      "action": "scale_resolution",
+      "params": {
+        "scale_factor": 0.25
+      },
+      "modes": [
+        "auto-pilot",
+        "co-pilot",
+        "assist"
+      ]
+    },
+    {
+      "id": "memory_pressure_recovery",
+      "description": "RAM <70% usage — restore resolution",
+      "condition": "memory_usage_pct < 70",
+      "action": "restore_resolution",
+      "params": {},
+      "modes": [
+        "auto-pilot",
+        "co-pilot"
+      ]
+    },
+    {
+      "id": "network_rtt_high",
+      "description": "Network RTT >50ms — log warning",
+      "condition": "network_rtt_ms > 50",
+      "action": "log_only",
+      "params": {
+        "message": "High network latency detected"
+      },
+      "modes": [
+        "assist",
+        "manual"
+      ]
+    },
+    {
+      "id": "network_loss_high",
+      "description": "Packet loss >5% — log warning",
+      "condition": "network_loss_pct > 5",
+      "action": "log_only",
+      "params": {
+        "message": "High packet loss detected, stream quality may degrade"
+      },
+      "modes": [
+        "assist",
+        "manual"
+      ]
+    }
+  ],
+  "hysteresis_ms": 10000,
+  "default_mode": "co-pilot",
+  "notes": [
+    "Hysteresis prevents oscillation — actions spaced 10s minimum apart",
+    "Frame drop: rolling 30s window @ 60fps",
+    "GPU temp: 0°C means unavailable (fallback, not actual temp)",
+    "Network metrics: optional v0.4.1+ (currently stub)",
+    "Edit this file and save to ~/.reji/rules.json for custom rules",
+    "Hot-reload: trigger via NamedEvent or SIGHUP signal"
+  ]
+}
