@@ -645,7 +645,7 @@ bool Pipeline::apply_action(const RjAction& action) {
 
     switch (action.action_type) {
         case RJ_ACTION_BITRATE_REDUCE: {
-            uint32_t new_rate = impl_->config.bitrate_kbps;
+            uint32_t new_rate = impl_->cfg.bitrate_kbps;
             if (new_rate > 1000) {
                 new_rate = static_cast<uint32_t>(new_rate * 0.85f);  // 85% of current
                 return impl_->encoder->set_bitrate(new_rate);
@@ -653,7 +653,7 @@ bool Pipeline::apply_action(const RjAction& action) {
             break;
         }
         case RJ_ACTION_BITRATE_RECOVER: {
-            uint32_t target_rate = impl_->config.bitrate_kbps;
+            uint32_t target_rate = impl_->cfg.bitrate_kbps;
             uint32_t current_rate = impl_->bitrate_kbps;
             if (current_rate < target_rate) {
                 uint32_t new_rate = static_cast<uint32_t>(current_rate * 1.05f);  // 105% of current
@@ -667,7 +667,7 @@ bool Pipeline::apply_action(const RjAction& action) {
             float scale = action.param1 / 1000.0f;
             return impl_->encoder->set_resolution(scale);
         }
-        case RJ_ACTION_FPS_LIMIT: {
+        case RJ_ACTION_CAP_FPS: {
             // param1 is target FPS
             uint32_t fps = action.param1;
             return impl_->encoder->set_fps_limit(fps);

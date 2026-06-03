@@ -74,7 +74,7 @@ private:
     void action_processor_main();
 
     /// v0.4+: Apply a single action (bitrate/resolution/fps change).
-    bool apply_action(const rj::RjAction& action);
+    bool apply_action(const RjAction& action);
 };
 
 } // namespace rj
