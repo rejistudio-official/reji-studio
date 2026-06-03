@@ -26,6 +26,26 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
     add_compile_options(/W4 /WX-)
+
+    # Windows SDK path (v0.4+ fix for crtdbg.h)
+    if(NOT DEFINED WINDOWS_SDK_PATH)
+        set(WINDOWS_SDK_PATH "C:/Program Files (x86)/Windows Kits/10")
+    endif()
+
+    if(NOT DEFINED WINDOWS_SDK_VERSION)
+        set(WINDOWS_SDK_VERSION "10.0.26100.0")
+    endif()
+
+    include_directories(
+        "${WINDOWS_SDK_PATH}/Include/${WINDOWS_SDK_VERSION}/ucrt"
+        "${WINDOWS_SDK_PATH}/Include/${WINDOWS_SDK_VERSION}/um"
+        "${WINDOWS_SDK_PATH}/Include/${WINDOWS_SDK_VERSION}/shared"
+    )
+
+    link_directories(
+        "${WINDOWS_SDK_PATH}/Lib/${WINDOWS_SDK_VERSION}/ucrt/x64"
+        "${WINDOWS_SDK_PATH}/Lib/${WINDOWS_SDK_VERSION}/um/x64"
+    )
 endif()
 
 # Alt projeler
