@@ -1,0 +1,120 @@
+name: CI - Reji Studio v0.5 Vulkan Pivot
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+
+jobs:
+  build-and-test:
+    name: Build & Test (Mock Mode)
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        config: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup CMake
+        uses: cmake-actions/setup-cmake@v1
+        with:
+          cmake-version: '3.20'
+
+      - name: Setup Visual Studio
+        uses: microsoft/setup-msbuild@v1
+        with:
+          vs-version: '17.x'
+
+      - name: Configure CMake (Mock Mode)
+        run: |
+          mkdir -p build
+          cmake -B build `
+            -G "Visual Studio 18 2026" `
+            -DREJI_VULKAN_MOCK=ON `
+            -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+        shell: pwsh
+
+      - name: Build reji_pipeline
+        run: cmake --build build --config ${{ matrix.config }} --target reji_pipeline
+
+      - name: Build reji_ui
+        run: cmake --build build --config ${{ matrix.config }} --target reji_ui
+
+      - name: Run Frame Profiler Tests
+        run: ctest --build-config ${{ matrix.config }} -R FrameProfilerTest -V
+        working-directory: build
+
+      - name: Run Shader Cache Tests
+        run: ctest --build-config ${{ matrix.config }} -R ShaderCacheTest -V
+        working-directory: build
+
+      - name: Run FFI Boundary Tests
+        run: ctest --build-config ${{ matrix.config }} -R ffi_boundary -V
+        working-directory: build
+
+  validation-gates:
+    name: Code Quality Gates
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check include paths
+        run: |
+          # Verify no hardcoded absolute paths
+          $files = Get-ChildItem -Path "src/**/*.cpp", "src/**/*.h" -Recurse
+          $found = 0
+          foreach ($file in $files) {
+            if (Select-String -Path $file -Pattern 'C:\\Users\\' -ErrorAction SilentlyContinue) {
+              Write-Host "❌ Hardcoded path in $($file.Name)"
+              $found = 1
+            }
+          }
+          if ($found) { exit 1 }
+        shell: pwsh
+
+      - name: Verify mock mode stubs
+        run: |
+          # Ensure REJI_VULKAN_MOCK guards are in place
+          $files = Get-ChildItem -Path "src/**/*.cpp" -Recurse
+          foreach ($file in $files) {
+            if ($file.Name -match "vulkan|qrhi") {
+              $content = Get-Content $file
+              if ($content -notmatch "#ifndef REJI_VULKAN_MOCK") {
+                Write-Host "⚠️  Missing mock guard in $($file.Name)"
+              }
+            }
+          }
+        shell: pwsh
+
+  docs-check:
+    name: Documentation
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify spec document exists
+        run: |
+          if (Test-Path "docs/superpowers/specs/2026-06-03-vulkan-pivot-v05.md") {
+            Write-Host "✓ Spec document found"
+          } else {
+            Write-Host "❌ Spec document missing"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Verify performance targets documented
+        run: |
+          $spec = Get-Content "docs/superpowers/specs/2026-06-03-vulkan-pivot-v05.md"
+          if ($spec -match "<2ms" -and $spec -match "90%") {
+            Write-Host "✓ Performance targets documented"
+          } else {
+            Write-Host "⚠️  Performance targets may be missing from spec"
+          }
+        shell: pwsh
