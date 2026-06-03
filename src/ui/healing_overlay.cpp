@@ -1,6 +1,7 @@
 #include "healing_overlay.h"
 #ifdef QT6_AVAILABLE
 
+#include "settings_dialog.h"
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
