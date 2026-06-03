@@ -7,9 +7,11 @@ edition.workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-tokio     = { workspace = true }
-crossbeam = { workspace = true }
-serde     = { workspace = true }
-redb      = { workspace = true }
-axum      = { workspace = true }
-tracing   = { workspace = true }
+tokio       = { workspace = true }
+crossbeam   = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+toml        = { workspace = true }
+redb        = { workspace = true }
+axum        = { workspace = true }
+tracing     = { workspace = true }

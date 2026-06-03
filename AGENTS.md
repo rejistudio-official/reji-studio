@@ -105,6 +105,60 @@ cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
 
 ---
 
+## Performans Kuralları (v0.4+ Runtime Adaptation)
+
+### WMI & System Queries
+- **ASLA hot-path'te WMI query çağırma** — thermal, CPU load queries ayrı thread'te
+- **Min 1 Hz polling rate** — 1000ms minimum interval
+- **Timeout 5s** — WMI query timeout'ı, fallback 0°C (unavailable)
+- ❌ **YASAK:** `run_frame()` → `rj_metrics_poll()` → WMI (deadlock risk)
+- ✅ **DOĞRU:** background thread (MetricsCollector) → poll → metrics buffer
+
+### Rule Evaluation
+- **Pre-compile conditions** — JSON load'ta condition parsing, frame'de değil
+- ❌ **YASAK:** `std::string` condition parsing in `RuleEngine::eval_condition()` per frame
+- ✅ **DOĞRU:** condition AST pre-build, frame'de boolean check only
+- **Threshold:** condition eval <1ms per rule (8 rules = <8ms total)
+- **Rust:** Rule evaluation thread-spawned, async, result queue'ya push
+
+### Frame Drop Calculation
+- ❌ **YASAK:** `std::deque<uint32_t>` 1800 frame window (slow deque operations)
+- ✅ **DOĞRU:** circular ring buffer (fixed 1800 capacity, O(1) push/pop)
+  ```cpp
+  // Preferred:
+  uint32_t frame_drop_window[1800];
+  size_t window_head = 0;
+  frame_drop_window[window_head++ % 1800] = current_drop;
+  ```
+- **Update rate:** 1 Hz (every 1800 frames @ 60fps)
+- **Lock:** `std::mutex` minimal scope (calculate, unlock, return)
+
+### UI Updates (Qt)
+- ❌ **YASAK:** Direct `healing_overlay->updateUI()` from Rust/FFI thread
+- ✅ **DOĞRU:** `QMetaObject::invokeMethod(healing_overlay, "onActionEvent", Qt::QueuedConnection, ...)`
+- **Pattern:**
+  ```cpp
+  QMetaObject::invokeMethod(healing_overlay, "onActionEvent",
+      Qt::QueuedConnection,
+      Q_ARG(QString, action_description),
+      Q_ARG(bool, require_approval));
+  ```
+- **Slots:** must be `public` or `public slots` for invokeMethod
+- **Signal:** alternative: emit from C++ thread, connect with Qt::QueuedConnection
+
+### Action Queue Management
+- **Capacity:** 64 fixed (crossbeam ArrayQueue)
+- **Overflow:** drop newest (low priority) actions, log warning
+- **Timeout:** Co-Pilot 30s → action cancelled (not auto-executed)
+- **Dequeue rate:** UI polls `rj_action_dequeue()` every 100ms
+
+### Metrics Buffer
+- **Canary check:** every `RjMetricSample` has `magic_head/tail` validation
+- **Alignment:** `#pragma pack(1)` if struct padding matters for FFI
+- **Size:** ~80 bytes per sample, circular buffer 10 samples = 800 bytes (negligible)
+
+---
+
 ## Dokunulmaması Gereken Dosyalar
 
 ```

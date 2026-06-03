@@ -4,6 +4,7 @@ project(reji_pipeline CXX C)
 set(PIPELINE_SOURCES
     pipeline.cpp
     frame_profiler.cpp
+    metrics_collector.cpp
 )
 
 if(WIN32)
@@ -30,6 +31,8 @@ if(WIN32)
         d3d11.lib
         dxgi.lib
         ole32.lib
+        oleaut32.lib
+        wbemuuid.lib
         avrt.lib
         winmm.lib
     )
