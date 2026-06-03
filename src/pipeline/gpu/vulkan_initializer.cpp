@@ -1,4 +1,12 @@
 #include "vulkan_initializer.h"
+
+#ifndef REJI_VULKAN_MOCK
+#include <vulkan/vulkan_win32.h>
+#else
+// Mock mode: define extension name as string constant
+#define VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME "VK_KHR_external_memory_win32"
+#endif
+
 #include <vector>
 #include <cstring>
 #include <cstdio>
