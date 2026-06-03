@@ -263,6 +263,15 @@ void HealingOverlay::setSettingsDialog(SettingsDialog* dialog) {
     d_->settings_dialog = dialog;
 }
 
+void HealingOverlay::onActionCheckboxToggled(uint32_t action_id, bool checked) {
+    if (checked) {
+        emit actionApproved(action_id);
+        d_->action_list->clear();
+        d_->action_list->hide();
+        d_->co_pilot_timeout->stop();
+    }
+}
+
 void HealingOverlay::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);

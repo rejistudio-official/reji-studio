@@ -18,6 +18,7 @@ if(Qt6_FOUND)
         program_widget.cpp
         rust_bridge.cpp
         healing_overlay.cpp
+        settings_dialog.cpp
     )
 
     # AUTOMOC/AUTOUIC per-target — avoids polluting parent scope.
