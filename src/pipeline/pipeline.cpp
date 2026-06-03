@@ -45,7 +45,9 @@
 // Natural alignment (no pack pragma) matches Rust #[repr(C)].
 // RjMetricSample: 4 + 4(pad) + 8 + 4 + 4 + 4 + 4 + 4(trail-pad) = 40
 // RjCommand:      4 + 4(pad) + 8 + 4 + 4                         = 24
-static_assert(sizeof(RjMetricSample) == 40, "RjMetricSample ABI drift");
+// v0.4: RjMetricSample extended with 20 bytes (frame_drop_pct, temps, load, network)
+// New total: 56 bytes (x64 MSVC natural alignment)
+static_assert(sizeof(RjMetricSample) == 56, "RjMetricSample ABI drift — expected 56 bytes (v0.4)");
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI drift");
 
 namespace {

@@ -15,10 +15,11 @@
 #include <thread>
 #include <chrono>
 
-// Layout doğrulama — Rust #[repr(C)] ile eşleşmeli (naturel hizalanmış, 40 bayt).
-// Rust tarafı için bkz. src/orchestrator/src/metrics.rs MetricSample.
-static_assert(sizeof(RjMetricSample) == 40,
-              "RjMetricSample C layout Rust repr(C) ile eslesmeli (40 bayt, pragma pack yok)");
+// Layout doğrulama — Rust #[repr(C)] ile eşleşmeli (naturel hizalanmış, x64 MSVC).
+// v0.3: 40 bytes; v0.4: 56 bytes (extended with thermal, load, network metrics)
+// Rust tarafı için bkz. src/orchestrator/lib.rs ffi::RjMetricSample
+static_assert(sizeof(RjMetricSample) == 56,
+              "RjMetricSample C layout Rust repr(C) ile eslesmeli (56 bayt v0.4, pragma pack yok)");
 
 namespace rj::pipeline::output {
 
