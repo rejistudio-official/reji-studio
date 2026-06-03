@@ -1,6 +1,12 @@
 #include "external_memory_bridge.h"
 #include <cstdio>
 
+#ifndef REJI_VULKAN_MOCK
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <vulkan/vulkan_win32.h>
+#endif
+
 namespace rj::pipeline::gpu {
 
 ExternalMemoryBridge::ExternalMemoryBridge(VkDevice device, VkPhysicalDevice physical_device)
@@ -14,22 +20,25 @@ HANDLE ExternalMemoryBridge::export_d3d11_handle(ID3D11Texture2D* staging_textur
     return nullptr;
   }
 
-  Microsoft::WRL::ComPtr<ID3D11Device> d3d11_device;
-  staging_texture->GetDevice(&d3d11_device);
+#ifdef REJI_VULKAN_MOCK
+  fprintf(stderr, "[ExternalMemoryBridge] Mock mode: skipping handle export\n");
+  fflush(stderr);
+  return nullptr;
+#endif
 
-  Microsoft::WRL::ComPtr<ID3D11Device1> d3d11_device1;
-  HRESULT hr = d3d11_device.As(&d3d11_device1);
+  Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_resource;
+  HRESULT hr = staging_texture->QueryInterface(__uuidof(IDXGIResource1), (void**)&dxgi_resource);
   if (FAILED(hr)) {
-    fprintf(stderr, "[ExternalMemoryBridge] Failed to cast to ID3D11Device1: 0x%x\n", hr);
+    fprintf(stderr, "[ExternalMemoryBridge] Failed to query IDXGIResource1: 0x%x\n", hr);
     fflush(stderr);
     return nullptr;
   }
 
   HANDLE nt_handle = nullptr;
-  hr = d3d11_device1->CreateSharedHandle(
-    staging_texture,
+  hr = dxgi_resource->CreateSharedHandle(
     nullptr,
     DXGI_SHARED_RESOURCE_READ,
+    nullptr,
     &nt_handle
   );
 
