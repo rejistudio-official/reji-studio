@@ -21,11 +21,9 @@ if(Qt6_FOUND)
         settings_dialog.cpp
         render_capability.cpp
         shader_cache.cpp
+        vulkan_render_path.cpp
+        qrhi_window_wrapper.cpp
     )
-
-    # Vulkan-specific sources (only when not in mock mode)
-    if(NOT REJI_VULKAN_MOCK AND Vulkan_FOUND)
-    endif()
 
     # AUTOMOC/AUTOUIC per-target — avoids polluting parent scope.
     set_target_properties(reji_ui PROPERTIES

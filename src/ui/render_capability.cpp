@@ -1,8 +1,11 @@
 #include "render_capability.h"
-#include "src/pipeline/gpu/vulkan_initializer.h"
-#include <cstdio>
 
+#ifndef REJI_VULKAN_MOCK
+#include "../pipeline/gpu/vulkan_initializer.h"
 using namespace rj::pipeline::gpu;
+#endif
+
+#include <cstdio>
 
 namespace reji {
 
@@ -11,8 +14,7 @@ RenderProfile CapabilityDetector::detect() noexcept {
   fprintf(stderr, "[CapabilityDetector] Mock mode: OpenGL fallback\n");
   fflush(stderr);
   return {RenderPath::kOpenGL, "OpenGL (mocked)", 0x0000, false};
-#endif
-
+#else
   VulkanInitializer vk_init;
   if (!vk_init.initialize()) {
     fprintf(stderr, "[CapabilityDetector] Vulkan init failed, falling back to OpenGL\n");
@@ -46,6 +48,7 @@ RenderProfile CapabilityDetector::detect() noexcept {
     vk_init.shutdown();
     return {RenderPath::kOpenGL, "OpenGL", vendor_id, true};
   }
+#endif
 }
 
 RenderProfile CapabilityDetector::detect_with_mock(bool mock_vulkan) noexcept {

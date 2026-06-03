@@ -90,10 +90,10 @@ PreviewWidget::~PreviewWidget() {
 }
 
 void PreviewWidget::selectRenderPath(uint32_t vendor_id) {
-    const RenderProfile profile = CapabilityDetector::detect(vendor_id);
+    const RenderProfile profile = CapabilityDetector::detect();
     d_->render_path = profile.path;
     fprintf(stderr, "[PreviewWidget] render path: %s (vendor=0x%04X)\n",
-            profile.name, vendor_id);
+            profile.name, profile.vendor_id);
 }
 
 RenderPath PreviewWidget::renderPath() const {
