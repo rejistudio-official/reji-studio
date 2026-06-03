@@ -4,6 +4,7 @@
 #include <memory>
 #include "frame_profiler.h"
 #include "metrics_collector.h"
+#include "../ffi/ffi_bridge.h"  // RjAction
 
 namespace rj {
 
