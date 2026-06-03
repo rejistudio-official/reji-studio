@@ -168,6 +168,63 @@ C:\reji-studio\
 - [ ] **SQLite Metrik Kaydı** — oturum geçmişi, trend analizi
 - [ ] **Makro Motoru** — Named Pipe üzerinden harici tetikleyici
 
+---
+
+## Karar Motoru — 6 Seviye Mimarisi
+
+**Amaç:** Reji Studio'nun donanım, ağ ve bağlam koşullarına göre otomatik uyum sağlaması.
+
+**Veri Akışı:**
+```
+Hardware/Metrics → DeviceProfiler (C++)
+  ↓
+RuleEngine (Rust) — JSON/TOML rules, hot-reload
+  ↓
+ActionDispatcher (Rust) — komut üretme
+  ↓
+Pipeline / HealingOverlay — aksiyonu execute
+```
+
+**Seviye Tanımları:**
+
+| Seviye | Versiyon | Kapasite | Örnekler |
+|---|---|---|---|
+| **1: Hardware** | v0.2 ✅ | GPU vendor, VRAM, D3D11 feature | `0x1002` (AMD) → PBO, `0x10DE` (NVIDIA) → NV_DX_INTEROP |
+| **2: Capability** | v0.3 ✅ | OpenGL ext, render path seçimi | AMD PBO, NVIDIA interop stub |
+| **3: Runtime** | v0.4 | Frame drop, sıcaklık, ağ, pil, bellek | Frame drop >10% → bitrate -500k, GPU >85°C → kalite düşür |
+| **4: Context** | v0.5 | Saat, izleyici, platform, sahne | Sabah test (2000k), akşam live (6000k), Twitch max 6000, YouTube 8000 |
+| **5: Learning** | v1.0 | Oturum analizi, anomali, yaşlanma | "RTX 4070 + 1080p60@6000kbps, avg 72°C" hafızası, GPU temp trend |
+| **6: Integration** | v2.0 | Stream Deck, OBS, bulut, webhook | Deck buton → bitrate smooth, OBS scene → profile switch, Discord alert |
+
+**v0.4 Seviye 3 Implementasyon:**
+
+- **Frame drop adaptation:**
+  - `RuleEngine`: `if frame_drop > 10% then bitrate -= 500k`
+  - Adaptive: 30s rolling avg, hysteresis 2-3% (oscillation prevent)
+
+- **Thermal scaling:**
+  - GPU temp → 3 band: cool (<70°C), normal (70-85°C), throttle (>85°C)
+  - Cool: full res, 60fps
+  - Normal: maintain
+  - Throttle: half res, 30fps, bitrate -30%
+
+- **Network metrics:**
+  - RTT > 50ms → codec switch (H.264 → VP9 + buffering adjust)
+  - Packet loss > 5% → redundancy +2%
+
+- **Laptop power:**
+  - Battery: preview 30fps cap, CPU job throttle
+  - AC: full performance
+
+- **Memory pressure:**
+  - RAM > 85% → preview quality quarter
+  - Disk I/O high → buffer size +50%, frame skip tolerance +1
+
+**Impl Files:**
+- `src/orchestrator/rules.rs` — rule engine, JSON/TOML parser, hot-reload
+- `src/orchestrator/metrics.rs` — AdaptationDecider (extend)
+- `src/ui/healing_overlay.cpp` — UI aksiyon gösterim
+
 ### Reliability Debt (güvenlik değil, ileride)
 - [ ] `copy_fence_` → `CreateQuery` eksik, cross-adapter aktifken crash
 - [ ] `wait_display_gpu_idle()` → `DXGI_ERROR_DEVICE_REMOVED` sonsuz döngü

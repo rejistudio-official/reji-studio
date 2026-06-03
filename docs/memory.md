@@ -138,6 +138,66 @@ Reji Studio'da dört self-healing davranış modu mevcuttur. Kullanıcı rolüne
 
 ---
 
+## Karar Motoru — 6 Seviye Yol Haritası
+
+Reji Studio'nun donanım, ağ ve bağlam koşullarına göre otomatik uyum sağlama yeteneği.
+DeviceProfiler → RuleEngine (Rust) → ActionDispatcher → HealingOverlay (UI)
+
+| Seviye | Versiyon | Kapasite | Detay |
+|---|---|---|---|
+| **1** | v0.2 ✅ | Hardware Discovery | GPU vendor, VRAM, D3D11 feature level; `CapabilityDetector`, `RenderProfile` |
+| **2** | v0.3 ✅ | Capability Detection | OpenGL extensions, render path seçimi (AMD→PBO, NVIDIA→NV_DX_INTEROP stub) |
+| **3** | v0.4 | Runtime Adaptation | Frame drop → bitrate düşür; GPU/CPU sıcaklık → kalite ayarı; RTT/jitter izleme; pil durumu; bellek baskısı; disk I/O |
+| **4** | v0.5 | Context Awareness | Saat bazlı profil (sabah test, akşam canlı); izleyici sayısı adapt; platform limitleri (Twitch 6000, YouTube 8000); sahne bazlı optimizasyon |
+| **5** | v1.0 | Learning System | SQLite oturum geçmişi analizi; donanım yaşlanma tespiti; başarılı config hafızası; anomali tespiti & auto-diagnosis |
+| **6** | v2.0 | External Integration | Stream Deck/Loupedeck fiziksel kontrol; OBS/vMix köprüsü; bulut profil sync; webhook (Discord/Slack) |
+
+### Seviye 3 (v0.4) Detayları
+
+**Uyum Mekanizmaları:**
+- Frame drop > eşik → bitrate otomatik düşür/yükselt
+- GPU sıcaklık > 85°C → encode kalite aşağı çek (full → half → quarter res)
+- CPU load > 90% → preview kalite düşür, frame cap (60→30fps)
+- Ağ metrikleri (RTT, jitter, paket kaybı) → codec/bitrate ayarı
+- Laptop pil modu → CPU/GPU işleri azalt, preview FPS cap
+- Disk I/O yüksek (kayıt modu) → buffer size artır, frame skip tolerance
+
+**Impl:** `src/orchestrator/rules.rs` (rule engine), `src/orchestrator/metrics.rs` (AdaptationDecider genişlet)
+
+### Seviye 4 (v0.5) Detayları
+
+**Context-Aware Profiller:**
+- Saat: 6-12 → "Morning Test" (low bitrate, high quality)
+- Saat: 18-23 → "Evening Live" (high bitrate, motion optimization)
+- İzleyici sayısı: 0-10 → "Low", 10-100 → "Medium", 100+ → "High"
+- Platform limit: Twitch 6000 kbps max, YouTube 8000 kbps, custom RTMP özel sınır
+- Sahne content type: statik/PowerPoint → intra frame artırma; hareketli/kamera → motion estimation
+
+**Impl:** Time-based scheduler, viewer count API poller, platform detection, scene analyzer
+
+### Seviye 5 (v1.0) Detayları
+
+**Öğrenme Sistemi:**
+- Her oturum: bitrate, FPS, GPU temp, frame drop → SQLite kaydı
+- Trend: 7 gün ortalama, anomali flag (sudden temp spike, frame drop burst)
+- Başarılı config: "RTX 4070 + 1080p60 @ 6000kbps, avg temp 72°C" → hafızaya al
+- Benzer hardware görüldüğünde otomatik preset uygula
+- Anomali: GPU temp anormal yükseliş → "thermal paste degradation?" hint
+
+**Impl:** `src/pipeline/metrics_recorder.cpp` (SQLite), `src/orchestrator/learning.rs` (pattern match)
+
+### Seviye 6 (v2.0) Detayları
+
+**Dış Sistem Entegrasyonu:**
+- **Fiziksel Kontrol:** Stream Deck "Bitrate up/down" butonları, Loupedeck fader → bitrate smooth interpolation
+- **OBS Köprüsü:** OBS scene switch → Reji profil otomatik sync (encoder settings match)
+- **Bulut:** Optional user cloud profile (GitHub gist veya custom server)
+- **Webhook:** Critical event → Discord DM ("GPU throttle detected, switching to backup camera")
+
+**Impl:** Named Pipe IPC server, OBS WebSocket client, optional cloud sync, webhook dispatcher
+
+---
+
 ## Plugin Güvenliği
 
 ### In-Process Plugin Riski (v0.x)

@@ -99,16 +99,34 @@ Pipeline shutdown()
 
 ---
 
+## Karar Motoru — 6 Seviye Yol Haritası (Mimari)
+
+Reji Studio'nun donanım, ağ ve bağlam koşullarına göre otomatik uyum sağlama mimarisi.
+`DeviceProfiler → RuleEngine (Rust) → ActionDispatcher → HealingOverlay (UI)`
+
+| Seviye | Versiyon | Kapasite | Durum |
+|---|---|---|---|
+| **1** | v0.2 ✅ | Hardware Discovery | GPU vendor, VRAM, D3D11 feature level |
+| **2** | v0.3 ✅ | Capability Detection | OpenGL extensions, render path seçimi |
+| **3** | v0.4 | Runtime Adaptation | Frame drop, sıcaklık, ağ, pil, bellek, disk |
+| **4** | v0.5 | Context Awareness | Saat, izleyici, platform, sahne optimizasyonu |
+| **5** | v1.0 | Learning System | Oturum analizi, hardware yaşlanma, anomali tespiti |
+| **6** | v2.0 | External Integration | Stream Deck, OBS/vMix, bulut, webhook |
+
+**Detaylar:** Bkz. `docs/memory.md` / Karar Motoru Bölümü
+
+---
+
 ## v0.4 Açık Görevler
 
 | # | Görev | Dosya / Modül | Öncelik |
 |---|---|---|---|
 | 1 | **GPU performance benchmark** — PBO CPU overhead, frame timing profili | `src/ui/preview_widget.cpp` | Yüksek |
-| 2 | **Runtime Adaptation Seviye 3** — frame drop % → bitrate otomatik düşür/yükselt | `src/orchestrator/metrics.rs::AdaptationDecider` | Yüksek |
+| 2 | **Runtime Adaptation Seviye 3** — frame drop %, sıcaklık, ağ metrikleri → adaptasyon | `src/orchestrator/metrics.rs::AdaptationDecider` | Yüksek |
 | 3 | **Self-Healing UI bağlantısı** — HealingOverlay + Dört mod (Auto-Pilot/Co-Pilot/Assist/Manual) | `src/ui/healing_overlay.cpp`, `src/orchestrator/metrics.rs` | Yüksek |
 | 4 | **Çoklu monitör desteği** — `EnumOutputs()` dropdown, her monitör bağımsız capture | `src/pipeline/capture/capture_dxgi.cpp` | Orta |
 | 5 | **Frame rate limiter** — preview 30fps cap, encode 60fps cap (ayrı thread'ler) | `src/pipeline/frame_limiter.h` (yeni) | Orta |
-| 6 | **Bitrate göstergesi UI** — real-time graph (30s), frame drop %, GPU temp | `src/ui/stats_widget.cpp` (yeni) | Orta |
+| 6 | **Bitrate/frame drop/GPU temp göstergeleri** — real-time graph (30s), UI stats widget | `src/ui/stats_widget.cpp` (yeni) | Orta |
 
 ---
 
