@@ -25,6 +25,7 @@ namespace reji {
     class ProgramWidget;
     class HealingOverlay;
     class RustBridge;
+    class SettingsDialog;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,8 @@ private slots:
     void addScene();
     /// Scene panel: remove the selected scene (minimum 1 scene enforced).
     void removeScene();
+    /// Opens Settings dialog
+    void onSettingsClicked();
 
 private:
     void buildMenuBar();
@@ -115,6 +118,7 @@ private:
     // ── Rust bridge + self-healing overlay ─────────────────────────────────
     reji::RustBridge*     rust_bridge_{nullptr};
     reji::HealingOverlay* healing_overlay_{nullptr};
+    reji::SettingsDialog* settings_dialog_{nullptr};
     QTimer*               metrics_timer_{nullptr};
 
     // ── Pipeline ───────────────────────────────────────────────────────────
