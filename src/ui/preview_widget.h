@@ -11,7 +11,7 @@ namespace rj { class FrameProfiler; }
 namespace reji {
 
 // ---------------------------------------------------------------------------
-// PreviewWidget — Preview (left) monitor.
+// PreviewWidget â€” Preview (left) monitor.
 //
 // v0.1 CPU upload path:
 //   uploadFrame() accepts BGRA pixels from a D3D11 staging-buffer CPU map.
@@ -21,7 +21,7 @@ namespace reji {
 // v0.2 (planned):
 //   Replace uploadFrame() with WGL_NV_DX_INTEROP (wglDXOpenDeviceNV /
 //   wglDXRegisterObjectNV) to share the D3D11 Texture2D handle directly
-//   as a GL texture — zero CPU↔GPU copy.
+//   as a GL texture â€” zero CPUâ†”GPU copy.
 // ---------------------------------------------------------------------------
 class PreviewWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
@@ -44,9 +44,7 @@ public:
 
     // Wire profiler for CPU copy and paintGL timing.
     // Profiler is borrowed; lifecycle managed by Pipeline.
-    void setProfiler(rj::FrameProfiler* profiler) {
-        profiler_ = profiler;
-    }
+    void setProfiler(rj::FrameProfiler* profiler);
 
 protected:
     void initializeGL() override;
