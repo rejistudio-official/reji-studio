@@ -159,7 +159,6 @@ void PreviewWidget::initializeGL() {
                           reinterpret_cast<void*>(2 * sizeof(float)));
     d_->vao.release();
     glFinish();
-    DwmFlush();
 }
 
 void PreviewWidget::resizeGL(int w, int h) {
@@ -170,7 +169,6 @@ void PreviewWidget::paintGL() {
     if (profiler_) profiler_->markPaintGLStart();
 
     // --- HOT-PATH: no heap allocation after the first frame ---
-    DwmFlush();
     glClear(GL_COLOR_BUFFER_BIT);
 
     {

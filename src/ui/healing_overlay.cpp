@@ -238,6 +238,10 @@ void HealingOverlay::onCoPilotTimeout() {
     d_->timer->start();
 }
 
+void HealingOverlay::onVulkanInitFailed() {
+    showMessage(tr("Vulkan desteklenmiyor, OpenGL uyumlu modunda..."), 5000);
+}
+
 void HealingOverlay::setHealingMode(HealingMode mode) {
     d_->healing_mode = mode;
     if (mode == HealingMode::Manual) {

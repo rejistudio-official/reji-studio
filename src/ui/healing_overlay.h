@@ -51,6 +51,9 @@ public:
     // New API: action event notification (thread-safe via Qt::QueuedConnection)
     void onActionEvent(const ActionEvent& event);
 
+    // Vulkan init failure notification (graceful degradation)
+    void onVulkanInitFailed();
+
     // Set healing mode (e.g., from SettingsDialog)
     void setHealingMode(HealingMode mode);
     HealingMode healingMode() const;
