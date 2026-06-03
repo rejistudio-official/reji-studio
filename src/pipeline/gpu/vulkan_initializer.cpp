@@ -3,8 +3,9 @@
 #ifndef REJI_VULKAN_MOCK
 #include <vulkan/vulkan_win32.h>
 #else
-// Mock mode: define extension name as string constant
+// Mock mode: define extension names as string constants
 #define VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME "VK_KHR_external_memory_win32"
+#define VK_EXT_DEBUG_UTILS_EXTENSION_NAME "VK_EXT_debug_utils"
 #endif
 
 #include <vector>
@@ -12,6 +13,26 @@
 #include <cstdio>
 
 namespace rj::pipeline::gpu {
+
+#ifndef REJI_VULKAN_MOCK
+static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT type,
+    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+    void* pUserData) {
+  const char* severity_str = "UNKNOWN";
+  switch (severity) {
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: severity_str = "VERBOSE"; break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT: severity_str = "INFO"; break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: severity_str = "WARNING"; break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT: severity_str = "ERROR"; break;
+    default: break;
+  }
+  fprintf(stderr, "[Vulkan Debug] [%s] %s\n", severity_str, pCallbackData->pMessage);
+  fflush(stderr);
+  return VK_FALSE;
+}
+#endif
 
 bool VulkanInitializer::initialize() {
   if (!create_instance()) {
@@ -62,9 +83,13 @@ bool VulkanInitializer::create_instance() {
 #ifdef _DEBUG
   const char* layers[] = {"VK_LAYER_KHRONOS_validation"};
   uint32_t layer_count = 1;
+  const char* extensions[] = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+  uint32_t ext_count = 1;
 #else
   uint32_t layer_count = 0;
   const char** layers = nullptr;
+  uint32_t ext_count = 0;
+  const char** extensions = nullptr;
 #endif
 
   VkInstanceCreateInfo create_info{};
@@ -72,11 +97,35 @@ bool VulkanInitializer::create_instance() {
   create_info.pApplicationInfo = &app_info;
   create_info.enabledLayerCount = layer_count;
   create_info.ppEnabledLayerNames = layers;
-  create_info.enabledExtensionCount = 0;
-  create_info.ppEnabledExtensionNames = nullptr;
+  create_info.enabledExtensionCount = ext_count;
+  create_info.ppEnabledExtensionNames = extensions;
 
   VkResult result = vkCreateInstance(&create_info, nullptr, &instance_);
-  return result == VK_SUCCESS;
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "[Vulkan] vkCreateInstance failed: %d\n", result);
+    fflush(stderr);
+    return false;
+  }
+
+#ifndef REJI_VULKAN_MOCK
+#ifdef _DEBUG
+  auto create_debug_utils = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
+      instance_, "vkCreateDebugUtilsMessengerEXT");
+  if (create_debug_utils) {
+    VkDebugUtilsMessengerCreateInfoEXT debug_info{};
+    debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    debug_info.pfnUserCallback = debug_callback;
+    create_debug_utils(instance_, &debug_info, nullptr, &debug_messenger_);
+  }
+#endif
+#endif
+
+  return true;
 }
 
 bool VulkanInitializer::select_device() {
@@ -219,6 +268,16 @@ void VulkanInitializer::shutdown() {
     vkDestroyDevice(device_, nullptr);
     device_ = nullptr;
   }
+#ifndef REJI_VULKAN_MOCK
+  if (debug_messenger_ && instance_) {
+    auto destroy_debug_utils = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
+        instance_, "vkDestroyDebugUtilsMessengerEXT");
+    if (destroy_debug_utils) {
+      destroy_debug_utils(instance_, debug_messenger_, nullptr);
+    }
+    debug_messenger_ = nullptr;
+  }
+#endif
   if (instance_) {
     vkDestroyInstance(instance_, nullptr);
     instance_ = nullptr;

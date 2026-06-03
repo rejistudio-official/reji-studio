@@ -8,6 +8,7 @@ using VkInstance = void*;
 using VkPhysicalDevice = void*;
 using VkDevice = void*;
 using VkQueue = void*;
+using VkDebugUtilsMessengerEXT = void*;
 #endif
 
 #include <optional>
@@ -55,6 +56,7 @@ class VulkanInitializer {
   uint32_t vendor_id_ = 0x0000;
   uint32_t graphics_queue_family_ = 0;
   VkQueue graphics_queue_ = nullptr;
+  VkDebugUtilsMessengerEXT debug_messenger_ = nullptr;
 };
 
 }
