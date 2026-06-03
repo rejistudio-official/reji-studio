@@ -30,3 +30,15 @@ target_link_libraries(test_frame_profiler
 )
 
 add_test(NAME FrameProfilerTest COMMAND test_frame_profiler)
+
+# Shader cache testi
+add_executable(test_shader_cache
+    test_shader_cache.cpp
+)
+
+target_link_libraries(test_shader_cache
+    gtest gtest_main
+    reji_ui
+)
+
+add_test(NAME ShaderCacheTest COMMAND test_shader_cache)
