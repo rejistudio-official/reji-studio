@@ -369,11 +369,11 @@ void MainWindow::onFadeTransition() {
 
 void MainWindow::onSettingsClicked() {
     if (!settings_dialog_) {
-        settings_dialog_ = new SettingsDialog(this);
+        settings_dialog_ = new reji::SettingsDialog(this);
 
         // Connect mode change signal to HealingOverlay
-        connect(settings_dialog_, &SettingsDialog::healingModeChanged,
-                this, [this](HealingMode mode) {
+        connect(settings_dialog_, &reji::SettingsDialog::healingModeChanged,
+                this, [this](reji::HealingMode mode) {
             if (healing_overlay_) {
                 healing_overlay_->setHealingMode(mode);
             }

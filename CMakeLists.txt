@@ -27,6 +27,9 @@ if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
     add_compile_options(/W4 /WX-)
 
+    # Disable manifest file generation (RC.exe / MT.exe missing)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /MANIFEST:NO")
+
     # Windows SDK path (v0.4+ fix for crtdbg.h)
     if(NOT DEFINED WINDOWS_SDK_PATH)
         set(WINDOWS_SDK_PATH "C:/Program Files (x86)/Windows Kits/10")
