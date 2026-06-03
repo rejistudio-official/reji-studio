@@ -24,6 +24,10 @@ public:
     QCheckBox* chk_source_auto{nullptr};         // varsayılan: açık
     QCheckBox* chk_resolution_auto{nullptr};     // varsayılan: kapalı
     QCheckBox* chk_fps_auto{nullptr};            // varsayılan: kapalı
+
+    // v0.4+ Hot-reload
+    QCheckBox* chk_auto_reload{nullptr};         // Auto-reload rules on file change
+    QPushButton* btn_edit_rules{nullptr};        // Open rules.json in editor
 };
 
 SettingsDialog::SettingsDialog(QWidget* parent)
@@ -85,6 +89,25 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     d_->chk_fps_auto->setChecked(false);  // varsayılan: kapalı
     layout_copilot->addWidget(d_->chk_fps_auto);
 
+    // ===== v0.4+ Hot-Reload Rules =====
+    auto* grp_hotreload = new QGroupBox(tr("Kural Yönetimi (v0.4+)"), this);
+    auto* layout_hotreload = new QVBoxLayout(grp_hotreload);
+
+    d_->btn_edit_rules = new QPushButton(tr("Kuralları Düzenle..."), this);
+    connect(d_->btn_edit_rules, &QPushButton::clicked,
+            this, &SettingsDialog::onEditRulesClicked);
+    layout_hotreload->addWidget(d_->btn_edit_rules);
+
+    d_->chk_auto_reload = new QCheckBox(tr("Otomatik yeniden yükle (dosya değiştiğinde)"), this);
+    d_->chk_auto_reload->setChecked(false);
+    connect(d_->chk_auto_reload, QOverload<int>::of(&QCheckBox::stateChanged),
+            this, &SettingsDialog::onAutoReloadToggled);
+    layout_hotreload->addWidget(d_->chk_auto_reload);
+
+    auto* lbl_rules_path = new QLabel(tr("Kurallar: ~/.reji/rules.json (JSON/TOML)"), this);
+    lbl_rules_path->setStyleSheet("color:#888;font-size:11px;");
+    layout_hotreload->addWidget(lbl_rules_path);
+
     // ===== Buttons =====
     auto* btn_ok = new QPushButton(tr("Tamam"));
     auto* btn_cancel = new QPushButton(tr("İptal"));
@@ -101,6 +124,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     auto* layout_main = new QVBoxLayout(this);
     layout_main->addWidget(grp_healing);
     layout_main->addWidget(grp_copilot);
+    layout_main->addWidget(grp_hotreload);
     layout_main->addStretch();
     layout_main->addLayout(layout_buttons);
 
@@ -164,6 +188,25 @@ bool SettingsDialog::isResolutionAuto() const {
 
 bool SettingsDialog::isFpsAuto() const {
     return d_->chk_fps_auto && d_->chk_fps_auto->isChecked();
+}
+
+// v0.4+ Hot-reload
+bool SettingsDialog::isAutoReloadEnabled() const {
+    return d_->chk_auto_reload && d_->chk_auto_reload->isChecked();
+}
+
+void SettingsDialog::setAutoReloadEnabled(bool enabled) {
+    if (d_->chk_auto_reload) {
+        d_->chk_auto_reload->setChecked(enabled);
+    }
+}
+
+void SettingsDialog::onEditRulesClicked() {
+    emit editRulesRequested();
+}
+
+void SettingsDialog::onAutoReloadToggled(int state) {
+    emit autoReloadToggled(state == Qt::Checked);
 }
 
 } // namespace reji

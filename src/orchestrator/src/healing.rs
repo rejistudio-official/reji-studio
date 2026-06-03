@@ -80,7 +80,7 @@ impl HealingThresholds {
         }
     }
 
-    pub fn adjust_for_session(&self, cpu: f32, bitrate_kbps: u32) -> Self {
+    pub fn adjust_for_session(&self, cpu: f32, _bitrate_kbps: u32) -> Self {
         let cpu_high = self.cpu_high.min(cpu * 0.97).max(0.55);
         let bitrate_drop_pct = (self.bitrate_drop_pct + 0.01).min(0.25);
         Self {
@@ -300,7 +300,7 @@ impl HealingMonitor {
         self.evaluate_adaptive();
     }
 
-    fn track_cpu_trend(&mut self, cpu: f32) {
+    fn track_cpu_trend(&mut self, _cpu: f32) {
         let now = Instant::now();
         if self.trend.cpu_high_since.is_none() {
             self.trend.cpu_high_since = Some(now);

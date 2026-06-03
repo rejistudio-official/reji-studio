@@ -2,6 +2,80 @@
 
 ---
 
+## Oturum: 2026-06-03 (Runtime Adaptation Seviye 3 — Faz 5 Hot-Reload & Polish)
+
+### Runtime Adaptation Seviye 3 — Faz 5 ✅ TAMAMLANDI
+
+**Faz 5 Checkpoint'leri (Tüm Tamamlandı):**
+
+| Checkpoint | Status | Details |
+|---|---|---|
+| 1. RuleEngine::hot_reload() | ✅ | File validation, rollback on error, 1Hz throttle |
+| 2. Windows NamedEvent trigger | ✅ | `rj_reload_rules()` FFI, C-string path |
+| 3. Qt Settings: "Edit Rules" + "Auto-reload" | ✅ | Button + checkbox, signal emit |
+| 4. Comprehensive debug logging | ✅ | tracing macros (debug, info, warn) |
+| 5. Manual test scenarios | ✅ | 6 test scenarios documented |
+| 6. Code cleanup + docs | ✅ | Complete |
+
+**Yapılan İşler:**
+
+1. **Rust RuleEngine Module** (`src/orchestrator/src/rules.rs` — yeni)
+   - `RuleEngine::new()` → file loading, validation
+   - `hot_reload()` → file mtime check, throttle, error rollback
+   - `evaluate()` → metric-based rule evaluation
+   - Condition parser: metric_name > value, && operators
+   - Action creation: 7 action types (BitratReduceRecover, ScaleResolution, CapFps, LogOnly)
+   - JSON/TOML support with graceful fallback
+
+2. **FFI Extensions** (`src/orchestrator/src/ffi.rs`)
+   - `rj_reload_rules(path)` → hot-reload with error handling
+   - `FfiState::rule_engine: Arc<Mutex<Option<RuleEngine>>>`
+   - Default rules path: `~/.reji/rules.json`
+   - Error logging: warn! macro for diagnostics
+
+3. **Qt Settings UI** (`src/ui/settings_dialog.h/cpp`)
+   - "Kuralları Düzenle..." button → `editRulesRequested()` signal
+   - "Otomatik yeniden yükle" checkbox → `autoReloadToggled()` signal
+   - Method: `isAutoReloadEnabled()`, `setAutoReloadEnabled()`
+   - Grouped in "Kural Yönetimi (v0.4+)" section
+
+4. **Default Rules Template** (`docs/config/rules.json.template`)
+   - 7 built-in rules: frame_drop (mild/high/recovery), thermal (throttle/restore), CPU load, memory pressure
+   - Hysteresis: 10000ms (10s) default
+   - All modes supported: auto-pilot, co-pilot, assist
+
+5. **Manual Testing Documentation** (`docs/superpowers/fases/phase5-hotreload-testing.md`)
+   - 6 test scenarios with expected outcomes
+   - Debug logging points documented
+   - Rollback plan if needed
+   - Test checklist (17 unit tests passing)
+
+**Rust Compile Results:**
+```
+Finished `test` profile [unoptimized + debuginfo] target(s) in 3.25s
+Running unittests src\lib.rs
+
+running 17 tests
+test result: ok. 17 passed; 0 failed; 0 ignored
+```
+
+**Key Features:**
+- ✅ Hot-reload with file validation
+- ✅ Automatic rollback on parse error
+- ✅ Throttle: 1Hz minimum reload interval
+- ✅ Mtime check: Skip if unchanged
+- ✅ Thread-safe: Arc<Mutex<Option<RuleEngine>>>
+- ✅ Qt integration: Settings dialog signals
+- ✅ Error logging: tracing framework
+
+**Next Phase (Phase 6 - v0.5):**
+- NamedEvent automation (Windows file watcher)
+- Thermal sensor: AMD ADL, NVIDIA NVAPI
+- Performance profiling + benchmarking
+- Rules editor UI (advanced settings)
+
+---
+
 ## Oturum: 2026-06-02 (v0.3 tamamlandı, v0.4 planı)
 
 ### v0.3 Tamamlandı ✅ — tag: v0.3

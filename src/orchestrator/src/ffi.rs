@@ -7,18 +7,20 @@
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::sync::{Arc, OnceLock};
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossbeam::queue::ArrayQueue;
 use tokio::sync::broadcast;
 use tokio::runtime::Runtime;
 use tokio::time::MissedTickBehavior;
-use tracing::warn;
+use tracing::{warn, debug, info};
 
 use crate::event_bus::{EventBus, HealingEvent, MediaEvent, SystemEvent};
 use crate::healing::{HealingMode, HealingMonitor, HealingThresholds};
 use crate::metrics::{MetricSample, MetricState};
+use crate::rules::RuleEngine;
 
 /// Rust tarafı RjCommand — `ffi_bridge.h`'daki RjCommand ile #[repr(C)] eşleşmeli.
 #[repr(C)]
@@ -64,6 +66,7 @@ struct FfiState {
     _metric_state:  Arc<MetricState>,
     _runtime:       Runtime,
     media_tx:       broadcast::Sender<MediaEvent>,
+    rule_engine:    Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
@@ -172,6 +175,24 @@ pub extern "C" fn rj_start_monitor() {
             });
         }
 
+        // Initialize RuleEngine with default rules.json path (~/.reji/rules.json)
+        let rules_path = {
+            if let Ok(home) = std::env::var("USERPROFILE") {
+                PathBuf::from(home).join(".reji").join("rules.json")
+            } else {
+                PathBuf::from("rules.json")
+            }
+        };
+
+        let rule_engine = Arc::new(Mutex::new(
+            RuleEngine::new(&rules_path)
+                .map_err(|e| {
+                    warn!("Failed to load rules from {:?}: {}", rules_path, e);
+                    e
+                })
+                .ok()
+        ));
+
         FfiState {
             metric_ring,
             command_queue,
@@ -179,6 +200,7 @@ pub extern "C" fn rj_start_monitor() {
             _metric_state: metric_state,
             _runtime: runtime,
             media_tx: event_bus.media.clone(),
+            rule_engine,
         }
     });
 }
@@ -289,8 +311,37 @@ pub extern "C" fn rj_get_healing_mode() -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn rj_reload_rules(_path: *const c_char) -> i32 {
-    1  // TODO: Implement hot-reload of rules
+pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
+    let Some(state) = FFI_STATE.get() else {
+        debug!("rj_reload_rules: FFI_STATE not initialized");
+        return 0;
+    };
+
+    let path_str = if path.is_null() {
+        // Default path: ~/.reji/rules.json
+        if let Ok(home) = std::env::var("USERPROFILE") {
+            PathBuf::from(home).join(".reji").join("rules.json")
+        } else {
+            PathBuf::from("rules.json")
+        }
+    } else {
+        // SAFETY: C++ geçerli UTF-8 string geçirmeli
+        let cstr = unsafe { CStr::from_ptr(path) };
+        PathBuf::from(cstr.to_string_lossy().as_ref())
+    };
+
+    match RuleEngine::new(&path_str) {
+        Ok(new_engine) => {
+            let mut engine_lock = state.rule_engine.lock().unwrap();
+            *engine_lock = Some(new_engine);
+            info!(path = ?path_str, "Rules reloaded successfully");
+            1
+        }
+        Err(e) => {
+            warn!(path = ?path_str, error = %e, "Failed to reload rules");
+            0
+        }
+    }
 }
 
 #[cfg(test)]

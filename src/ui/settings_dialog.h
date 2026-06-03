@@ -24,12 +24,20 @@ public:
     bool isResolutionAuto() const;
     bool isFpsAuto() const;
 
+    // v0.4+ Hot-reload
+    bool isAutoReloadEnabled() const;
+    void setAutoReloadEnabled(bool enabled);
+
 signals:
     void healingModeChanged(HealingMode mode);
+    void editRulesRequested();
+    void autoReloadToggled(bool enabled);
 
 private slots:
     void onModeChanged(int index);
     void onOkClicked();
+    void onEditRulesClicked();
+    void onAutoReloadToggled(int state);
 
 private:
     class Impl;

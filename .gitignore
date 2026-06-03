@@ -32,3 +32,4 @@ repo_snapshot.txt
 *.ps1
 /pipeline.cpp
 fix_*.*
+.aider*
