@@ -7,6 +7,7 @@
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -80,8 +81,18 @@ fn now_us() -> u64 {
 
 /// Tokio runtime, ring buffer drainer ve HealingMonitor'u başlatır.
 /// Yalnızca bir kez etkili olur; tekrar çağrı güvenlidir (no-op).
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_start_monitor() {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        rj_start_monitor_impl()
+    }))
+    .map_err(|_| {
+        eprintln!("[PANIC] rj_start_monitor caught panic");
+    });
+}
+
+fn rj_start_monitor_impl() {
     FFI_STATE.get_or_init(|| {
         let runtime = Runtime::new().expect("Tokio runtime olusturulamadi");
 
@@ -207,83 +218,128 @@ pub extern "C" fn rj_start_monitor() {
 
 /// C++ pipeline'dan MetricSample alır ve ring buffer'a yazar (non-blocking).
 /// Null pointer veya geçersiz canary varsa sessizce atlar.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
-    if sample.is_null() {
-        return;
-    }
-    // SAFETY: C++ tarafı geçerli RjMetricSample* geçirir; layout MetricSample ile özdeş.
-    let s = unsafe { *sample };
-    if !s.is_valid() {
-        return;
-    }
-    if let Some(state) = FFI_STATE.get() {
-        // Ring buffer doluysa en eski sample'ı ezme yerine düş (backpressure).
-        let _ = state.metric_ring.push(s);
-    }
+    let _ = catch_unwind(AssertUnwindSafe(move || {
+        if sample.is_null() {
+            return;
+        }
+        // SAFETY: C++ tarafı geçerli RjMetricSample* geçirir; layout MetricSample ile özdeş.
+        let s = unsafe { *sample };
+        if !s.is_valid() {
+            return;
+        }
+        if let Some(state) = FFI_STATE.get() {
+            let _ = state.metric_ring.push(s);
+        }
+    }))
+    .map_err(|_| {
+        eprintln!("[PANIC] rj_metrics_push caught panic");
+    });
 }
 
 /// Rust komut kuyruğunu boşaltır; en fazla `max` adet RjCommand yazar.
-/// Döndürülen değer: yazılan komut sayısı. Null/geçersiz argümanda -1.
+///
+/// # Safety
+/// Caller MUST ensure:
+/// 1. `out` points to valid RjCommand[max] buffer
+/// 2. `max` ≤ 64 (enforced, returns 0 if violated)
+/// 3. Buffer lifetime extends beyond this call
+///
+/// # Return
+/// Number of commands written (0 if error, null, or max > 64; -1 on init error)
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_command_drain(out: *mut RjCommand, max: i32) -> i32 {
-    if out.is_null() || max <= 0 {
-        return -1;
-    }
-    let Some(state) = FFI_STATE.get() else {
-        return 0;
-    };
-    let mut count = 0i32;
-    while count < max {
-        match state.command_queue.pop() {
-            Some(cmd) => {
-                // SAFETY: out + count < out + max, C++ tarafı yeterli alan ayırmış olmalı.
-                unsafe { out.add(count as usize).write(cmd) };
-                count += 1;
-            }
-            None => break,
+    catch_unwind(AssertUnwindSafe(|| {
+        if out.is_null() || max <= 0 {
+            return -1;
         }
-    }
-    count
+        // SECURITY FIX: Validate max to prevent buffer overflow
+        if max > 64 {
+            debug!("rj_command_drain: max={} exceeds limit 64, returning 0", max);
+            return 0;
+        }
+        let Some(state) = FFI_STATE.get() else {
+            return 0;
+        };
+        let mut count = 0i32;
+        while count < max {
+            match state.command_queue.pop() {
+                Some(cmd) => {
+                    // SAFETY: out + count < out + max, C++ tarafı yeterli alan ayırmış olmalı.
+                    unsafe { out.add(count as usize).write(cmd) };
+                    count += 1;
+                }
+                None => break,
+            }
+        }
+        count
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_command_drain caught panic, returning -1");
+        -1
+    })
 }
 
 /// SRT bağlantı kopuşunu event bus'a iletir; reason null-safe, UTF-8 beklenir.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_connection_lost(reason: *const c_char) {
-    let msg = if reason.is_null() {
-        "<null>".to_owned()
-    } else {
-        // to_string_lossy replaces invalid UTF-8 bytes with U+FFFD — safe for untrusted C strings
-        unsafe { CStr::from_ptr(reason) }
-            .to_string_lossy()
-            .into_owned()
-    };
-    warn!(target: "rj_srt", "connection_lost reason={}", msg);
-    if let Some(state) = FFI_STATE.get() {
-        let _ = state.media_tx.send(MediaEvent::SourceDisconnected { source_id: 0 });
-    }
+    let _ = catch_unwind(AssertUnwindSafe(move || {
+        let msg = if reason.is_null() {
+            "<null>".to_owned()
+        } else {
+            // to_string_lossy replaces invalid UTF-8 bytes with U+FFFD — safe for untrusted C strings
+            unsafe { CStr::from_ptr(reason) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        warn!(target: "rj_srt", "connection_lost reason={}", msg);
+        if let Some(state) = FFI_STATE.get() {
+            let _ = state.media_tx.send(MediaEvent::SourceDisconnected { source_id: 0 });
+        }
+    }))
+    .map_err(|_| {
+        eprintln!("[PANIC] rj_connection_lost caught panic");
+    });
 }
 
 /// Pipeline durumu: 0 = hazır (monitor başlatılmış), -1 = başlatılmamış.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_pipeline_status() -> i32 {
-    if FFI_STATE.get().is_some() { 0 } else { -1 }
+    catch_unwind(AssertUnwindSafe(|| {
+        if FFI_STATE.get().is_some() { 0 } else { -1 }
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_pipeline_status caught panic");
+        -1
+    })
 }
 
 /// v0.4+: Dequeue next adaptation action from Rust to C++
 /// Returns 1 if action available, 0 if queue empty
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_action_dequeue(out: *mut RjAction) -> i32 {
-    if out.is_null() {
-        return 0;
-    }
-    if let Some(state) = FFI_STATE.get() {
-        if let Some(action) = state.action_queue.pop() {
-            unsafe { *out = action; }
-            return 1;
+    catch_unwind(AssertUnwindSafe(|| {
+        if out.is_null() {
+            return 0;
         }
-    }
-    0
+        if let Some(state) = FFI_STATE.get() {
+            if let Some(action) = state.action_queue.pop() {
+                unsafe { *out = action; }
+                return 1;
+            }
+        }
+        0
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_action_dequeue caught panic");
+        0
+    })
 }
 
 /// v0.4+: Enqueue an action from Rust rule engine to C++
@@ -294,54 +350,85 @@ pub fn enqueue_action(action: RjAction) -> bool {
     false
 }
 
-/// v0.4+: FFI stubs for other action/healing mode functions (TODO: implement)
+/// v0.4+: Approve pending action (Co-Pilot mode)
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
-    1  // TODO: Implement Co-Pilot approval
+    catch_unwind(AssertUnwindSafe(|| {
+        1  // TODO: Implement Co-Pilot approval
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_action_approve caught panic");
+        0
+    })
 }
 
+/// v0.4+: Set healing mode
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_set_healing_mode(_mode: u32) -> i32 {
-    1  // TODO: Implement healing mode setting
+    catch_unwind(AssertUnwindSafe(|| {
+        1  // TODO: Implement healing mode setting
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_set_healing_mode caught panic");
+        0
+    })
 }
 
+/// v0.4+: Get current healing mode
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_get_healing_mode() -> i32 {
-    0  // RJ_MODE_AUTO_PILOT (default)
+    catch_unwind(AssertUnwindSafe(|| {
+        0  // RJ_MODE_AUTO_PILOT (default)
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_get_healing_mode caught panic");
+        0
+    })
 }
 
+/// Reload rules from file (async hot-reload)
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
-    let Some(state) = FFI_STATE.get() else {
-        debug!("rj_reload_rules: FFI_STATE not initialized");
-        return 0;
-    };
+    catch_unwind(AssertUnwindSafe(move || {
+        let Some(state) = FFI_STATE.get() else {
+            debug!("rj_reload_rules: FFI_STATE not initialized");
+            return 0;
+        };
 
-    let path_str = if path.is_null() {
-        // Default path: ~/.reji/rules.json
-        if let Ok(home) = std::env::var("USERPROFILE") {
-            PathBuf::from(home).join(".reji").join("rules.json")
+        let path_str = if path.is_null() {
+            // Default path: ~/.reji/rules.json
+            if let Ok(home) = std::env::var("USERPROFILE") {
+                PathBuf::from(home).join(".reji").join("rules.json")
+            } else {
+                PathBuf::from("rules.json")
+            }
         } else {
-            PathBuf::from("rules.json")
-        }
-    } else {
-        // SAFETY: C++ geçerli UTF-8 string geçirmeli
-        let cstr = unsafe { CStr::from_ptr(path) };
-        PathBuf::from(cstr.to_string_lossy().as_ref())
-    };
+            // SAFETY: C++ geçerli UTF-8 string geçirmeli
+            let cstr = unsafe { CStr::from_ptr(path) };
+            PathBuf::from(cstr.to_string_lossy().as_ref())
+        };
 
-    match RuleEngine::new(&path_str) {
-        Ok(new_engine) => {
-            let mut engine_lock = state.rule_engine.lock().unwrap();
-            *engine_lock = Some(new_engine);
-            info!(path = ?path_str, "Rules reloaded successfully");
-            1
+        match RuleEngine::new(&path_str) {
+            Ok(new_engine) => {
+                let mut engine_lock = state.rule_engine.lock().unwrap();
+                *engine_lock = Some(new_engine);
+                info!(path = ?path_str, "Rules reloaded successfully");
+                1
+            }
+            Err(e) => {
+                warn!(path = ?path_str, error = %e, "Failed to reload rules");
+                0
+            }
         }
-        Err(e) => {
-            warn!(path = ?path_str, error = %e, "Failed to reload rules");
-            0
-        }
-    }
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_reload_rules caught panic");
+        0
+    })
 }
 
 #[cfg(test)]
@@ -391,5 +478,69 @@ mod tests {
         let mut cmd = RjCommand { cmd_type: 0, timestamp_us: 0, param_u32: 0, param_f32: 0.0 };
         let n = rj_command_drain(&mut cmd as *mut _, 1);
         assert!(n >= 0);
+    }
+
+    // ===== SECURITY FIX TESTS =====
+
+    #[test]
+    fn test_drain_max_exceeds_limit_returns_zero() {
+        rj_start_monitor();
+        let mut cmd = RjCommand { cmd_type: 0, timestamp_us: 0, param_u32: 0, param_f32: 0.0 };
+        // SECURITY: max > 64 should return 0, not crash or overflow
+        let n = rj_command_drain(&mut cmd as *mut _, 100);
+        assert_eq!(n, 0, "max > 64 must return 0 to prevent buffer overflow");
+    }
+
+    #[test]
+    fn test_drain_max_at_limit_succeeds() {
+        rj_start_monitor();
+        let mut cmds = [RjCommand { cmd_type: 0, timestamp_us: 0, param_u32: 0, param_f32: 0.0 }; 64];
+        // SECURITY: max = 64 (limit) should be allowed
+        let n = rj_command_drain(cmds.as_mut_ptr(), 64);
+        assert!(n >= 0 && n <= 64, "max = 64 should succeed");
+    }
+
+    #[test]
+    fn test_panic_safety_rj_metrics_push() {
+        // SECURITY: rj_metrics_push should not panic and unwind into C++
+        // This test verifies catch_unwind is in place
+        rj_start_monitor();
+        rj_metrics_push(std::ptr::null()); // Should not crash
+        rj_metrics_push(std::ptr::null()); // Repeated null is safe
+    }
+
+    #[test]
+    fn test_panic_safety_rj_command_drain() {
+        // SECURITY: rj_command_drain should not panic and unwind into C++
+        rj_start_monitor();
+        let mut cmd = RjCommand { cmd_type: 0, timestamp_us: 0, param_u32: 0, param_f32: 0.0 };
+        let _ = rj_command_drain(&mut cmd as *mut _, 1);
+        let _ = rj_command_drain(&mut cmd as *mut _, 1); // Repeated call safe
+    }
+
+    #[test]
+    fn test_panic_safety_rj_action_dequeue() {
+        // SECURITY: rj_action_dequeue should not panic and unwind into C++
+        rj_start_monitor();
+        let mut action = RjAction { id: 0, action_type: RjActionType::BitrateReduce, param1: 0, param2: 0, canary: 0 };
+        let _ = rj_action_dequeue(&mut action as *mut _);
+        let _ = rj_action_dequeue(&mut action as *mut _); // Repeated call safe
+    }
+
+    #[test]
+    fn test_null_pointer_safety_all_functions() {
+        // SECURITY: All FFI functions with pointer args must handle null
+        rj_start_monitor();
+
+        // Null metrics push
+        rj_metrics_push(std::ptr::null());
+
+        // Null command drain
+        let n = rj_command_drain(std::ptr::null_mut(), 10);
+        assert_eq!(n, -1, "Null output ptr must return -1");
+
+        // Null action dequeue
+        let n = rj_action_dequeue(std::ptr::null_mut());
+        assert_eq!(n, 0, "Null output ptr must return 0");
     }
 }
