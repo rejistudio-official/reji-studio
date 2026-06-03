@@ -129,7 +129,21 @@ C:\reji-studio\
 ### v0.3 Devam
 - [ ] Sahne yönetimi genişletme (gerçek içerikler)
 
-### v0.4 — GPU Optimization & Monitoring
+### v0.5 — Vulkan Pivot & Performance (2026-H2, Planned)
+- [ ] **Vulkan External Memory (KHR_external_memory_win32)**: D3D11→Vulkan zero-copy
+  - DwmFlush race condition kaldırılır
+  - paintGL latency: 7.6ms → <2ms target
+  - Multi-adapter support (dGPU + iGPU)
+- [ ] **Qt6 Vulkan Backend (QRhi)**: Modern render pipeline, OpenGL deprecation
+- [ ] **Frame Pacing (DXGI Statistics)**: present timing analysis, latency root cause
+- [ ] **GPU Query Timing (Vulkan)**: zero-overhead frame profiling
+- [ ] **Çoklu Monitör**: DXGI EnumOutputs(), per-monitor capture
+- [ ] **Preview Kalite Seçimi**: full/half/quarter resolution runtime switch
+- [ ] **NDI/Virtual Camera Stubs**: integration test placeholders (v1.0 real impl)
+- [ ] **Vulkan Validation Layers**: debug mode error reporting
+- [ ] **Shader Compilation Cache**: SPIR-V cache, startup optimization
+
+### v0.4 — GPU Optimization & Monitoring (2026-Q2, Current)
 - [ ] **PBO performans profili**: CPU overhead, GPU stall, frame timing
   - Eğer CPU darboğaz varsa → v0.5'te DXGI shared handle dene
   - Darboğaz yoksa → NV_DX_INTEROP skip et, Vulkan'a pivot

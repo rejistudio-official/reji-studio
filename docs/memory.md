@@ -210,3 +210,97 @@ Hastalıklı veya kötü amaçlı plugin tüm `reji_app.exe` süreci düşürebi
 - **Avantajı:** Plugin kodu process-isolated, sandbox kaçış zor, memory-safe WASM
 - **Entegrasyon:** Rust orchestrator'a `extism::PluginManager`, v1.5'te opsiyonel, v2.0'de zorunlu
 - **Marketplace:** Ed25519 imza + binary scan + human review (v1.5+)
+
+---
+
+## Architectural Decision: v0.5 Vulkan Pivot
+
+### Karar: OpenGL → Vulkan Migration
+
+**İçerik:**
+Reji Studio'nun preview render path'ini OpenGL'den Vulkan'a geçiş yapmak.
+
+**Sebep:**
+1. **DwmFlush Race Condition:** AMD iGPU (display) + NVIDIA dGPU (encode) yapılandırmasında, DXGI Present'ın DWM compositor'a sinkronizasyon sorunu:
+   - paintGL(): `glFinish()` (GL queue'sini bekle) → `DwmFlush()` (DWM blit bariyeri)
+   - Şu an: 7.6ms latency, frame drop recovery > 15s
+   - Neden: DwmFlush() DWM compositor'ın bir önceki frame'i bitirinceye kadar bekler (DX12 sync yok)
+
+2. **OpenGL Deprecated:** Qt6'da OpenGL modern değil, Vulkan/Metal/D3D12 öneriliyor
+   - Qt6 QRhi (Rendering Hardware Interface) native Vulkan desteği
+   - OpenGL validation warnings GitHub Actions'ta görülüyor
+
+3. **Zero-Copy GPU Interop:** Vulkan `VK_KHR_external_memory_win32`
+   - D3D11 texture (DXGI capture) → Windows handle → Vulkan texture
+   - No staging copy, no DwmFlush, no serialize
+   - Expected: 7.6ms → <2ms (3.8x speedup)
+
+**Çözüm Mimarisi:**
+```
+DXGI Capture (D3D11)
+  ↓ (Windows SharedHandle)
+Vulkan External Memory
+  ↓ (No sync needed)
+QVulkanWindow / QRhi (Vulkan backend)
+  ↓
+DwmCompositor (modern DXGI present)
+```
+
+**Uygulama Plan (v0.5):**
+1. `src/pipeline/include/vulkan_interop.h` — External memory wrapper
+2. `src/ui/preview_widget.cpp` — Vulkan render path (QRhi)
+3. `src/ui/render_capability.h` — RenderPath enum: kVulkanDirect (new)
+4. Qt6 Vulkan module depend, glslang (SPIR-V)
+5. Shader cache: ~/.reji/shader_cache/ (startup perf)
+6. Validation layers: debug mode enabled, release mode disabled
+
+**Fallback Strategy:**
+- Qt6 Vulkan unavailable → OpenGL PBO fallback (v0.4 compat)
+- Vulkan device init fail → OpenGL fallback
+- Runtime selection: CapabilityDetector → best available path
+
+**Testing:**
+- AMD iGPU (0x1002) + Vulkan: multi-adapter interop
+- NVIDIA dGPU (0x10DE) + Vulkan: timestamp querying
+- Frame timing: FrameProfiler v2.0 (GPU-side timestamps)
+
+**Timeline:** v0.5 (2026-H2), 20 days estimate
+**Risk:** Vulkan SDK complexity, platform-specific bugs, validation performance
+**Mitigation:** Feature branch, thorough testing, OpenGL fallback always available
+
+---
+
+## Architectural Decision: Multi-Monitor Support (v0.5)
+
+**İçerik:** Per-monitor capture seçeneği ve DXGI output enumeration
+
+**Sebep:**
+- Şu an: hardcoded primary adapter (AMD iGPU)
+- Gerçek yayıncılar: 2-4 monitor (primary + secondary), selective capture ister
+- DXGI: EnumOutputs() loop ile tüm adapter'lar bulunabilir
+
+**Uygulama:**
+1. UI: dropdown → "Monitor seç" (default: primary)
+2. Capture: per-monitor thread pool (concurrent capture)
+3. Encode: single encoder (monitor switch = input source change)
+
+**Impact:** Minor, istenirse skip edilebilir (v0.6'ya ertele)
+
+---
+
+## Architectural Decision: NDI/Virtual Camera Stubs (v0.5)
+
+**İçerik:** Newtek NDI output + DirectShow virtual camera stub implementations
+
+**Sebep:**
+- v1.0 planning: OBS integration, Teams/Zoom virtualization
+- Şu an: stubs only (/tmp/ dump files)
+- Allows: integration test framework, early adoption feedback
+
+**Uygulama:**
+1. `src/pipeline/output/ndi_output_stub.cpp` — write frames to /tmp/ndi_stub.raw
+2. `src/pipeline/output/virtual_camera_stub.cpp` — register fake DirectShow device
+3. No real NDI SDK dependency (v0.5)
+4. v1.0: real impl (if user demand validates)
+
+**Impact:** Zero on core paths, testing infrastructure only

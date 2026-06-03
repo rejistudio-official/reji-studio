@@ -76,6 +76,179 @@ test result: ok. 17 passed; 0 failed; 0 ignored
 
 ---
 
+## v0.5 Roadmap — Vulkan Pivot & Performance (2026-H2)
+
+### Yüksek Öncelik (Zorunlu)
+
+#### 1. Vulkan External Memory (KHR_external_memory_win32)
+**Amaç:** DwmFlush race condition ve latency'yi kaldır, GPU zero-copy bridge
+
+**Teknik:**
+- D3D11 texture (DXGI) → Windows Handle → Vulkan external memory
+- `VK_KHR_external_memory_win32` + `VK_KHR_synchronization2`
+- No staging copy, no DwmFlush, no 7.6ms latency
+
+**Beklenen Sonuç:**
+- paintGL: 7.6ms → <2ms (3.8x speedup)
+- Frame drop recovery: 15% → <2%
+- CPU overhead: eliminated DwmFlush serialize
+
+**Files:**
+- `src/pipeline/include/vulkan_interop.h` (new)
+- `src/ui/preview_widget.cpp` — Vulkan path selection
+- `src/ui/render_capability.h` — RenderPath::kVulkanDirect (new)
+
+#### 2. Qt6 Vulkan Backend (QRhi)
+**Amaç:** OpenGL dependency kaldır, modern render pipeline
+
+**Teknik:**
+- Qt6 QRhi (Rendering Hardware Interface) → Vulkan backend
+- QVulkanWindow veya QRhi::Rhi direct
+- GLSL → SPIR-V auto-compilation (glslang)
+
+**Beklenen Sonuç:**
+- Cross-platform render path (Windows/Linux/macOS)
+- OpenGL deprecated warnings gone
+- Vulkan validation layers (debug mode)
+
+**Files:**
+- `src/ui/preview_widget.cpp` — QRhi integration
+- `CMakeLists.txt` — Qt6 Vulkan module, glslang dependency
+- `src/shaders/` — GLSL → SPIR-V build step
+
+### Güçlü Eklemeler
+
+#### 3. Çoklu Monitör Seçimi
+**Teknik:**
+- DXGI EnumOutputs() — monitor list
+- Per-monitor capture (separate thread pool)
+- UI: dropdown → select monitor
+
+**Files:**
+- `src/pipeline/capture/capture_dxgi.cpp` — EnumOutputs loop
+- `src/ui/main_window.cpp` — monitor selector UI
+
+#### 4. NDI Output Stub
+**Amaç:** Network Device Interface (Newtek) — yerel ağ video streaming
+
+**Teknik:**
+- StubImpl: write frames to /tmp/ndi_stub.raw
+- v1.0'da real NDI SDK impl
+- Allows OBS integration test
+
+**Files:**
+- `src/pipeline/output/ndi_output_stub.cpp` (new)
+
+#### 5. Virtual Camera Stub
+**Amaç:** DirectShow virtual camera (OBS uyumlu)
+
+**Teknik:**
+- StubImpl: register fake DirectShow device
+- v1.0'da real VCam SDK impl
+- Allows Teams/Zoom integration test
+
+**Files:**
+- `src/pipeline/output/virtual_camera_stub.cpp` (new)
+
+### Performans İyileştirmeleri
+
+#### 6. Frame Pacing (DXGI Statistics)
+**Teknik:**
+- `IDXGIOutput::GetFrameStatistics()` → timing analysis
+- Frame drop root cause: GPU stall? CPU stall? Compose lag?
+- RuleEngine adaptation: thermal → resolution, latency → bitrate
+
+**Files:**
+- `src/pipeline/include/frame_pacing.h` (new)
+- `src/pipeline/capture/capture_dxgi.cpp` — GetFrameStatistics call
+
+#### 7. GPU Query Timing (Vulkan)
+**Teknik:**
+- `vkCmdWriteTimestamp()` → frame timing per GPU stage
+- FrameProfiler v2.0: acquire/copy/render timestamps
+- Zero CPU overhead (GPU-side profiling)
+
+**Files:**
+- `src/pipeline/include/gpu_timestamp.h` (new)
+- FrameProfiler: add_gpu_stage_timestamp()
+
+#### 8. Preview Kalite Seçimi
+**Teknik:**
+- UI: Full (1920x1080) / Half (960x540) / Quarter (480x270)
+- Runtime switching: no DwmFlush needed
+- Settings: default quality level
+
+**Files:**
+- `src/ui/settings_dialog.cpp` — quality selector
+- `src/ui/preview_widget.cpp` — resolution adaptation
+
+### Altyapı & Debug
+
+#### 9. Vulkan Validation Layers
+**Teknik:**
+- Enable in debug builds: `VK_INSTANCE_CREATE_DEBUG_BIT`
+- Report perf warnings, sync errors, memory leaks
+- Release builds: disable (perf overhead)
+
+**Files:**
+- `CMakeLists.txt` — conditionally enable validation
+- `src/ui/preview_widget.cpp` — VkInstance creation
+
+#### 10. GPU Crash Dump
+**Teknik:**
+- NVIDIA Aftermath (RTX only): capture crash context
+- AMD RGP: GPU radeon profiler integration
+- Fallback: DXGI_ERROR_DEVICE_REMOVED handling
+
+**Files:**
+- `src/pipeline/include/gpu_crash_handler.h` (new)
+- CMakeLists: optional NVIDIA Aftermath SDK
+
+#### 11. Shader Compilation Cache
+**Teknik:**
+- SPIR-V cache: ~/.reji/shader_cache/
+- Skip recompile on launch: <100ms startup
+- Invalidate on shader source change
+
+**Files:**
+- `src/ui/render_capability.h` — shader cache manager
+- `src/shaders/CMakeLists.txt` — cache strategy
+
+### Timeline & Dependencies
+
+| Task | Dependency | Est. Days |
+|---|---|---|
+| Vulkan external memory | D3D11 API | 5 |
+| Qt6 Vulkan backend | Vulkan external memory | 3 |
+| Frame pacing (DXGI) | Existing pipeline | 2 |
+| GPU timestamp (Vulkan) | Vulkan backend | 2 |
+| Multi-monitor | Existing DXGI | 2 |
+| NDI/VCam stubs | None | 2 |
+| Preview quality selector | Existing code | 1 |
+| Validation layers | Vulkan backend | 1 |
+| Shader cache | Vulkan backend | 2 |
+| GPU crash dump | Optional, post-v0.5 | — |
+
+**Total Estimate:** 20 days (4 weeks, with testing)
+
+### Success Criteria
+
+- [ ] Vulkan render path >3.8x faster than OpenGL+DwmFlush
+- [ ] Frame drop recovery <10s (from critical)
+- [ ] Multi-monitor enumeration + per-monitor capture
+- [ ] NDI/VCam stubs ready for integration testing
+- [ ] Zero new CWE/security findings (continue Phase 3)
+- [ ] All tests passing, CI/CD green
+
+### Known Constraints
+
+- Vulkan SDK required (already installed in pipeline)
+- Qt6 Vulkan module optional (fallback to OpenGL if unavailable)
+- AMD GPU testing needed (v0.3 only tested AMD iGPU)
+- NVIDIA dGPU: RTX 4070 available, test Vulkan interop
+
+---
+
 ## Oturum: 2026-06-03 (Security Fixes — FFI Boundary Hardening)
 
 ### Critical Security Fixes ✅ TAMAMLANDI
