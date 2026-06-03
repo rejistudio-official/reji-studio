@@ -298,9 +298,9 @@ T=0.3ms:    ExternalMemoryBridge::export_d3d11_handle() [CPU, ~0.05ms]
             ├─ CreateSharedHandle() → NT HANDLE (Win10+)
             └─ Non-blocking, handle only
 
-T=0.35ms:   vkCreateImage (from pooled image) [GPU, ~0.1ms]
-            ├─ Image pool: image = pool[frame_idx % 3]
-            └─ Pre-allocated at startup (zero per-frame allocation)
+T=0.35ms:   get_pooled_image(frame_idx % 3) [CPU, ~0.05ms]
+            ├─ Image pool lookup (pre-allocated at startup)
+            └─ Zero allocation per-frame (vkCreateImage only at init)
 
 T=0.45ms:   [VulkanRenderPath::render() — Hot-Path]
             ├─ vkCmdBeginRenderPass()
