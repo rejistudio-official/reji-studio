@@ -90,8 +90,20 @@ C:\reji-studio\
   - NVIDIA (0x10DE) → `kNvDxInterop` stub (PBO çalışır)
 
 ### v0.4 — Planlandı (2026-06-02)
-- **Roadmap**: Runtime Adaptation Seviye 3, WGL_NV_DX_INTEROP real impl, Self-healing UI
-- **Güçlü eklemeler**: Çoklu monitör, preview kalite, frame limiter, UI stats
+- **Zorunlu**: Runtime Adaptation Seviye 3, WGL_NV_DX_INTEROP real impl, Self-healing UI
+- **Güçlü eklemeler**:
+  - GPU sıcaklık izleme (AMD ADL / NVIDIA NVAPI / WMI fallback)
+  - Çoklu monitör seçimi (DXGI output enumeration)
+  - Frame rate limiter (preview 30fps, encode 60fps ayrı)
+  - Bitrate/frame drop/GPU sıcaklık UI göstergeleri
+- **Teknoloji eklemeleri**:
+  - Windows Performance Counters (PDH API) — CPU/GPU/RAM izleme
+  - WMI — GPU sıcaklık, disk I/O, ağ bant genişliği
+  - DirectX DXGI Statistics — present timing, frame pacing
+  - Windows ETW — sıfır overhead sistem izleme
+- **Rust orchestrator genişletme**:
+  - Kural motoru — JSON/TOML kural dosyası, kullanıcı özelleştirebilir
+  - Event bus — pipeline olayları ↔ UI, thread-safe lock-free
 - **v0.5 hazırlık**: NDI, virtual camera, OBS import (stubs)
 
 ### Build Sistemi — Ninja Geçişi Başladı (2026-06-02)
@@ -117,10 +129,19 @@ C:\reji-studio\
 ### v0.3 Devam
 - [ ] Sahne yönetimi genişletme (gerçek içerikler)
 
-### v0.4 — GPU Optimization Benchmark
-- [ ] PBO performans profili: CPU overhead, GPU stall, frame timing
+### v0.4 — GPU Optimization & Monitoring
+- [ ] **PBO performans profili**: CPU overhead, GPU stall, frame timing
   - Eğer CPU darboğaz varsa → v0.5'te DXGI shared handle dene
   - Darboğaz yoksa → NV_DX_INTEROP skip et, Vulkan'a pivot
+- [ ] **GPU sıcaklık izleme**: AMD ADL, NVIDIA NVAPI, WMI fallback
+  - Thermal scaling: GPU temp > 85°C → encode kalite düşür
+  - Throttle detection: fan ramp-up, clock down alerts
+- [ ] **Çoklu monitör desteği**: DXGI EnumOutputs(), per-monitor capture
+- [ ] **Frame rate limiter**: preview 30fps, encode 60fps (separate threads)
+- [ ] **Bitrate/frame drop/GPU temp UI göstergeleri**: real-time graphs
+- [ ] **Windows Performance Counters (PDH API)**: CPU/GPU/RAM metrics
+- [ ] **Rust orchestrator kural motoru**: JSON/TOML user rules, hot-reload
+- [ ] **Event bus genişletme**: pipeline ↔ UI async events, thread-safe
 
 ### v0.5+ — Cross-Platform GPU Interop Roadmap
 - [ ] **Vulkan external memory** (`VK_KHR_external_memory_win32`)
@@ -138,6 +159,14 @@ C:\reji-studio\
   - In-process plugin loader kaldırılacak (breaking change)
   - Tüm 3. parti plugin WASM sandbox'ta çalışacak
   - Ref: https://github.com/extism/extism (WASI, 12 dil, Shopify/Discord production)
+
+### Yeni Teknoloji Önerileri (v0.5+)
+- [ ] **Windows ETW Profiling** — system-wide CPU/GPU/RAM sampling
+- [ ] **WASAPI Ses Geliştirme** — noise cancellation, normalizasyon, mikser
+- [ ] **Direct3D 11 Overlay (OSD)** — live stats overlay on stream
+- [ ] **Named Pipe IPC** — Stream Deck, Loupedeck entegrasyonu
+- [ ] **SQLite Metrik Kaydı** — oturum geçmişi, trend analizi
+- [ ] **Makro Motoru** — Named Pipe üzerinden harici tetikleyici
 
 ### Reliability Debt (güvenlik değil, ileride)
 - [ ] `copy_fence_` → `CreateQuery` eksik, cross-adapter aktifken crash

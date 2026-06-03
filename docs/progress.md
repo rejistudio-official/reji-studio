@@ -282,25 +282,74 @@ b7a7e8f  chore: .gitignore genislet, gecici dosyalari tracked listeden cikar
   - `rj_command_t` ring buffer — pipeline komutları
 
 ### Güçlü Eklemeler
+
+#### Core Performance Monitoring
+- **GPU Sıcaklık İzleme**
+  - AMD ADL (AMD Display Library) — AMD GPU temp
+  - NVIDIA NVAPI — NVIDIA GPU temp, throttle state
+  - WMI fallback — generic thermal sensor query
+  - Impl: `src/pipeline/include/gpu_thermal.h`, `gpu_thermal.cpp`
+  - UI: realtime temp gauge + throttle alert 🔴
+
 - **Çoklu Monitör Desteği**
   - `DXGI_OUTPUT` enumeration → dropdown seçim
   - `EnumOutputs()` implementasyonu
+  - Her monitör independent çözünürlük/colorspace
   - Preview her monitöre independently renderable
-
-- **Preview Kalite Seçimi**
-  - Tam (1:1) / Yarım (1:2) / Çeyrek (1:4) çözünürlük
-  - UI: quality combobox + frame rate impact göstergesi
+  - Impl: `src/pipeline/include/display_selector.h`
 
 - **Frame Rate Limiter (Ayrı Threads)**
   - Preview 30fps cap (power saving)
   - Encode 60fps cap (bitrate vs quality trade-off)
-  - Impl: `src/pipeline/frame_limiter.h`
+  - Impl: `src/pipeline/include/frame_limiter.h`
+  - Per-thread timing, sleep precision ±1ms
 
-- **UI Göstergeler**
-  - Bitrate real-time graph (past 30s)
-  - Frame drop counter + % warning
-  - GPU temp + throttle alert
-  - Impl: `src/ui/stats_widget.cpp`
+#### Advanced Monitoring UI
+- **Bitrate / Frame Drop / GPU Temp Göstergeleri**
+  - Bitrate real-time graph (past 30s, min/avg/max)
+  - Frame drop counter + warning % (>5% 🟡, >15% 🔴)
+  - GPU temp real-time + throttle state
+  - CPU/RAM usage mini gauges
+  - Impl: `src/ui/stats_widget.cpp` (new)
+  - Layout: `src/ui/main_window.cpp` (dock widget)
+
+#### Teknoloji Eklemeleri (v0.4)
+- **Windows Performance Counters (PDH API)**
+  - CPU, GPU (D3D), RAM real-time izleme
+  - Impl: `src/pipeline/include/perf_counters.h`
+  - Stability: WinAPI native, zero-copy metric buffer
+
+- **WMI (Windows Management Instrumentation)**
+  - GPU sıcaklık (ADL/NVAPI fallback)
+  - Disk I/O, ağ bant genişliği sampling
+  - Async WMI query → async event callback
+  - Impl: `src/pipeline/include/wmi_monitor.h`
+
+- **DirectX DXGI Statistics**
+  - `DXGI_FRAME_STATISTICS` → present timing
+  - Frame pacing, dropped frame detection
+  - Per-output timing analysis
+  - Impl: `src/pipeline/capture/capture_dxgi.cpp` (extend)
+
+- **Windows ETW (Event Tracing for Windows)**
+  - System-wide CPU/GPU/RAM sampling (sıfır overhead)
+  - GPU context switch, memory allocation profiling
+  - Optional: `!etwtrace` CLI flag → profiler output
+  - Ref: Windows Performance Analyzer (WPA) compat
+  - Impl: `src/pipeline/include/etw_tracer.h` (optional v0.4.1+)
+
+#### Rust Orchestrator Genişletme
+- **Kural Motoru (Rule Engine)**
+  - JSON/TOML config: bitrate adapt rules, thermal scaling, failover
+  - User-customizable: `~/.reji/rules.toml`
+  - Hot-reload capability (signal handler)
+  - Impl: `src/orchestrator/rules.rs` (new)
+  
+- **Event Bus (Pipeline ↔ UI)**
+  - Thread-safe lock-free design (crossbeam mpsc)
+  - Pipeline events: frame_captured, temp_spike, bitrate_drop, cpu_load
+  - UI subscribers: stats_widget, healing_overlay
+  - Impl: `src/orchestrator/event_bus.rs` (extend)
 
 ---
 
@@ -318,6 +367,55 @@ b7a7e8f  chore: .gitignore genislet, gecici dosyalari tracked listeden cikar
   - JSON (v28.0+) → Reji scene format
   - Multi-source layout import
   - Stub: `src/ui/obs_importer_stub.cpp`
+
+---
+
+## Yeni Teknoloji Önerileri (Gelecek Sürümler)
+
+### Ses Geliştirme (v0.5+)
+- **WASAPI Advanced Features**
+  - Noise cancellation (Windows.Media.Audio ML model)
+  - Audio normalization (loudness gate, compression)
+  - Multi-channel mixer, per-source volume control
+  - Echo cancellation (AEC) — built-in Windows API
+  - Impl: `src/pipeline/audio/wasapi_advanced.cpp`
+
+### Direct3D 11 Overlay (OSD, v0.5+)
+- **On-Screen Display (OSD)**
+  - Live bitrate, frame drop %, GPU temp, CPU load
+  - Custom text/graphics overlay → stream
+  - Configurable position, opacity, font size
+  - Impl: `src/ui/osd_overlay.cpp` (D3D11 texture rendering)
+
+### IPC & Hardware Integration (v0.5+)
+- **Named Pipe IPC**
+  - Stream Deck plugin integration (per-key bitrate/scene control)
+  - Loupedeck integration (touch panel dashboard)
+  - Macro server: `\\.\\pipe\\reji-macro` (TCP alt)
+  - Impl: `src/orchestrator/ipc_server.rs` (tokio named pipe)
+
+### Persistent Metrics & Analytics (v0.5+)
+- **SQLite Session Recording**
+  - Per-session metrics: timestamp, bitrate, fps, gpu_temp, cpu_load
+  - Trend analysis: rolling avg, spike detection, correlation
+  - Export: CSV/JSON for analysis tools
+  - Impl: `src/pipeline/metrics_recorder.cpp` (SQLite3)
+
+### Macro Engine (v0.5+)
+- **Keybind/Trigger Macro System**
+  - JSON trigger configs: hotkey, timer, event-driven
+  - Actions: switch scene, adjust bitrate, toggle recording, etc.
+  - Persistence: `~/.reji/macros.json`
+  - Named Pipe trigger API: `MACRO:run:macro_name`
+  - Impl: `src/orchestrator/macro_engine.rs`
+
+### ETW Full Integration (v0.6+)
+- **Windows Performance Profiling**
+  - Real-time ETW trace → GPU context switch, memory allocation heatmap
+  - Windows Performance Analyzer (WPA) export
+  - UI: embedded trace viewer or link to WPA
+  - Use case: frame time variance diagnosis, thermal scaling validation
+  - Impl: `src/pipeline/etw_profiler.cpp` (full, not stub)
 
 ---
 
