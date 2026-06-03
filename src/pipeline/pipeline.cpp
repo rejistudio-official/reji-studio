@@ -49,6 +49,7 @@
 // New total: 56 bytes (x64 MSVC natural alignment)
 static_assert(sizeof(RjMetricSample) == 56, "RjMetricSample ABI drift — expected 56 bytes (v0.4)");
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI drift");
+static_assert(sizeof(RjAction)       == 28, "RjAction ABI drift — expected 28 bytes (v0.4)");
 
 namespace {
 
@@ -175,10 +176,15 @@ struct Pipeline::Impl {
     std::unique_ptr<reji::NvencEncoder>                     encoder;
     std::unique_ptr<reji::pipeline::audio::WasapiCapture>   audio;
     std::unique_ptr<rj::pipeline::output::SrtOutput>        srt;
+    std::unique_ptr<rj::MetricsCollector>                   metrics;  // v0.4+
 
     // Thread-safe SRT pointer: packet callback (encode thread) vs
     // stop_stream() / shutdown() (potentially another thread).
     std::atomic<rj::pipeline::output::SrtOutput*> srt_atomic{nullptr};
+
+    // v0.4+: Action processing thread (polls rj_action_dequeue)
+    std::thread action_processor;
+    std::atomic<bool> action_processor_running{false};
 
     CpuMeter cpu;
 
@@ -319,6 +325,9 @@ bool Pipeline::init(const Config& cfg_in) {
     // Initialize profiler
     profiler_ = std::make_unique<rj::FrameProfiler>();
 
+    // Initialize metrics collector (v0.4+ Runtime Adaptation)
+    s.metrics = std::make_unique<rj::MetricsCollector>();
+
     s.cfg          = cfg_in;
     s.bitrate_kbps = cfg_in.bitrate_kbps;
 
@@ -419,6 +428,10 @@ bool Pipeline::init(const Config& cfg_in) {
             dbglog("[Pipeline] init_preview_staging failed -- preview disabled");
     }
     seh_start_monitor();
+
+    // v0.4+: Start action processor thread (polls rj_action_dequeue)
+    s.action_processor_running.store(true, std::memory_order_release);
+    s.action_processor = std::thread([this] { action_processor_main(); });
 
     s.initialized.store(true, std::memory_order_release);
     dbglog("[Pipeline] init OK %ux%u@%u fps %u kbps audio=%d loopback=%d",
@@ -527,6 +540,20 @@ bool Pipeline::run_frame() {
             : float(s.cfg.fps);
         m.cpu_percent  = s.cpu.sample();
         m.frame_drops  = s.frame_drops.exchange(0, std::memory_order_acq_rel);
+
+        // v0.4+: Extended metrics from MetricsCollector
+        // NOTE: WMI queries run in separate thread; run_frame() only reads snapshot
+        if (s.metrics) {
+            auto latest = s.metrics->get_latest();
+            m.frame_drop_pct     = latest.frame_drop_pct;
+            m.gpu_temp_c         = latest.gpu_temp_c;
+            m.cpu_temp_c         = latest.cpu_temp_c;
+            m.memory_usage_pct   = latest.memory_usage_pct;
+            m.cpu_load_pct       = latest.cpu_load_pct;
+            m.network_rtt_ms     = latest.network_rtt_ms;
+            m.network_loss_pct   = latest.network_loss_pct;
+        }
+
         seh_metrics_push(&m);
     }
     s.last_frame_ticks = frame_start;
@@ -555,6 +582,12 @@ bool Pipeline::shutdown() {
 
     s.streaming.store(false, std::memory_order_release);
     s.srt_atomic.store(nullptr, std::memory_order_release);
+
+    // v0.4+: Stop action processor thread
+    s.action_processor_running.store(false, std::memory_order_release);
+    if (s.action_processor.joinable()) {
+        s.action_processor.join();
+    }
 
     // Finalize profiler
     if (profiler_) {
@@ -590,6 +623,60 @@ uint32_t Pipeline::display_vendor_id() const {
     if (!impl_ || !impl_->capture) return 0;
     const auto& scan = impl_->capture->gpu_scan();
     return scan.count > 0 ? scan.entries[0].vendor_id : 0;
+}
+
+// v0.4+: Action processor thread main loop
+void Pipeline::action_processor_main() {
+    while (impl_->action_processor_running.load(std::memory_order_acquire)) {
+        RjAction action{};
+        // Poll rj_action_dequeue (FFI call) — non-blocking, returns false if queue empty
+        if (rj_action_dequeue(&action)) {
+            apply_action(action);
+        }
+        // Prevent busy-wait: yield briefly if queue is empty
+        Sleep(5);  // 5ms poll interval
+    }
+    dbglog("[Pipeline] action processor stopped");
+}
+
+// v0.4+: Apply a single action from the rule engine
+bool Pipeline::apply_action(const RjAction& action) {
+    if (!impl_ || !impl_->encoder) return false;
+
+    switch (action.action_type) {
+        case RJ_ACTION_BITRATE_REDUCE: {
+            uint32_t new_rate = impl_->config.bitrate_kbps;
+            if (new_rate > 1000) {
+                new_rate = static_cast<uint32_t>(new_rate * 0.85f);  // 85% of current
+                return impl_->encoder->set_bitrate(new_rate);
+            }
+            break;
+        }
+        case RJ_ACTION_BITRATE_RECOVER: {
+            uint32_t target_rate = impl_->config.bitrate_kbps;
+            uint32_t current_rate = impl_->bitrate_kbps;
+            if (current_rate < target_rate) {
+                uint32_t new_rate = static_cast<uint32_t>(current_rate * 1.05f);  // 105% of current
+                new_rate = new_rate > target_rate ? target_rate : new_rate;
+                return impl_->encoder->set_bitrate(new_rate);
+            }
+            break;
+        }
+        case RJ_ACTION_SCALE_RESOLUTION: {
+            // param1 is scale factor as uint32_t (e.g., 750 = 0.75)
+            float scale = action.param1 / 1000.0f;
+            return impl_->encoder->set_resolution(scale);
+        }
+        case RJ_ACTION_FPS_LIMIT: {
+            // param1 is target FPS
+            uint32_t fps = action.param1;
+            return impl_->encoder->set_fps_limit(fps);
+        }
+        default:
+            dbglog("[Pipeline] unknown action_type=%u", action.action_type);
+            break;
+    }
+    return false;
 }
 
 #endif // _WIN32

@@ -18,6 +18,12 @@ public:
     HealingMode healingMode() const;
     void setHealingMode(HealingMode mode);
 
+    // Yaklaşım C: Co-Pilot action settings
+    bool isBitrateAuto() const;
+    bool isSourceAuto() const;
+    bool isResolutionAuto() const;
+    bool isFpsAuto() const;
+
 signals:
     void healingModeChanged(HealingMode mode);
 

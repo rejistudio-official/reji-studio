@@ -30,6 +30,9 @@ public:
     QTimer*      co_pilot_timeout{nullptr};     // 30s timeout per action
     uint32_t     current_action_id{0};          // Track current approval-pending
     bool         manual_mode_warned{false};     // Manual mode one-time warning
+
+    // Yaklaşım C: Settings dialog reference
+    reji::SettingsDialog* settings_dialog{nullptr};
 };
 
 HealingOverlay::HealingOverlay(QWidget* parent)
@@ -141,31 +144,63 @@ void HealingOverlay::onActionEvent(const ActionEvent& event) {
         }
 
         case HealingMode::CoPilot: {
-            d_->lbl_message->setText(tr("Eylem onayını bekleyen (30s zaman aşımı):"));
-            d_->action_list->clear();
-            d_->action_list->show();
-
-            auto* item = new QListWidgetItem(event.description);
-            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-            item->setCheckState(Qt::Unchecked);
-            d_->action_list->addItem(item);
-
-            d_->current_action_id = event.id;
-
-            connect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
-                    this, [this, id = event.id](const QModelIndex&, const QModelIndex&) {
-                auto item = d_->action_list->item(0);
-                if (item && item->checkState() == Qt::Checked) {
-                    emit actionApproved(id);
-                    d_->action_list->clear();
-                    d_->action_list->hide();
-                    d_->co_pilot_timeout->stop();
+            // Yaklaşım C: Check settings for this action type
+            bool is_auto = false;
+            if (d_->settings_dialog) {
+                switch (event.type) {
+                    case ActionType::BitrateReduce:
+                        is_auto = d_->settings_dialog->isBitrateAuto();
+                        break;
+                    case ActionType::SourceReconnect:
+                        is_auto = d_->settings_dialog->isSourceAuto();
+                        break;
+                    case ActionType::ResolutionScale:
+                        is_auto = d_->settings_dialog->isResolutionAuto();
+                        break;
+                    case ActionType::FpsLimit:
+                        is_auto = d_->settings_dialog->isFpsAuto();
+                        break;
                 }
-            });
+            }
 
-            show();
-            raise();
-            d_->co_pilot_timeout->start();
+            if (is_auto) {
+                // Auto-execute immediately
+                emit actionApproved(event.id);
+                d_->lbl_message->setText(QString("Auto: %1").arg(event.description));
+                d_->history_list->show();
+                show();
+                raise();
+                d_->remaining_ms = 3000;
+                d_->lbl_countdown->setText("3s");
+                d_->timer->start();
+            } else {
+                // Manual: show checkbox, 30s timeout → iptal
+                d_->lbl_message->setText(tr("Eylem onayı (30s, timeout → iptal):"));
+                d_->action_list->clear();
+                d_->action_list->show();
+
+                auto* item = new QListWidgetItem(event.description);
+                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+                item->setCheckState(Qt::Unchecked);
+                d_->action_list->addItem(item);
+
+                d_->current_action_id = event.id;
+
+                connect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
+                        this, [this, id = event.id](const QModelIndex&, const QModelIndex&) {
+                    auto item = d_->action_list->item(0);
+                    if (item && item->checkState() == Qt::Checked) {
+                        emit actionApproved(id);
+                        d_->action_list->clear();
+                        d_->action_list->hide();
+                        d_->co_pilot_timeout->stop();
+                    }
+                });
+
+                show();
+                raise();
+                d_->co_pilot_timeout->start();
+            }
             break;
         }
 
@@ -221,6 +256,10 @@ QStringList HealingOverlay::actionHistory(int limit) const {
         result << item->text();
     }
     return result;
+}
+
+void HealingOverlay::setSettingsDialog(SettingsDialog* dialog) {
+    d_->settings_dialog = dialog;
 }
 
 void HealingOverlay::paintEvent(QPaintEvent*) {

@@ -17,6 +17,12 @@ public:
     QComboBox* combo_mode{nullptr};
     QTextEdit* text_info{nullptr};
     HealingMode current_mode{HealingMode::CoPilot};
+
+    // Co-Pilot action settings (Yaklaşım C)
+    QCheckBox* chk_bitrate_auto{nullptr};        // varsayılan: açık
+    QCheckBox* chk_source_auto{nullptr};         // varsayılan: açık
+    QCheckBox* chk_resolution_auto{nullptr};     // varsayılan: kapalı
+    QCheckBox* chk_fps_auto{nullptr};            // varsayılan: kapalı
 };
 
 SettingsDialog::SettingsDialog(QWidget* parent)
@@ -58,6 +64,26 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     layout_grp->addLayout(layout_mode);
     layout_grp->addWidget(d_->text_info);
 
+    // ===== Co-Pilot Action Settings (Yaklaşım C) =====
+    auto* grp_copilot = new QGroupBox(tr("Co-Pilot Aksiyon Ayarları"), this);
+    auto* layout_copilot = new QVBoxLayout(grp_copilot);
+
+    d_->chk_bitrate_auto = new QCheckBox(tr("Bitrate otomatik"), this);
+    d_->chk_bitrate_auto->setChecked(true);  // varsayılan: açık
+    layout_copilot->addWidget(d_->chk_bitrate_auto);
+
+    d_->chk_source_auto = new QCheckBox(tr("Kaynak yeniden bağlan"), this);
+    d_->chk_source_auto->setChecked(true);  // varsayılan: açık
+    layout_copilot->addWidget(d_->chk_source_auto);
+
+    d_->chk_resolution_auto = new QCheckBox(tr("Çözünürlük düşür"), this);
+    d_->chk_resolution_auto->setChecked(false);  // varsayılan: kapalı
+    layout_copilot->addWidget(d_->chk_resolution_auto);
+
+    d_->chk_fps_auto = new QCheckBox(tr("FPS sınırla"), this);
+    d_->chk_fps_auto->setChecked(false);  // varsayılan: kapalı
+    layout_copilot->addWidget(d_->chk_fps_auto);
+
     // ===== Buttons =====
     auto* btn_ok = new QPushButton(tr("Tamam"));
     auto* btn_cancel = new QPushButton(tr("İptal"));
@@ -73,6 +99,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     // ===== Main Layout =====
     auto* layout_main = new QVBoxLayout(this);
     layout_main->addWidget(grp_healing);
+    layout_main->addWidget(grp_copilot);
     layout_main->addStretch();
     layout_main->addLayout(layout_buttons);
 
@@ -119,6 +146,23 @@ void SettingsDialog::onModeChanged(int index) {
 void SettingsDialog::onOkClicked() {
     emit healingModeChanged(d_->current_mode);
     accept();
+}
+
+// Yaklaşım C: Co-Pilot action setting getters
+bool SettingsDialog::isBitrateAuto() const {
+    return d_->chk_bitrate_auto && d_->chk_bitrate_auto->isChecked();
+}
+
+bool SettingsDialog::isSourceAuto() const {
+    return d_->chk_source_auto && d_->chk_source_auto->isChecked();
+}
+
+bool SettingsDialog::isResolutionAuto() const {
+    return d_->chk_resolution_auto && d_->chk_resolution_auto->isChecked();
+}
+
+bool SettingsDialog::isFpsAuto() const {
+    return d_->chk_fps_auto && d_->chk_fps_auto->isChecked();
 }
 
 } // namespace reji

@@ -8,6 +8,7 @@
 #include "preview_widget.h"
 #include "program_widget.h"
 #include "rust_bridge.h"    // also pulls in ffi_bridge.h (RjCommand, rj_command_drain, …)
+#include "settings_dialog.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -252,6 +253,11 @@ void MainWindow::buildMenuBar() {
                "Apache 2.0 Lisansı\n"
                "github.com/rejistudio-official/reji-studio"));
     });
+
+    // Tools menu: Settings
+    QMenu* tools_menu = menuBar()->addMenu(tr("&Araçlar"));
+    auto* action_settings = tools_menu->addAction(tr("&Ayarlar"));
+    connect(action_settings, &QAction::triggered, this, &MainWindow::onSettingsClicked);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +365,27 @@ void MainWindow::onCutTransition() {
 void MainWindow::onFadeTransition() {
     program_widget_->beginTransition(reji::ProgramWidget::Transition::Fade, 300);
     lbl_status_->setText(tr("FADE"));
+}
+
+void MainWindow::onSettingsClicked() {
+    if (!settings_dialog_) {
+        settings_dialog_ = new SettingsDialog(this);
+
+        // Connect mode change signal to HealingOverlay
+        connect(settings_dialog_, &SettingsDialog::healingModeChanged,
+                this, [this](HealingMode mode) {
+            if (healing_overlay_) {
+                healing_overlay_->setHealingMode(mode);
+            }
+        });
+
+        // Link SettingsDialog to HealingOverlay for Yaklaşım C
+        if (healing_overlay_) {
+            healing_overlay_->setSettingsDialog(settings_dialog_);
+        }
+    }
+
+    settings_dialog_->exec();
 }
 
 // ---------------------------------------------------------------------------

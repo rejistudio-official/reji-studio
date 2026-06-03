@@ -385,29 +385,64 @@ bool rj_action_dequeue(RjAction* out) {
 }
 ```
 
-### 5. HealingOverlay Integration
+### 5. HealingOverlay Integration (Yaklaşım C: Co-Pilot Aksiyon Ayarları)
+
+**Settings UI (Co-Pilot Mode):**
+```
+☑ Bitrate otomatik (varsayılan: açık)
+☑ Kaynak yeniden bağlan (varsayılan: açık)
+☐ Çözünürlük düşür (varsayılan: kapalı)
+☐ FPS sınırla (varsayılan: kapalı)
+```
+
+**onActionEvent() Logic:**
+- Aksiyon type'ı settings'de "otomatik" ise → direkt execute (checkbox state ignore)
+- Aksiyon type'ı settings'de "manuel" ise → HealingOverlay checkbox göster, 30s timeout → iptal
 
 **Qt Slot:**
 ```cpp
-void HealingOverlay::onActionNotification(const QString& action_id, 
-                                          const QString& description) {
-  if (current_mode == RJ_MODE_CO_PILOT) {
-    // Show checkbox
-    auto checkbox = new QCheckBox(description);
-    action_list->addItem(checkbox);  // simplified
-    
-    connect(checkbox, &QCheckBox::toggled, this, [this, action_id](bool checked) {
-      if (checked) {
-        rj_action_approve(action_id.toUInt());  // FFI call
+void HealingOverlay::onActionEvent(const ActionEvent& event) {
+  // Add to history
+  d_->history_list->insertItem(0, QString("[%1] %2").arg(event.timestamp, event.description));
+  while (d_->history_list->count() > 10) {
+    delete d_->history_list->takeItem(d_->history_list->count() - 1);
+  }
+  
+  switch (d_->healing_mode) {
+    case HealingMode::CoPilot: {
+      // Check settings for this action type (e.g., bitrate_reduce)
+      bool is_auto = get_action_setting_auto(event.action_type);  // Consult SettingsDialog
+      
+      if (is_auto) {
+        // Auto-execute (don't show checkbox)
+        emit actionApproved(event.id);
+        d_->lbl_message->setText(QString("Auto: %1").arg(event.description));
+        d_->history_list->show();
+        show();
+        d_->remaining_ms = 3000;
+        d_->lbl_countdown->setText("3s");
+        d_->timer->start();
+      } else {
+        // Manual: show checkbox, 30s timeout
+        d_->lbl_message->setText(tr("Eylem onayı (30s):"));
+        d_->action_list->clear();
+        d_->action_list->show();
+        
+        auto* item = new QListWidgetItem(event.description);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(Qt::Unchecked);
+        d_->action_list->addItem(item);
+        
+        d_->current_action_id = event.id;
+        connect(...);  // checkbox toggle → emit actionApproved
+        
+        show();
+        raise();
+        d_->co_pilot_timeout->start();  // 30s → timeout cancels
       }
-    });
-  } else if (current_mode == RJ_MODE_AUTO_PILOT) {
-    // Auto-execute
-    rj_action_approve(action_id.toUInt());
-    showNotification(description);
-  } else if (current_mode == RJ_MODE_ASSIST || RJ_MODE_MANUAL) {
-    // Log-only, display in history
-    action_history.append(description);
+      break;
+    }
+    // ... other modes ...
   }
 }
 ```

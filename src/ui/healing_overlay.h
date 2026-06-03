@@ -8,6 +8,8 @@
 
 namespace reji {
 
+class SettingsDialog;  // Forward declaration
+
 // Healing mode enum (matches RjHealingMode from FFI)
 enum class HealingMode {
     AutoPilot = 0,   // All actions auto-execute
@@ -16,9 +18,18 @@ enum class HealingMode {
     Manual = 3       // All suppressed, log only
 };
 
+// Action type enum
+enum class ActionType {
+    BitrateReduce = 0,
+    SourceReconnect = 1,
+    ResolutionScale = 2,
+    FpsLimit = 3
+};
+
 // Action structure for display
 struct ActionEvent {
     uint32_t id;
+    ActionType type;
     QString description;
     bool require_approval;  // for Co-Pilot mode
     QString timestamp;
@@ -46,6 +57,9 @@ public:
 
     // Get action history (last N items)
     QStringList actionHistory(int limit = 10) const;
+
+    // Yaklaşım C: Link to SettingsDialog for Co-Pilot action settings
+    void setSettingsDialog(SettingsDialog* dialog);
 
 signals:
     void undoRequested();

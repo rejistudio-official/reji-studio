@@ -164,6 +164,16 @@ impl AdaptationDecider {
     pub fn pending_actions(&self) -> Vec<&PendingAction> {
         self.pending_actions.values().collect()
     }
+
+    /// Enqueue approved actions to the global queue for C++ execution
+    pub fn enqueue_approved_actions(&mut self, actions: Vec<Action>) {
+        for action in actions {
+            if !action.log_only {  // Only queue executable actions
+                let _ = crate::enqueue_action(&action);
+            }
+            self.record_action();  // Update hysteresis timer
+        }
+    }
 }
 
 /// Determine if an action is critical (should auto-execute even in some modes)

@@ -34,12 +34,37 @@ const RJ_CMD_SCENE_SWITCH: u32 = 0;
 const RJ_CMD_BITRATE_SET:  u32 = 1;
 const RJ_CMD_PREVIEW_FPS:  u32 = 2;
 
+/// v0.4+: Adaptation action — `ffi_bridge.h`'daki RjAction ile #[repr(C)] eşleşmeli.
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub enum RjActionType {
+    BitrateReduce = 0,
+    BitrateRecover = 1,
+    ScaleResolution = 2,
+    RestoreResolution = 3,
+    CapFps = 4,
+    RestoreFps = 5,
+    LogOnly = 6,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct RjAction {
+    pub id: u32,
+    pub action_type: RjActionType,
+    pub param1: i32,
+    pub param2: i32,
+    pub timestamp_us: u64,
+    pub canary: u32,
+}
+
 struct FfiState {
-    metric_ring:   Arc<ArrayQueue<MetricSample>>,
-    command_queue: Arc<ArrayQueue<RjCommand>>,
-    _metric_state: Arc<MetricState>,
-    _runtime:      Runtime,
-    media_tx:      broadcast::Sender<MediaEvent>,
+    metric_ring:    Arc<ArrayQueue<MetricSample>>,
+    command_queue:  Arc<ArrayQueue<RjCommand>>,
+    action_queue:   Arc<ArrayQueue<RjAction>>,     // v0.4+ Runtime Adaptation
+    _metric_state:  Arc<MetricState>,
+    _runtime:       Runtime,
+    media_tx:       broadcast::Sender<MediaEvent>,
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
@@ -60,6 +85,7 @@ pub extern "C" fn rj_start_monitor() {
 
         let metric_ring   = Arc::new(ArrayQueue::<MetricSample>::new(256));
         let command_queue = Arc::new(ArrayQueue::<RjCommand>::new(64));
+        let action_queue  = Arc::new(ArrayQueue::<RjAction>::new(64));     // v0.4+ Runtime Adaptation
         let event_bus     = EventBus::new();
         let metric_state  = MetricState::new();
 
@@ -150,6 +176,7 @@ pub extern "C" fn rj_start_monitor() {
         FfiState {
             metric_ring,
             command_queue,
+            action_queue,    // v0.4+ Runtime Adaptation
             _metric_state: metric_state,
             _runtime: runtime,
             media_tx: event_bus.media.clone(),
@@ -220,6 +247,51 @@ pub extern "C" fn rj_connection_lost(reason: *const c_char) {
 #[no_mangle]
 pub extern "C" fn rj_pipeline_status() -> i32 {
     if FFI_STATE.get().is_some() { 0 } else { -1 }
+}
+
+/// v0.4+: Dequeue next adaptation action from Rust to C++
+/// Returns 1 if action available, 0 if queue empty
+#[no_mangle]
+pub extern "C" fn rj_action_dequeue(out: *mut RjAction) -> i32 {
+    if out.is_null() {
+        return 0;
+    }
+    if let Some(state) = FFI_STATE.get() {
+        if let Some(action) = state.action_queue.pop() {
+            unsafe { *out = action; }
+            return 1;
+        }
+    }
+    0
+}
+
+/// v0.4+: Enqueue an action from Rust rule engine to C++
+pub fn enqueue_action(action: RjAction) -> bool {
+    if let Some(state) = FFI_STATE.get() {
+        return state.action_queue.push(action).is_ok();
+    }
+    false
+}
+
+/// v0.4+: FFI stubs for other action/healing mode functions (TODO: implement)
+#[no_mangle]
+pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
+    1  // TODO: Implement Co-Pilot approval
+}
+
+#[no_mangle]
+pub extern "C" fn rj_set_healing_mode(_mode: u32) -> i32 {
+    1  // TODO: Implement healing mode setting
+}
+
+#[no_mangle]
+pub extern "C" fn rj_get_healing_mode() -> i32 {
+    0  // RJ_MODE_AUTO_PILOT (default)
+}
+
+#[no_mangle]
+pub extern "C" fn rj_reload_rules(_path: *const c_char) -> i32 {
+    1  // TODO: Implement hot-reload of rules
 }
 
 #[cfg(test)]

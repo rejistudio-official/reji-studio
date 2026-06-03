@@ -33,6 +33,8 @@ void NvencEncoder::shutdown()                              {}
 bool NvencEncoder::encode_frame(ID3D11Texture2D*, int64_t, bool) { return false; }
 void NvencEncoder::flush()                                 {}
 bool NvencEncoder::set_bitrate(uint32_t)                   { return false; }
+bool NvencEncoder::set_resolution(float)                   { return false; }
+bool NvencEncoder::set_fps_limit(uint32_t)                 { return false; }
 bool NvencEncoder::is_initialized() const                  { return false; }
 
 #else // RJ_NVENC_AVAILABLE
@@ -428,6 +430,60 @@ bool NvencEncoder::set_bitrate(uint32_t kbps) {
     }
     impl_->config.bitrate_kbps = kbps;
     printf("[NVENC] Bitrate → %u kbps\n", kbps);
+    return true;
+}
+
+bool NvencEncoder::set_resolution(float scale_factor) {
+    if (!impl_->initialized || scale_factor <= 0.0f) { return false; }
+
+    uint32_t new_width  = static_cast<uint32_t>(impl_->config.width * scale_factor);
+    uint32_t new_height = static_cast<uint32_t>(impl_->config.height * scale_factor);
+
+    // Clamp to NVENC minimum (typically 16x16, but practical minimum is ~64x64 for H.264)
+    if (new_width < 128 || new_height < 128) {
+        printf("[NVENC] Resolution scale %.2f too small (min ~128x128)\n", scale_factor);
+        return false;
+    }
+
+    impl_->saved_cfg.encodeWidth  = new_width;
+    impl_->saved_cfg.encodeHeight = new_height;
+
+    NV_ENC_RECONFIGURE_PARAMS rp = {};
+    rp.version                         = NV_ENC_RECONFIGURE_PARAMS_VER;
+    rp.reInitEncodeParams              = impl_->saved_init;
+    rp.reInitEncodeParams.encodeConfig = &impl_->saved_cfg;
+    rp.resetEncoder                    = 0;
+
+    NVENCSTATUS s = impl_->api.nvEncReconfigureEncoder(impl_->session, &rp);
+    if (s != NV_ENC_SUCCESS) {
+        printf("[NVENC] ReconfigureEncoder (resolution %.2fx) failed: %d\n", scale_factor, s);
+        return false;
+    }
+    impl_->config.width  = new_width;
+    impl_->config.height = new_height;
+    printf("[NVENC] Resolution → %.2f%% (%ux%u)\n", scale_factor * 100.f, new_width, new_height);
+    return true;
+}
+
+bool NvencEncoder::set_fps_limit(uint32_t fps) {
+    if (!impl_->initialized || fps < 1 || fps > 120) { return false; }
+
+    impl_->config.fps_num = fps;
+    impl_->saved_cfg.frameRateNum   = fps;
+    impl_->saved_cfg.frameRateDen   = 1;
+
+    NV_ENC_RECONFIGURE_PARAMS rp = {};
+    rp.version                         = NV_ENC_RECONFIGURE_PARAMS_VER;
+    rp.reInitEncodeParams              = impl_->saved_init;
+    rp.reInitEncodeParams.encodeConfig = &impl_->saved_cfg;
+    rp.resetEncoder                    = 0;
+
+    NVENCSTATUS s = impl_->api.nvEncReconfigureEncoder(impl_->session, &rp);
+    if (s != NV_ENC_SUCCESS) {
+        printf("[NVENC] ReconfigureEncoder (fps %u) failed: %d\n", fps, s);
+        return false;
+    }
+    printf("[NVENC] FPS limit → %u\n", fps);
     return true;
 }
 

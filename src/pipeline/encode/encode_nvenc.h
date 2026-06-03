@@ -75,6 +75,13 @@ public:
     /// Calls nvEncReconfigureEncoder; does not interrupt the encode session.
     bool set_bitrate(uint32_t kbps);
 
+    /// Scale resolution by factor (e.g., 0.75 = 75% of original).
+    /// Note: NVENC resolution changes require careful handling; partial implementation for v0.4.
+    bool set_resolution(float scale_factor);
+
+    /// Set frame rate limit (e.g., 30 fps). Requires reconfiguration.
+    bool set_fps_limit(uint32_t fps);
+
     bool is_initialized() const;
 
 private:
