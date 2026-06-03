@@ -76,6 +76,58 @@ test result: ok. 17 passed; 0 failed; 0 ignored
 
 ---
 
+## Oturum: 2026-06-03 (Security Fixes — FFI Boundary Hardening)
+
+### Critical Security Fixes ✅ TAMAMLANDI
+
+**Spec Yazıldı:** `docs/superpowers/specs/2026-06-03-security-fixes.md`
+
+**Fix 1: rj_command_drain Buffer Overflow (CRITICAL)**
+- src/orchestrator/src/ffi.rs:207
+- Added bounds check: `if max > 64 { return 0; }`
+- Prevents unbounded buffer write (attacker-controlled max parameter)
+- CWE-680: Integer Overflow to Buffer Overflow
+
+**Fix 2: FFI Panic Safety (CRITICAL)**
+- All 10 extern "C" functions wrapped with `catch_unwind` + `AssertUnwindSafe`
+- Prevents panic unwind into C++ (undefined behavior)
+- Safe return values on panic: -1 (error), 0 (empty), void (log only)
+- Functions protected:
+  * rj_start_monitor() → void, log panic
+  * rj_metrics_push() → void, log panic
+  * rj_command_drain() → return -1
+  * rj_connection_lost() → void, log panic
+  * rj_pipeline_status() → return -1
+  * rj_action_dequeue() → return 0
+  * rj_action_approve() → return 0
+  * rj_set_healing_mode() → return 0
+  * rj_get_healing_mode() → return 0
+  * rj_reload_rules() → return 0
+
+**Fix 3: Null Pointer Safety Audit (HIGH)**
+- All pointer parameters already guarded: is_null() checks
+- Added safety documentation comments
+- No new fixes needed, audit confirms CWE-476 prevention
+
+**Test Results:**
+- ✅ 23/23 unit tests passing (6 new security-specific tests)
+- ✅ `cargo test --lib`: PASS
+- ✅ Build Release: SUCCESS (2.19s)
+- ✅ Runtime: reji_app.exe stable, no crashes
+
+**Coverage:**
+- Buffer overflow prevention: test_drain_max_exceeds_limit_returns_zero
+- Panic safety: test_panic_safety_* (3 tests)
+- Null pointer safety: test_null_pointer_safety_all_functions
+- Edge cases: max at limit, repeated calls, invalid state
+
+**Git Commit:** d4e5c52
+- Spec: 276 lines
+- Implementation: ~180 lines (catch_unwind wrappers, bounds checks)
+- Tests: 6 new security tests, all passing
+
+---
+
 ## Oturum: 2026-06-02 (v0.3 tamamlandı, v0.4 planı)
 
 ### v0.3 Tamamlandı ✅ — tag: v0.3
