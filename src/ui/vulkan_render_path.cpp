@@ -6,7 +6,7 @@ namespace reji::ui {
 VulkanRenderPath::VulkanRenderPath(VkDevice device, VkQueue graphics_queue, uint32_t queue_family)
     : device_(device), graphics_queue_(graphics_queue), queue_family_(queue_family),
       cmd_pool_(nullptr), current_cmd_buffer_(0),
-      swapchain_format_(0), width_(0), height_(0) {}
+      swapchain_format_(VK_FORMAT_UNDEFINED), width_(0), height_(0) {}
 
 bool VulkanRenderPath::initialize(VkFormat swapchain_format, uint32_t width, uint32_t height) {
   swapchain_format_ = swapchain_format;

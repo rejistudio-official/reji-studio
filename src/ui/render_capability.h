@@ -3,7 +3,8 @@
 #include <string>
 
 #ifndef REJI_VULKAN_MOCK
-// Real Vulkan includes
+#define VK_USE_PLATFORM_WIN32_KHR
+#include <vulkan/vulkan_win32.h>
 #else
 // Mock mode: no Vulkan includes needed
 #endif
