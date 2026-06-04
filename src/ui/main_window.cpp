@@ -51,11 +51,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // v0.2: Pipeline init + preview callback
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
-    pipeline_.set_preview_callback([this](const void* bgra, int w, int h, int pitch) {
-        // uploadFrame is thread-safe (mutex + internal invokeMethod for update()).
-        // Call directly so the deep-copy happens before the pipeline unmaps the staging texture.
-        preview_widget_->uploadFrame(bgra, w, h, pitch);
-    });
     if (!pipeline_.init(pcfg)) {
         qDebug() << "Pipeline init failed";
         lbl_status_->setText(tr("Pipeline init başarısız — NVENC SDK eksik olabilir"));
