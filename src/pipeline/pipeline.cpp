@@ -441,11 +441,10 @@ bool Pipeline::init(const Config& cfg_in) {
 
     // �� Rust monitor ���������������������������������������������������������
 
-    // v0.5.1: Initialize dual textures (shared_texture_ + staging_texture_)
-    // Required for both GPU zero-copy (d3d11_frame_cb) and CPU preview (preview_cb)
-    if (s.d3d11_frame_cb || s.preview_cb) {
+    // v0.2 preview staging — allocate once, no hot-path heap
+    if (s.preview_cb) {
         if (!s.capture->init_preview_staging())
-            dbglog("[Pipeline] init_preview_staging failed");
+            dbglog("[Pipeline] init_preview_staging failed -- preview disabled");
     }
     seh_start_monitor();
 
@@ -503,6 +502,10 @@ bool Pipeline::set_preview_callback(PreviewCallback cb) {
 bool Pipeline::set_d3d11_frame_callback(D3D11FrameCallback cb) {
     if (!impl_) impl_ = std::make_unique<Impl>();
     impl_->d3d11_frame_cb = std::move(cb);
+    // init_preview_staging: capture hazırsa hemen çağır
+    if (impl_->capture && !impl_->capture->shared_texture()) {
+        impl_->capture->init_preview_staging();
+    }
     fprintf(stderr, "[Pipeline] d3d11_frame_cb set OK\n"); fflush(stderr);
     return true;
 }
