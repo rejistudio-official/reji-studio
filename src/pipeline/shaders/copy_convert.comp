@@ -1,0 +1,25 @@
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+
+layout(set=0, binding=0) uniform sampler2D inputImage;   // D3D11 texture (BGRA)
+layout(set=0, binding=1, rgba8) uniform image2D outputImage;  // Target (RGBA)
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    // Bounds check
+    if (pos.x >= imageSize(outputImage).x || pos.y >= imageSize(outputImage).y) {
+        return;
+    }
+
+    // Read BGRA from D3D11 texture
+    vec4 bgra = texelFetch(inputImage, pos, 0);
+
+    // Convert BGRA → RGBA
+    vec4 rgba = vec4(bgra.b, bgra.g, bgra.r, bgra.a);
+
+    // Write to target image
+    imageStore(outputImage, pos, rgba);
+}

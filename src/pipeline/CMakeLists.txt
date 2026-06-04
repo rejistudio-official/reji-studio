@@ -5,6 +5,7 @@ set(PIPELINE_SOURCES
     pipeline.cpp
     frame_profiler.cpp
     metrics_collector.cpp
+    copy_optimizer.cpp
 )
 
 if(WIN32)
