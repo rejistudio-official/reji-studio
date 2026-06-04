@@ -441,10 +441,11 @@ bool Pipeline::init(const Config& cfg_in) {
 
     // �� Rust monitor ���������������������������������������������������������
 
-    // v0.2 preview staging — allocate once, no hot-path heap
-    if (s.preview_cb) {
+    // v0.5.1: Initialize dual textures (shared_texture_ + staging_texture_)
+    // Required for both GPU zero-copy (d3d11_frame_cb) and CPU preview (preview_cb)
+    if (s.d3d11_frame_cb || s.preview_cb) {
         if (!s.capture->init_preview_staging())
-            dbglog("[Pipeline] init_preview_staging failed -- preview disabled");
+            dbglog("[Pipeline] init_preview_staging failed");
     }
     seh_start_monitor();
 
