@@ -30,6 +30,11 @@ class ExternalMemoryBridge {
   ExternalMemoryBridge(VkDevice device, VkPhysicalDevice physical_device);
   ~ExternalMemoryBridge();
 
+  // Late device binding — Vulkan device may not be ready at construction time.
+  // Callers (e.g. set_d3d11_frame_callback) can re-bind the logical/physical
+  // device pair once VulkanInitializer reports a valid handle.
+  void set_device(VkDevice device, VkPhysicalDevice phys_device);
+
   HANDLE export_d3d11_handle(ID3D11Texture2D* staging_texture);
 
   VkImage create_vulkan_image_from_d3d11(

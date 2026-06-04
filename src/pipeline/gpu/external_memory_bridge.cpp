@@ -10,6 +10,14 @@ ExternalMemoryBridge::ExternalMemoryBridge(VkDevice device, VkPhysicalDevice phy
     : device_(device), physical_device_(physical_device), format_(VK_FORMAT_UNDEFINED),
       width_(0), height_(0), pool_index_(0), cached_d3d11_handle_(nullptr) {}
 
+void ExternalMemoryBridge::set_device(VkDevice device, VkPhysicalDevice phys_device) {
+  device_ = device;
+  physical_device_ = phys_device;
+  fprintf(stderr, "[ExternalMemoryBridge] set_device: device=%p phys=%p\n",
+          (void*)device_, (void*)physical_device_);
+  fflush(stderr);
+}
+
 HANDLE ExternalMemoryBridge::export_d3d11_handle(ID3D11Texture2D* staging_texture) {
   if (!staging_texture) {
     fprintf(stderr, "[ExternalMemoryBridge] staging_texture is null\n");
