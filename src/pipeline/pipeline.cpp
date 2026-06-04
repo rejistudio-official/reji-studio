@@ -18,6 +18,7 @@
 
 #include "include/pipeline.h"
 #include "include/frame_profiler.h"
+#include "gpu/external_memory_bridge.h"
 
 #ifdef _WIN32
 #include "capture/capture_dxgi.h"
@@ -177,6 +178,9 @@ struct Pipeline::Impl {
     std::unique_ptr<reji::pipeline::audio::WasapiCapture>   audio;
     std::unique_ptr<rj::pipeline::output::SrtOutput>        srt;
     std::unique_ptr<rj::MetricsCollector>                   metrics;  // v0.4+
+
+    // v0.5.1: ExternalMemoryBridge for zero-copy D3D11↔Vulkan interop
+    std::unique_ptr<rj::pipeline::gpu::ExternalMemoryBridge> ext_bridge;
 
     // Thread-safe SRT pointer: packet callback (encode thread) vs
     // stop_stream() / shutdown() (potentially another thread).
@@ -520,6 +524,16 @@ bool Pipeline::run_frame() {
             }
             // v0.5.1: Zero-copy D3D11 frame callback (GPU-side operations)
             if (s.d3d11_frame_cb) {
+                // Task 6: get_frame_images() result logging
+                VkImage staging_vk = nullptr;
+                VkImage target_vk = nullptr;
+                if (s.ext_bridge) {
+                    s.ext_bridge->get_frame_images(tex, &staging_vk, &target_vk);
+                    fprintf(stderr, "[Pipeline] get_frame_images: staging=%p target=%p\n",
+                            staging_vk, target_vk);
+                    fflush(stderr);
+                }
+
                 s.d3d11_frame_cb(static_cast<void*>(tex),
                                  (uint32_t)s.capture->width(),
                                  (uint32_t)s.capture->height());
