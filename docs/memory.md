@@ -106,6 +106,103 @@ Bu sorunlar güvenlik kapsamında değil, ileride düzeltilmeli:
 
 ---
 
+## Kronik Sorun Çözüm Yol Haritası (MiniMax M3 + Gemini 2.5 Pro Analizi)
+
+Aider multi-model analizi (MiniMax M3 $0.01/1M tokens, Gemini 2.5 Pro $0.05/1M) ile tanımlanan sistem-çapı sorunlar ve çözüm roadmap'ı.
+
+### Öncelik 1 — Hemen (v0.5.1)
+
+**CMake Generator Determinizm & CI Guard**
+
+- [ ] **CMakePresets.json ekle** (`build-release` preset → Ninja zorunlu)
+  - Rationale: NMake vs Ninja generator karışıklığı, PowerShell vs x64 Native Tools environment varyans
+  - File: `CMakePresets.json` (root)
+  - Content: `generator: Ninja`, `cacheVariables: {CMAKE_BUILD_TYPE: Release}`
+  - CI: `.github/workflows/build.yml` → `cmake --preset build-release` (explicit)
+
+- [ ] **scripts/build.py fail-fast generator kontrolü**
+  - Current: vswhere + Ninja detection, ama fallback muhtemel
+  - Add: `ninja --version` || error "Ninja not found, install: choco install ninja"
+  - Add: Environment var check `set CMAKE_GENERATOR=Ninja` (Windows batch setup)
+
+- [ ] **CI Guard: Visual Studio generator tespit → build break**
+  - Problem: CMake "NMake Makefiles"'ı default seçebilir (slow, old)
+  - Add to CMakeLists.txt:
+    ```cmake
+    if(CMAKE_GENERATOR MATCHES "Visual Studio|NMake")
+      message(FATAL_ERROR "Unsupported generator: ${CMAKE_GENERATOR}. Use 'Ninja' (cmake -G Ninja)")
+    endif()
+    ```
+  - Impact: PR check, Windows SDK env issue'sini erken yakalar
+
+### Öncelik 2 — v0.5.2
+
+**Rust ↔ C++ FFI Otomasyonu & Versioning**
+
+- [ ] **cbindgen entegrasyonu** (Rust struct → C header auto-generate)
+  - Current: RjFrameStats, RjCommand vb. manually sync (error-prone)
+  - Tool: `cbindgen` (Mozilla), Cargo build step
+  - Add to `Cargo.toml`:
+    ```toml
+    [build]
+    cbindgen = "0.27"
+    ```
+  - Output: `src/ffi/ffi_auto_generated.h` (read-only, git-ignored)
+  - Benefit: Struct field mismatch compile-error, no runtime ABI silent corruption
+
+- [ ] **FFI ABI Runtime Selftest** (offset assert)
+  - Add to `src/ffi/ffi_bridge.c`:
+    ```cpp
+    // Static assert: C struct layout matches Rust
+    static_assert(sizeof(RjFrameStats) == sizeof(RjFrameStatsRust), "ABI mismatch");
+    static_assert(offsetof(RjFrameStats, copy_gpu_time_ms) == 16, "Field offset changed");
+    ```
+  - Rationale: struct padding changes (C vs Rust repr) → silent field misalignment
+  - Detection: FFI call returns garbage, no crash (subtle bug)
+  - CI: Link-time error if offset changes (fail-safe)
+
+- [ ] **Wire Format Versioning** (future-proof protocol)
+  - Add version byte to RjFrameStats:
+    ```cpp
+    struct RjFrameStats {
+      uint8_t version;  // = 1, increment if struct changes
+      uint8_t _reserved[7];
+      // ... fields ...
+    };
+    ```
+  - Receiver checks: `if (version != EXPECTED_VERSION) { error; return; }`
+  - Benefit: v0.5.2 → v1.0 FFI break doesn't crash, logs error instead
+
+### Öncelik 3 — v1.0 öncesi
+
+**Compiler & Language Flags Enforcement**
+
+- [ ] **Global /EHa (SEH + C++ exceptions) enforce + C4577 error**
+  - Problem: copy_optimizer.cpp `__try/__except` bazı compile path'lerinde disabled
+  - Solution: CMakeLists.txt root'ta `add_compile_options(/EHa /we4577)`
+  - Impact: SEH syntax check her dosyada, no silent disabling
+
+- [ ] **Rust Panic Handling: -C panic=abort** (Cargo profile)
+  - Problem: Rust panic default = unwind, C++ try/catch confuse
+  - Add to Cargo.toml:
+    ```toml
+    [profile.release]
+    panic = "abort"
+    
+    [profile.dev]
+    panic = "abort"
+    ```
+  - Benefit: panic → abort (fast), no unwind across FFI boundary
+
+- [ ] **preview_widget.h: #ifdef QT6_AVAILABLE kaldır, final ekle**
+  - Problem: Qt version guard = unused code path (dead code risk)
+  - Current: `#ifdef QT6_AVAILABLE ... #else ... #endif` (dual path)
+  - Remove: Qt6 hardcoded (require Qt6.8+), conditional code gone
+  - Add: `class PreviewWidget final : public QOpenGLWidget`
+  - Benefit: vtable seal, no accidental override, ABI stable
+
+---
+
 ## Vendor ID Referansı
 
 | vendor_id | GPU | Render Path |

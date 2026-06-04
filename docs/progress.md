@@ -807,3 +807,49 @@ b7a7e8f  chore: .gitignore genislet, gecici dosyalari tracked listeden cikar
 - Vulkan external memory: cross-vendor (AMD/NVIDIA/Intel) + cross-platform (Windows/Linux/macOS)
 - Qt6 Vulkan backend: native Vulkan renderer
 - macOS Metal: long-term parity
+
+---
+
+## Teknik Borç & Çözüm Roadmap (v0.5.1 Analizi)
+
+**Kaynak:** Aider multi-model analizi (MiniMax M3 + Gemini 2.5 Pro, 2026-06-04)
+
+### Krisis Sorunlar (Critical Path)
+
+| Sorun | Etki | Çözüm Versiyonu | Dosya |
+|---|---|---|---|
+| **CMake generator karışıklığı** (NMake vs Ninja) | Build kesilir, SDK path loss | v0.5.1 | CMakePresets.json + scripts/build.py fail-fast |
+| **Windows.h → vcruntime.h missing** | Compile başarısız | v0.5.1 | CI guard: `CMAKE_GENERATOR` check → FATAL_ERROR |
+| **FFI ABI struct mismatch** (C vs Rust field align) | Silent corruption, memory leak | v0.5.2 | cbindgen + offset static_assert |
+| **SEH /EHa disabled** (some compile paths) | `__try/__except` silently ignored | v1.0 | Global `/we4577` error flag |
+| **Rust panic unwind ↔ C++ EH** | Undefined behavior at FFI boundary | v1.0 | Cargo `panic = abort` profile |
+
+### Öncelik 1 Action Items (v0.5.1 — başla)
+
+```
+✓ CMakePresets.json: Ninja generator force
+✓ scripts/build.py: ninja --version check, error if missing
+✓ CMakeLists.txt: CMAKE_GENERATOR guard (Visual Studio | NMake) → FATAL
+```
+
+**Teslim:** `--preset build-release` CI job, manual build komutu kaldırıldı.
+
+### Öncelik 2 Action Items (v0.5.2)
+
+```
+○ cbindgen integration: Rust struct → C header auto
+○ FFI selftest: offsetof assert RjFrameStats layout
+○ Wire version byte: RjFrameStats.version field
+```
+
+**Teslim:** FFI ABI mismatch → compile error (not runtime silent fail).
+
+### Öncelik 3 Action Items (v1.0 öncesi)
+
+```
+○ Global /EHa + /we4577: Every file enforced
+○ Rust panic=abort: Cargo.toml profile
+○ preview_widget final: Remove Qt version guards
+```
+
+**Teslim:** Deterministic exception handling, no unwind surprise across FFI.
