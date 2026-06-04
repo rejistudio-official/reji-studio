@@ -387,6 +387,7 @@ bool DxgiCapturePipeline::init_preview_staging() {
     desc.SampleDesc.Count = 1;
     desc.Usage            = D3D11_USAGE_STAGING;
     desc.CPUAccessFlags   = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags        = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
     HRESULT hr = display_ctx_->d3d_device()->CreateTexture2D(&desc, nullptr, &preview_staging_);
     if (FAILED(hr)) {
         printf("[DxgiCapture] init_preview_staging failed: 0x%08lX\n", hr);
