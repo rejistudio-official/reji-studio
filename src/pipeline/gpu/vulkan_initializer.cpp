@@ -16,7 +16,7 @@
 
 namespace rj::pipeline::gpu {
 
-VulkanInitializer* VulkanInitializer::instance() {
+VulkanInitializer* VulkanInitializer::get() {
   static VulkanInitializer s_instance;
   return &s_instance;
 }

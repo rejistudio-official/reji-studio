@@ -28,8 +28,8 @@ class VulkanInitializer {
   VulkanInitializer() = default;
   ~VulkanInitializer();
 
-  // Singleton instance accessor
-  static VulkanInitializer* instance();
+  // Singleton accessor (renamed from instance() to avoid conflict with instance_ member)
+  static VulkanInitializer* get();
 
   bool initialize();
 

@@ -382,7 +382,7 @@ bool Pipeline::init(const Config& cfg_in) {
     s.cfg.height = s.capture->height();
 
     // �� ExternalMemoryBridge (v0.5.1 zero-copy D3D11↔Vulkan) ������������������
-    auto* vk = rj::pipeline::gpu::VulkanInitializer::instance();
+    auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
     VkDevice vk_device = vk ? vk->device() : VK_NULL_HANDLE;
     VkPhysicalDevice vk_phys = vk ? vk->physical_device() : VK_NULL_HANDLE;
     s.ext_bridge = std::make_unique<rj::pipeline::gpu::ExternalMemoryBridge>(
