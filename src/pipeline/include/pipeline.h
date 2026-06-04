@@ -50,6 +50,11 @@ public:
     using PreviewCallback = std::function<void(const void* bgra, int width, int height, int row_pitch)>;
     bool set_preview_callback(PreviewCallback cb);
 
+    /// D3D11 zero-copy frame callback — receives staging texture handle for GPU-side operations.
+    /// Called from run_frame thread; implementation must not block.
+    using D3D11FrameCallback = std::function<void(void* staging_texture, uint32_t width, uint32_t height)>;
+    bool set_d3d11_frame_callback(D3D11FrameCallback cb);
+
     /// Process one frame: drain commands, capture, encode, push metrics, pace.
     /// Single-thread assumption — do not call concurrently.
     bool run_frame();

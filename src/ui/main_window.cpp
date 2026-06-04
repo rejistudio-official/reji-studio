@@ -60,6 +60,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (pipeline_.profiler()) {
             preview_widget_->setProfiler(pipeline_.profiler());
         }
+
+        // v0.5.1: Zero-copy D3D11 frame callback
+        // Passes D3D11 staging texture to preview widget for GPU-side operations
+        pipeline_.set_d3d11_frame_callback(
+            [this](void* staging_texture, uint32_t width, uint32_t height) {
+                // v0.5.1: GPU copy optimizer stub — extended in future versions
+                (void)staging_texture; (void)width; (void)height;
+            }
+        );
     }
 
     // run_frame() ayrı thread'de çalışsın

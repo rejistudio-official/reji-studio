@@ -209,6 +209,9 @@ struct Pipeline::Impl {
     // Preview callback � called from run_frame() with CPU-mapped BGRA frame
     Pipeline::PreviewCallback        preview_cb;
 
+    // v0.5.1: D3D11 zero-copy callback - called from run_frame() with staging texture
+    Pipeline::D3D11FrameCallback     d3d11_frame_cb;
+
     void apply_command(const RjCommand& c) noexcept {
         switch (c.cmd_type) {
             case RJ_CMD_BITRATE_SET:
@@ -480,6 +483,13 @@ bool Pipeline::set_preview_callback(PreviewCallback cb) {
     return true;
 }
 
+bool Pipeline::set_d3d11_frame_callback(D3D11FrameCallback cb) {
+    if (!impl_) impl_ = std::make_unique<Impl>();
+    impl_->d3d11_frame_cb = std::move(cb);
+    fprintf(stderr, "[Pipeline] d3d11_frame_cb set OK\n"); fflush(stderr);
+    return true;
+}
+
 bool Pipeline::run_frame() {
     if (!impl_) return false;
     if (!impl_->capture) return false;  // capture yoksa �al��ma
@@ -508,6 +518,13 @@ bool Pipeline::run_frame() {
                 // 3) GPU TDR check � outside __try, free to use C++ objects
                 (void)s.handle_device_lost();
             }
+            // v0.5.1: Zero-copy D3D11 frame callback (GPU-side operations)
+            if (s.d3d11_frame_cb) {
+                s.d3d11_frame_cb(static_cast<void*>(tex),
+                                 (uint32_t)s.capture->width(),
+                                 (uint32_t)s.capture->height());
+            }
+
             // v0.2 CPU preview: staging was populated in capture_next()
             if (s.preview_cb) {
                 const void* data = nullptr; int pitch = 0;
