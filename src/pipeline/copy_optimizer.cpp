@@ -18,45 +18,50 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         return false;
     }
 
-    __try {
+    try {  // C++ exceptions only; Vulkan returns error codes
         device_ = device;
         queue_ = queue;
         phys_device_ = phys_device;
 
+        // Query queue family properties (default to 0 if unavailable)
+        uint32_t queue_family_index = 0;
+        uint32_t queue_family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(phys_device_, &queue_family_count, nullptr);
+        if (queue_family_count > 0) {
+            // Use queue family 0 (typically supports graphics + compute)
+            queue_family_index = 0;
+        }
+
         // Create command pool
-        VkCommandPoolCreateInfo pool_info{
-            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-            .queueFamilyIndex = 0  // Assume queue family 0 (TBD: get from VkQueueFamilyProperties)
-        };
+        VkCommandPoolCreateInfo pool_info = {};
+        pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        pool_info.queueFamilyIndex = queue_family_index;
         CHECK_VK(vkCreateCommandPool(device_, &pool_info, nullptr, &command_pool_));
 
         // Allocate command buffer
-        VkCommandBufferAllocateInfo alloc_info{
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = command_pool_,
-            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = 1
-        };
+        VkCommandBufferAllocateInfo alloc_info = {};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.commandPool = command_pool_;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandBufferCount = 1;
         CHECK_VK(vkAllocateCommandBuffers(device_, &alloc_info, &command_buffer_));
 
         // Create timeline semaphore (non-blocking sync)
-        VkSemaphoreTypeCreateInfoKHR timeline_info{
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR,
-            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-            .initialValue = 0
-        };
+        VkSemaphoreTypeCreateInfoKHR timeline_info = {};
+        timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
+        timeline_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+        timeline_info.initialValue = 0;
 
-        VkSemaphoreCreateInfo sem_info{
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-            .pNext = &timeline_info
-        };
+        VkSemaphoreCreateInfo sem_info = {};
+        sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        sem_info.pNext = &timeline_info;
         CHECK_VK(vkCreateSemaphore(device_, &sem_info, nullptr, &timeline_semaphore_));
 
         fprintf(stderr, "[GpuCopyOptimizer] Initialized (command pool, buffer, timeline semaphore)\n");
         return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        fprintf(stderr, "[GpuCopyOptimizer] SEH exception during init\n");
+    } catch (...) {
+        fprintf(stderr, "[GpuCopyOptimizer] Exception during init\n");
         return false;
     }
 }
@@ -71,7 +76,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         return false;
     }
 
-    __try {
+    try {
         if (!out_timeline_semaphore || !out_timeline_value) {
             return false;
         }
@@ -87,9 +92,12 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         fprintf(stderr, "[GpuCopyOptimizer] execute_copy stub (values: sem=%p, counter=%llu)\n",
                 (void*)timeline_semaphore_, timeline_counter_);
 
+        // Increment timeline counter for next frame
+        timeline_counter_ += FRAME_INCREMENT;
+
         return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        fprintf(stderr, "[GpuCopyOptimizer] SEH exception during execute_copy\n");
+    } catch (...) {
+        fprintf(stderr, "[GpuCopyOptimizer] Exception during execute_copy\n");
         return false;
     }
 }
@@ -106,13 +114,18 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
             return false;
         }
         return current_value >= expected_value;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (1) {
         return false;
     }
 }
 
 void GpuCopyOptimizer::shutdown() {
     __try {
+        if (!device_) {
+            fprintf(stderr, "[GpuCopyOptimizer] Device is null, skipping shutdown\n");
+            return;
+        }
+
         if (timeline_semaphore_ != VK_NULL_HANDLE) {
             vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
             timeline_semaphore_ = VK_NULL_HANDLE;
@@ -130,8 +143,19 @@ void GpuCopyOptimizer::shutdown() {
 
         cleanup_pipeline();
 
+        // Reset all members
+        device_ = VK_NULL_HANDLE;
+        queue_ = VK_NULL_HANDLE;
+        phys_device_ = VK_NULL_HANDLE;
+        pipeline_layout_ = VK_NULL_HANDLE;
+        compute_pipeline_ = VK_NULL_HANDLE;
+        descriptor_set_layout_ = VK_NULL_HANDLE;
+        descriptor_pool_ = VK_NULL_HANDLE;
+        descriptor_set_ = VK_NULL_HANDLE;
+        timeline_counter_ = 0;
+
         fprintf(stderr, "[GpuCopyOptimizer] Shutdown complete\n");
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (1) {
         fprintf(stderr, "[GpuCopyOptimizer] SEH exception during shutdown\n");
     }
 }
