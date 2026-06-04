@@ -54,6 +54,11 @@ private:
     uint64_t timeline_counter_ = 0;
     static constexpr uint64_t FRAME_INCREMENT = 1;
 
+    // Extension function pointer (loaded once in init()).
+    // vkGetSemaphoreCounterValueKHR is an extension function; must be resolved
+    // via vkGetDeviceProcAddr rather than called directly.
+    PFN_vkGetSemaphoreCounterValueKHR pfn_get_semaphore_counter_value_ = nullptr;
+
     uint32_t dispatch_x_ = 1;
     uint32_t dispatch_y_ = 1;
 

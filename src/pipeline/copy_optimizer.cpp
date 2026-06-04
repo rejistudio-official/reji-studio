@@ -58,6 +58,20 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         sem_info.pNext = &timeline_info;
         CHECK_VK(vkCreateSemaphore(device_, &sem_info, nullptr, &timeline_semaphore_));
 
+        // Resolve extension function pointer (must happen after device creation).
+        // vkGetSemaphoreCounterValueKHR is NOT part of the Vulkan 1.0 core API
+        // (it's from VK_KHR_timeline_semaphore); direct linking will fail at
+        // load time on some drivers/builds.
+        pfn_get_semaphore_counter_value_ =
+            reinterpret_cast<PFN_vkGetSemaphoreCounterValueKHR>(
+                vkGetDeviceProcAddr(device_, "vkGetSemaphoreCounterValueKHR"));
+        if (!pfn_get_semaphore_counter_value_) {
+            fprintf(stderr,
+                    "[GpuCopyOptimizer] vkGetDeviceProcAddr failed for "
+                    "vkGetSemaphoreCounterValueKHR (VK_KHR_timeline_semaphore missing?)\n");
+            return false;
+        }
+
         fprintf(stderr, "[GpuCopyOptimizer] Initialized (command pool, buffer, timeline semaphore)\n");
         return true;
     } catch (...) {
@@ -103,13 +117,14 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 }
 
 bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value) {
-    if (!device_ || timeline_semaphore == VK_NULL_HANDLE) {
+    if (!device_ || !pfn_get_semaphore_counter_value_ ||
+        timeline_semaphore == VK_NULL_HANDLE) {
         return false;
     }
 
     __try {
         uint64_t current_value = 0;
-        VkResult res = vkGetSemaphoreCounterValueKHR(device_, timeline_semaphore, &current_value);
+        VkResult res = pfn_get_semaphore_counter_value_(device_, timeline_semaphore, &current_value);
         if (res != VK_SUCCESS) {
             return false;
         }
@@ -153,6 +168,7 @@ void GpuCopyOptimizer::shutdown() {
         descriptor_pool_ = VK_NULL_HANDLE;
         descriptor_set_ = VK_NULL_HANDLE;
         timeline_counter_ = 0;
+        pfn_get_semaphore_counter_value_ = nullptr;
 
         fprintf(stderr, "[GpuCopyOptimizer] Shutdown complete\n");
     } __except (1) {
