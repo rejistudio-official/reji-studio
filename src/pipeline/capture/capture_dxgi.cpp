@@ -355,11 +355,18 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
     // For cross-adapter: CopyResource + keyed-mutex sync; no CPU copy.
     ID3D11Texture2D* encode_tex = resource_mgr_->transfer(frame.texture);
 
-    // CPU preview staging: copy DXGI display texture to staging BEFORE releasing
-    // the DXGI frame. Map() will synchronise; no explicit Flush needed here.
+    // v0.5.1: Copy to dual textures (GPU-side shared + CPU-side staging)
+    if (shared_texture_) {
+        display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
+    }
+    if (staging_texture_) {
+        display_ctx_->d3d_context()->CopyResource(staging_texture_.Get(), frame.texture);
+        preview_staging_dirty_ = true;
+    }
+
+    // Legacy preview_staging_ (deprecated in v0.5.1, kept for compatibility)
     if (preview_staging_) {
         display_ctx_->d3d_context()->CopyResource(preview_staging_.Get(), frame.texture);
-        preview_staging_dirty_ = true;
     }
 
     // Release the DXGI frame now that the GPU copy is submitted.
@@ -378,6 +385,8 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
 
 bool DxgiCapturePipeline::init_preview_staging() {
     if (!initialized_ || !capture_) { return false; }
+
+    // v0.5.1: Create two textures for GPU/CPU paths
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width            = capture_->width();
     desc.Height           = capture_->height();
@@ -385,25 +394,42 @@ bool DxgiCapturePipeline::init_preview_staging() {
     desc.ArraySize        = 1;
     desc.Format           = capture_->surface_format();
     desc.SampleDesc.Count = 1;
-    desc.Usage            = D3D11_USAGE_STAGING;
-    desc.CPUAccessFlags   = D3D11_CPU_ACCESS_READ;
-    desc.MiscFlags        = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-    HRESULT hr = display_ctx_->d3d_device()->CreateTexture2D(&desc, nullptr, &preview_staging_);
+
+    // 1. GPU-side shared texture (for Vulkan external memory export)
+    desc.Usage          = D3D11_USAGE_DEFAULT;
+    desc.BindFlags      = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = 0;
+    desc.MiscFlags      = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+    HRESULT hr = display_ctx_->d3d_device()->CreateTexture2D(&desc, nullptr, &shared_texture_);
     if (FAILED(hr)) {
-        printf("[DxgiCapture] init_preview_staging failed: 0x%08lX\n", hr);
+        printf("[DxgiCapture] shared_texture_ creation failed: 0x%08lX\n", hr);
         return false;
     }
-    printf("[DxgiCapture] Preview staging %ux%u fmt=%u\n",
+
+    // 2. CPU-side staging texture (for Map/Unmap preview)
+    desc.Usage          = D3D11_USAGE_STAGING;
+    desc.BindFlags      = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags      = 0;  // No shared flags (CPU-only)
+    hr = display_ctx_->d3d_device()->CreateTexture2D(&desc, nullptr, &staging_texture_);
+    if (FAILED(hr)) {
+        printf("[DxgiCapture] staging_texture_ creation failed: 0x%08lX\n", hr);
+        shared_texture_.Reset();
+        return false;
+    }
+
+    printf("[DxgiCapture] Dual textures initialized: %ux%u fmt=%u\n",
            capture_->width(), capture_->height(),
            static_cast<unsigned>(capture_->surface_format()));
     return true;
 }
 
 bool DxgiCapturePipeline::map_preview_frame(const void** out_data, int* out_pitch) {
-    if (!preview_staging_ || !preview_staging_dirty_) { return false; }
+    // v0.5.1: Use staging_texture_ (CPU-side, MiscFlags=0)
+    if (!staging_texture_ || !preview_staging_dirty_) { return false; }
     D3D11_MAPPED_SUBRESOURCE mapped{};
     HRESULT hr = display_ctx_->d3d_context()->Map(
-        preview_staging_.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        staging_texture_.Get(), 0, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(hr)) {
         static int fail_count = 0;
         if (++fail_count <= 3)
@@ -419,7 +445,8 @@ bool DxgiCapturePipeline::map_preview_frame(const void** out_data, int* out_pitc
 
 void DxgiCapturePipeline::unmap_preview_frame() {
     if (!preview_mapped_) { return; }
-    display_ctx_->d3d_context()->Unmap(preview_staging_.Get(), 0);
+    // v0.5.1: Unmap staging_texture_ (CPU-side)
+    display_ctx_->d3d_context()->Unmap(staging_texture_.Get(), 0);
     preview_mapped_ = false;
 }
 

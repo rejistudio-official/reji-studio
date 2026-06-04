@@ -171,6 +171,9 @@ public:
     DXGI_FORMAT      surface_format() const;
     bool             is_cross_adapter() const;
 
+    /// v0.5.1: GPU-side shared texture for Vulkan external memory export
+    ID3D11Texture2D* shared_texture() const { return shared_texture_.Get(); }
+
     /// Set the FrameProfiler for timing DXGI acquire operations.
     /// Profiler is borrowed; caller must manage lifetime.
     void setProfiler(rj::FrameProfiler* profiler);
@@ -187,7 +190,10 @@ private:
 
     rj::FrameProfiler* profiler_ = nullptr;  ///< Borrowed reference from Pipeline
 
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> preview_staging_;
+    // v0.5.1: Dual-texture approach for GPU/CPU paths
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> shared_texture_;   ///< GPU-side (DEFAULT + SHARED flags)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_texture_;  ///< CPU-side (STAGING + CPU_ACCESS_READ)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> preview_staging_;  ///< Legacy preview (deprecated in v0.5.1)
     bool preview_staging_dirty_ = false;
     bool preview_mapped_        = false;
 

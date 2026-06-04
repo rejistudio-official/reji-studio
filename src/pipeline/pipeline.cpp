@@ -539,8 +539,9 @@ bool Pipeline::run_frame() {
                 // Task 6: get_frame_images() result logging
                 VkImage staging_vk = nullptr;
                 VkImage target_vk = nullptr;
-                if (s.ext_bridge) {
-                    s.ext_bridge->get_frame_images(tex, &staging_vk, &target_vk);
+                if (s.ext_bridge && s.capture->shared_texture()) {
+                    s.ext_bridge->get_frame_images(s.capture->shared_texture(),
+                                                    &staging_vk, &target_vk);
                     fprintf(stderr, "[Pipeline] get_frame_images: staging=%p target=%p\n",
                             staging_vk, target_vk);
                     fflush(stderr);
