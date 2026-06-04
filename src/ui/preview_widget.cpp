@@ -158,12 +158,17 @@ void PreviewWidget::initializeGL() {
     d_->vao.release();
     glFinish();  // ensure shader/VBO compiled before first paintGL
 
+    // v0.5.1: One-shot Vulkan late-binding
     if (pipeline_) {
         auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
         if (vk && vk->device()) {
             pipeline_->notify_vulkan_ready(vk->device(), vk->physical_device());
+            fprintf(stderr, "[PreviewWidget] notify_vulkan_ready: device=%p\n", (void*)vk->device());
+            fflush(stderr);
         }
     }
+
+
 }
 
 void PreviewWidget::resizeGL(int w, int h) {
