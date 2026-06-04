@@ -33,6 +33,7 @@ if(Qt6_FOUND)
     )
 
     target_compile_definitions(reji_ui PUBLIC QT6_AVAILABLE)
+    target_compile_definitions(reji_ui PRIVATE VK_USE_PLATFORM_WIN32_KHR)
 
     target_link_libraries(reji_ui PUBLIC
         Qt6::Widgets
