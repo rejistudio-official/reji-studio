@@ -521,6 +521,16 @@ bool Pipeline::set_d3d11_frame_callback(D3D11FrameCallback cb) {
     return true;
 }
 
+bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device) {
+    if (impl_ && impl_->ext_bridge) {
+        impl_->ext_bridge->set_device(device, phys_device);
+        fprintf(stderr, "[Pipeline] notify_vulkan_ready: device=%p phys=%p\n",
+                (void*)device, (void*)phys_device);
+        fflush(stderr);
+    }
+    return true;
+}
+
 bool Pipeline::run_frame() {
     if (!impl_) return false;
     if (!impl_->capture) return false;  // capture yoksa alma

@@ -6,6 +6,17 @@
 #include "metrics_collector.h"
 #include "../ffi/ffi_bridge.h"  // RjAction
 
+// Forward declarations for Vulkan types (external memory interop)
+#ifndef REJI_VULKAN_MOCK
+struct VkDevice_T;
+struct VkPhysicalDevice_T;
+using VkDevice = VkDevice_T*;
+using VkPhysicalDevice = VkPhysicalDevice_T*;
+#else
+using VkDevice = void*;
+using VkPhysicalDevice = void*;
+#endif
+
 namespace rj {
 
 /// DXGI capture → NVENC encode → SRT transport pipeline controller.
@@ -54,6 +65,10 @@ public:
     /// Called from run_frame thread; implementation must not block.
     using D3D11FrameCallback = std::function<void(void* staging_texture, uint32_t width, uint32_t height)>;
     bool set_d3d11_frame_callback(D3D11FrameCallback cb);
+
+    /// Late Vulkan device binding — updates ExternalMemoryBridge with real device handles.
+    /// Call after VulkanInitializer::initialize() succeeds. Safe to call multiple times.
+    bool notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device);
 
     /// Process one frame: drain commands, capture, encode, push metrics, pace.
     /// Single-thread assumption — do not call concurrently.
