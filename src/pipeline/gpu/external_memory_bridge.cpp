@@ -8,7 +8,7 @@ namespace rj::pipeline::gpu {
 
 ExternalMemoryBridge::ExternalMemoryBridge(VkDevice device, VkPhysicalDevice physical_device)
     : device_(device), physical_device_(physical_device), format_(VK_FORMAT_UNDEFINED),
-      width_(0), height_(0) {}
+      width_(0), height_(0), pool_index_(0), cached_d3d11_handle_(nullptr) {}
 
 HANDLE ExternalMemoryBridge::export_d3d11_handle(ID3D11Texture2D* staging_texture) {
   if (!staging_texture) {
@@ -179,6 +179,60 @@ VkImage ExternalMemoryBridge::get_pooled_image(uint32_t frame_idx) {
   return image_pool_[pool_idx];
 }
 
+bool ExternalMemoryBridge::get_frame_images(
+    ID3D11Texture2D* tex,
+    VkImage* out_staging,
+    VkImage* out_target) {
+
+  if (!tex || !out_staging || !out_target) {
+    fprintf(stderr, "[ExternalMemoryBridge] Invalid parameters\n");
+    fflush(stderr);
+    return false;
+  }
+
+  if (image_pool_.empty()) {
+    fprintf(stderr, "[ExternalMemoryBridge] Image pool not initialized\n");
+    fflush(stderr);
+    return false;
+  }
+
+  // Hot-path optimization: cached NT handle reuse (no per-frame alloc)
+  if (!cached_d3d11_handle_) {
+    cached_d3d11_handle_ = export_d3d11_handle(tex);
+    if (!cached_d3d11_handle_) {
+      fprintf(stderr, "[ExternalMemoryBridge] Failed to export D3D11 handle\n");
+      fflush(stderr);
+      return false;
+    }
+  }
+
+  // Round-robin pool selection (no blocking, no heap alloc)
+  const uint32_t idx = pool_index_ % POOL_SIZE;
+  pool_index_ = (pool_index_ + 1) % POOL_SIZE;
+
+  // Lazy image creation: populate pool slot on first use
+  if (!image_pool_[idx]) {
+    image_pool_[idx] = create_vulkan_image_from_d3d11(
+      cached_d3d11_handle_,
+      format_,
+      width_,
+      height_
+    );
+
+    if (!image_pool_[idx]) {
+      fprintf(stderr, "[ExternalMemoryBridge] Failed to create Vulkan image (pool slot %u)\n", idx);
+      fflush(stderr);
+      return false;
+    }
+  }
+
+  // Return cached images (zero-copy, no blocking)
+  *out_staging = image_pool_[idx];
+  *out_target  = image_pool_[idx];  // Same image for now; differentiate in v0.5.2
+
+  return true;
+}
+
 void ExternalMemoryBridge::shutdown() {
   for (auto mem : pool_memory_) {
     if (mem) {
@@ -194,6 +248,13 @@ void ExternalMemoryBridge::shutdown() {
 
   image_pool_.clear();
   pool_memory_.clear();
+
+  // Task 6: Close cached NT handle
+  if (cached_d3d11_handle_) {
+    CloseHandle(cached_d3d11_handle_);
+    cached_d3d11_handle_ = nullptr;
+  }
+
   fprintf(stderr, "[ExternalMemoryBridge] Shutdown complete\n");
   fflush(stderr);
 }

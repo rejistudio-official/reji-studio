@@ -43,6 +43,15 @@ class ExternalMemoryBridge {
 
   bool initialize_image_pool(VkFormat format, uint32_t width, uint32_t height);
 
+  // Task 6: Zero-copy frame acquisition with cached handle reuse
+  // Returns staging and target VkImages for GPU-side operations
+  // Hot-path optimized: no heap allocation, no blocking calls
+  bool get_frame_images(
+    ID3D11Texture2D* tex,
+    VkImage* out_staging,
+    VkImage* out_target
+  );
+
   void shutdown();
 
  private:
@@ -55,6 +64,10 @@ class ExternalMemoryBridge {
   VkFormat format_;
   uint32_t width_;
   uint32_t height_;
+
+  // Task 6: Cached state for hot-path optimization
+  uint32_t pool_index_;         // Round-robin index (0..POOL_SIZE-1)
+  HANDLE cached_d3d11_handle_;  // NT handle (reused, no per-frame alloc)
 };
 
 }
