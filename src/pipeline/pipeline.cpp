@@ -19,6 +19,7 @@
 #include "include/pipeline.h"
 #include "include/frame_profiler.h"
 #include "gpu/external_memory_bridge.h"
+#include "gpu/vulkan_initializer.h"
 
 #ifdef _WIN32
 #include "capture/capture_dxgi.h"
@@ -379,6 +380,17 @@ bool Pipeline::init(const Config& cfg_in) {
     // Authoritative dimensions come from the actual display output.
     s.cfg.width  = s.capture->width();
     s.cfg.height = s.capture->height();
+
+    // �� ExternalMemoryBridge (v0.5.1 zero-copy D3D11↔Vulkan) ������������������
+    // For now, create bridge with nullptr — Vulkan integration in v0.5.2
+    s.ext_bridge = std::make_unique<rj::pipeline::gpu::ExternalMemoryBridge>(
+        nullptr, nullptr);
+    if (s.ext_bridge) {
+        if (!s.ext_bridge->initialize_image_pool(VK_FORMAT_B8G8R8A8_UNORM,
+                                                   s.cfg.width, s.cfg.height)) {
+            dbglog("[Pipeline] ExternalMemoryBridge::initialize_image_pool failed");
+        }
+    }
 
     // �� NvencEncoder ���������������������������������������������������������
     reji::NvencEncoder::Config enc_cfg;
