@@ -28,6 +28,9 @@ class VulkanInitializer {
   VulkanInitializer() = default;
   ~VulkanInitializer();
 
+  // Singleton instance accessor
+  static VulkanInitializer* instance();
+
   bool initialize();
 
   VkInstance instance() const { return instance_; }

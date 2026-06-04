@@ -16,6 +16,11 @@
 
 namespace rj::pipeline::gpu {
 
+VulkanInitializer* VulkanInitializer::instance() {
+  static VulkanInitializer s_instance;
+  return &s_instance;
+}
+
 #ifndef REJI_VULKAN_MOCK
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
