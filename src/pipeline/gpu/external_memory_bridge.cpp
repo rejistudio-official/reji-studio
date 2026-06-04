@@ -2,9 +2,6 @@
 #include <cstdio>
 
 #ifndef REJI_VULKAN_MOCK
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <vulkan/vulkan_win32.h>
 #endif
 
 namespace rj::pipeline::gpu {
@@ -73,7 +70,7 @@ VkImage ExternalMemoryBridge::create_vulkan_image_from_d3d11(
 
   VkExternalMemoryImageCreateInfo ext_img_info{};
   ext_img_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  ext_img_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_WIN32_BIT;
+  ext_img_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
 
   VkImageCreateInfo img_info{};
   img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -99,7 +96,7 @@ VkImage ExternalMemoryBridge::create_vulkan_image_from_d3d11(
 
   VkImportMemoryWin32HandleInfoKHR import_info{};
   import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
-  import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_WIN32_BIT;
+  import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
   import_info.handle = d3d11_handle;
 
   VkMemoryRequirements mem_reqs;
