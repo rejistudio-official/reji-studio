@@ -55,6 +55,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         qDebug() << "Pipeline init failed";
         lbl_status_->setText(tr("Pipeline init başarısız — NVENC SDK eksik olabilir"));
     } else {
+        preview_widget_->setPipeline(&pipeline_);
         preview_widget_->selectRenderPath(pipeline_.display_vendor_id());
         // Wire profiler to preview widget
         if (pipeline_.profiler()) {

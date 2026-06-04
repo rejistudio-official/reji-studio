@@ -4,6 +4,8 @@
 #include "render_capability.h"
 #include "../pipeline/copy_optimizer.h"
 #include "../pipeline/include/frame_profiler.h"
+#include "../pipeline/gpu/vulkan_initializer.h"
+#include "../pipeline/include/pipeline.h"
 #include <QMutex>
 #include <QMutexLocker>
 #include <QOpenGLBuffer>
@@ -127,6 +129,10 @@ void PreviewWidget::setProfiler(rj::FrameProfiler* profiler) {
     profiler_ = profiler;
 }
 
+void PreviewWidget::setPipeline(rj::Pipeline* pipeline) noexcept {
+    pipeline_ = pipeline;
+}
+
 void PreviewWidget::initializeGL() {
     initializeOpenGLFunctions();
     glClearColor(0.f, 0.f, 0.f, 1.f);
@@ -151,6 +157,13 @@ void PreviewWidget::initializeGL() {
                           reinterpret_cast<void*>(2 * sizeof(float)));
     d_->vao.release();
     glFinish();  // ensure shader/VBO compiled before first paintGL
+
+    if (pipeline_) {
+        auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
+        if (vk && vk->device()) {
+            pipeline_->notify_vulkan_ready(vk->device(), vk->physical_device());
+        }
+    }
 }
 
 void PreviewWidget::resizeGL(int w, int h) {

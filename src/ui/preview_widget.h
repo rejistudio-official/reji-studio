@@ -1,7 +1,10 @@
 #pragma once
 #ifdef QT6_AVAILABLE
 
-namespace rj { class FrameProfiler; }
+namespace rj {
+    class Pipeline;
+    class FrameProfiler;
+}
 class GpuCopyOptimizer;
 
 #include "render_capability.h"
@@ -63,6 +66,10 @@ public:
     // Profiler is borrowed; lifecycle managed by Pipeline.
     void setProfiler(rj::FrameProfiler* profiler);
 
+    // Wire pipeline for Vulkan notification on GL initialization.
+    // Pipeline is borrowed; lifecycle managed externally.
+    void setPipeline(rj::Pipeline* pipeline) noexcept;
+
 protected:
     void initializeGL() override;
     void resizeGL(int w, int h) override;
@@ -73,6 +80,7 @@ private:
     std::unique_ptr<Impl> d_;
     GpuCopyOptimizer* copy_optimizer_ = nullptr;  // borrowed, not owned
     rj::FrameProfiler* profiler_ = nullptr;
+    rj::Pipeline* pipeline_ = nullptr;  // borrowed, not owned
 };
 
 } // namespace reji
