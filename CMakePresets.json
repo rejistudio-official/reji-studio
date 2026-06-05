@@ -1,0 +1,30 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {"major": 3, "minor": 19, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release (Ninja, real Vulkan)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "REJI_VULKAN_MOCK": "OFF"
+      }
+    },
+    {
+      "name": "mock",
+      "displayName": "Debug (Ninja, Vulkan mock)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-mock",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "REJI_VULKAN_MOCK": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {"name": "release", "configurePreset": "release", "targets": ["reji_app"]},
+    {"name": "mock", "configurePreset": "mock", "targets": ["reji_app"]}
+  ]
+}
