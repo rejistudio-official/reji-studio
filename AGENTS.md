@@ -274,3 +274,15 @@ Uzun bağlam model performansını düşürür. Yeni pencerede:
 | Build, test, basit fix | claude-haiku-4-5 |
 
 CLI'da geçiş: `/model claude-haiku-4-5`
+
+## Build Komutları (Claude Code CLI için)
+### Preset kullanımı (tercih edilen)
+cmake --preset release
+cmake --build --preset release
+
+### Her bash komutuna cd prefix ekle
+cd C:/reji-studio && cmake --build --preset release
+
+### Path separator kuralı
+- Claude Code bash: forward slash -> C:/reji-studio
+- Windows CMD: backslash -> C:\reji-studio
