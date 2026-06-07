@@ -57,6 +57,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     } else {
         preview_widget_->setPipeline(&pipeline_);
         preview_widget_->selectRenderPath(pipeline_.display_vendor_id());
+        // v0.5.1: Vulkan device handle late-binding
+        {
+            auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
+            if (vk && vk->device()) {
+                pipeline_.notify_vulkan_ready(vk->device(), vk->physical_device());
+                fprintf(stderr, "[MainWindow] notify_vulkan_ready\n");
+                fflush(stderr);
+            }
+        }
         // Wire profiler to preview widget
         if (pipeline_.profiler()) {
             preview_widget_->setProfiler(pipeline_.profiler());
