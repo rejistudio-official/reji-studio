@@ -275,8 +275,17 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
     handle_info.memory = vk_mem;
     handle_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 
-    HANDLE nt_handle = nullptr;
-    result = vkGetMemoryWin32HandleKHR(device_, &handle_info, &nt_handle);
+    auto pfn_vkGetMemoryWin32HandleKHR =
+        reinterpret_cast<PFN_vkGetMemoryWin32HandleKHR>(
+            vkGetDeviceProcAddr(device_, "vkGetMemoryWin32HandleKHR"));
+    if (!pfn_vkGetMemoryWin32HandleKHR) {
+      fprintf(stderr, "[ExternalMemoryBridge] vkGetMemoryWin32HandleKHR not available\n");
+      fflush(stderr);
+      vkFreeMemory(device_, vk_mem, nullptr);
+      vkDestroyImage(device_, vk_img, nullptr);
+      return false;
+    }
+    result = pfn_vkGetMemoryWin32HandleKHR(device_, &handle_info, &gl_target_handles_[i]);
     if (result != VK_SUCCESS) {
       fprintf(stderr, "[ExternalMemoryBridge] vkGetMemoryWin32HandleKHR failed: %d (slot %u)\n",
               result, i);
@@ -286,7 +295,6 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
       return false;
     }
 
-    gl_target_handles_[i] = nt_handle;
     gl_target_pool_[i] = vk_img;
 
     fprintf(stderr, "[ExternalMemoryBridge] GL target slot %u: image=%p, handle=%p\n",
