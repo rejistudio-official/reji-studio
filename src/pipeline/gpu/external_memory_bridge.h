@@ -41,7 +41,8 @@ class ExternalMemoryBridge {
     HANDLE d3d11_handle,
     VkFormat format,
     uint32_t width,
-    uint32_t height
+    uint32_t height,
+    uint32_t pool_idx
   );
 
   VkImage get_pooled_image(uint32_t frame_idx);
