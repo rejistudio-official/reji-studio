@@ -48,6 +48,10 @@ class ExternalMemoryBridge {
 
   bool initialize_image_pool(VkFormat format, uint32_t width, uint32_t height);
 
+  // GL interop için export edilebilir target image pool
+  bool initialize_gl_target_pool(VkFormat format, uint32_t width, uint32_t height);
+  HANDLE get_gl_target_handle(uint32_t idx) const;
+
   // Task 6: Zero-copy frame acquisition with cached handle reuse
   // Returns staging and target VkImages for GPU-side operations
   // Hot-path optimized: no heap allocation, no blocking calls
@@ -65,6 +69,11 @@ class ExternalMemoryBridge {
 
   std::vector<VkImage> image_pool_;
   std::vector<VkDeviceMemory> pool_memory_;
+
+  // GL interop için export edilebilir target image pool
+  std::vector<VkImage>        gl_target_pool_;
+  std::vector<VkDeviceMemory> gl_target_memory_;
+  HANDLE                      gl_target_handles_[POOL_SIZE]{};
 
   VkFormat format_;
   uint32_t width_;
