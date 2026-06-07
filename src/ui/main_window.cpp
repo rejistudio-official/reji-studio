@@ -9,6 +9,7 @@
 #include "program_widget.h"
 #include "rust_bridge.h"    // also pulls in ffi_bridge.h (RjCommand, rj_command_drain, …)
 #include "settings_dialog.h"
+#include "../pipeline/gpu/vulkan_initializer.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -57,6 +58,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     } else {
         preview_widget_->setPipeline(&pipeline_);
         preview_widget_->selectRenderPath(pipeline_.display_vendor_id());
+        // v0.5.1: Vulkan device handle late-binding
+        {
+            auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
+            if (vk && vk->device()) {
+                pipeline_.notify_vulkan_ready(vk->device(), vk->physical_device());
+                fprintf(stderr, "[MainWindow] notify_vulkan_ready\n");
+                fflush(stderr);
+            }
+        }
         // v0.5.1: Vulkan device handle late-binding
         {
             auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
