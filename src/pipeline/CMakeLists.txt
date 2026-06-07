@@ -7,6 +7,7 @@ set(PIPELINE_SOURCES
     metrics_collector.cpp
     copy_optimizer.cpp
     frame_pacing.cpp
+    gpu_query_timing.cpp
 )
 
 if(WIN32)

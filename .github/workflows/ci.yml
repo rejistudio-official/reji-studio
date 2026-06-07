@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ master, develop ]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build & Test (Mock Mode)
@@ -16,19 +19,17 @@ jobs:
         config: [Debug, Release]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3193efc69d9235ffa0a231f8eaf1c5c9001fa1e4  # v4
         with:
           fetch-depth: 0
 
       - name: Setup CMake
-        uses: cmake-actions/setup-cmake@v1
+        uses: jwlawson/actions-setup-cmake@802fa1a2c4e212495b05f7f3106b2e3e26d41602  # v2.0.x
         with:
           cmake-version: '3.20'
 
       - name: Setup Visual Studio
-        uses: microsoft/setup-msbuild@v1
-        with:
-          vs-version: '17.x'
+        uses: microsoft/setup-msbuild@34c41125396e338e0cfe48854db4f266e34a76a6  # v1
 
       - name: Configure CMake (Mock Mode)
         run: |
