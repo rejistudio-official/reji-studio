@@ -527,6 +527,11 @@ bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device
         fprintf(stderr, "[Pipeline] notify_vulkan_ready: device=%p phys=%p\n",
                 (void*)device, (void*)phys_device);
         fflush(stderr);
+        impl_->ext_bridge->initialize_gl_target_pool(
+            VK_FORMAT_B8G8R8A8_UNORM,
+            (uint32_t)impl_->cfg.width,
+            (uint32_t)impl_->cfg.height
+        );
     }
     return true;
 }
