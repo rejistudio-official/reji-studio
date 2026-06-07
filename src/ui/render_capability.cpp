@@ -15,7 +15,11 @@ RenderProfile CapabilityDetector::detect() noexcept {
   fflush(stderr);
   return {RenderPath::kOpenGL, "OpenGL (mocked)", 0x0000, false};
 #else
-  VulkanInitializer& vk_init = VulkanInitializer::get();
+  VulkanInitializer* vk_init_ptr = VulkanInitializer::get();
+  if (!vk_init_ptr) {
+      return {RenderPath::kOpenGL, "OpenGL", 0x0000, false};
+  }
+  VulkanInitializer& vk_init = *vk_init_ptr;
   if (!vk_init.initialize()) {
     fprintf(stderr, "[CapabilityDetector] Vulkan init failed, falling back to OpenGL\n");
     fflush(stderr);
