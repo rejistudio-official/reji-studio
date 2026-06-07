@@ -298,7 +298,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
     gl_target_pool_[i] = vk_img;
 
     fprintf(stderr, "[ExternalMemoryBridge] GL target slot %u: image=%p, handle=%p\n",
-            i, (void*)vk_img, nt_handle);
+            i, (void*)vk_img, gl_target_handles_[i]);
     fflush(stderr);
   }
 
