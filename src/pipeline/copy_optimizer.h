@@ -28,7 +28,8 @@ public:
                       uint32_t width,
                       uint32_t height,
                       VkSemaphore* out_timeline_semaphore,  // Caller polls this
-                      uint64_t* out_timeline_value);        // Value to check
+                      uint64_t* out_timeline_value,         // Value to check
+                      VkImage* out_target_image);           // Target image output
 
     // Check if copy is ready (non-blocking poll)
     bool is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value);
