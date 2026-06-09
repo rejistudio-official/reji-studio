@@ -81,6 +81,7 @@ private:
     GpuCopyOptimizer* copy_optimizer_ = nullptr;  // borrowed, not owned
     rj::FrameProfiler* profiler_ = nullptr;
     rj::Pipeline* pipeline_ = nullptr;  // borrowed, not owned
+    VkImage gl_target_image_ = VK_NULL_HANDLE;   // Target image from execute_copy (GL interop)
 };
 
 } // namespace reji

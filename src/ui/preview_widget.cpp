@@ -239,12 +239,15 @@ void PreviewWidget::paintGL() {
 
         VkSemaphore sem   = VK_NULL_HANDLE;
         uint64_t    value = 0;
+        VkImage result_target_image = VK_NULL_HANDLE;
         if (!copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
-                                           &sem, &value)) {
+                                           &sem, &value, &result_target_image)) {
             fprintf(stderr, "[PreviewWidget] execute_copy failed, skipping frame\n");
             if (profiler_) profiler_->markPaintGLEnd();
             return;
         }
+        // Store result for GL interop (will be consumed in future GL interop setup)
+        gl_target_image_ = result_target_image;
         {
             QMutexLocker lock(&d_->frame_mutex);
             d_->timeline_semaphore = sem;
