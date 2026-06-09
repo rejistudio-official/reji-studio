@@ -65,6 +65,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 pipeline_.notify_vulkan_ready(vk->device(), vk->physical_device());
                 fprintf(stderr, "[MainWindow] notify_vulkan_ready\n");
                 fflush(stderr);
+
+                // v0.5.1: Initialize GpuCopyOptimizer with Vulkan device + queue
+                if (vk->graphics_queue() != VK_NULL_HANDLE) {
+                    GpuCopyOptimizer::Config copy_cfg;
+                    if (copy_optimizer_.init(vk->device(), vk->graphics_queue(), vk->physical_device(), copy_cfg)) {
+                        preview_widget_->setCopyOptimizer(&copy_optimizer_);
+                        fprintf(stderr, "[MainWindow] GpuCopyOptimizer initialized\n");
+                        fflush(stderr);
+                    } else {
+                        fprintf(stderr, "[MainWindow] GpuCopyOptimizer init failed\n");
+                    }
+                }
             }
         }
         // Wire profiler to preview widget
@@ -72,12 +84,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             preview_widget_->setProfiler(pipeline_.profiler());
         }
 
-        // v0.5.1: Zero-copy D3D11 frame callback
-        // Passes D3D11 staging texture to preview widget for GPU-side operations
+        // v0.5.1: Zero-copy D3D11 frame callback → PreviewWidget::submitD3D11Frame
+        // Pipeline calls this for each captured frame (D3D11→VkImage)
         pipeline_.set_d3d11_frame_callback(
             [this](void* staging_texture, uint32_t width, uint32_t height) {
-                // v0.5.1: GPU copy optimizer stub — extended in future versions
-                (void)staging_texture; (void)width; (void)height;
+                // v0.5.1: Get cached frame images from ExternalMemoryBridge
+                VkImage staging_vk = VK_NULL_HANDLE;
+                VkImage target_vk = VK_NULL_HANDLE;
+                if (pipeline_.get_last_frame_images(&staging_vk, &target_vk)) {
+                    // Queue frame for GPU copy in preview widget (non-blocking)
+                    preview_widget_->submitD3D11Frame(staging_vk, target_vk, width, height);
+                }
+                (void)staging_texture;  // D3D11 handle not needed — we have VkImages
             }
         );
     }

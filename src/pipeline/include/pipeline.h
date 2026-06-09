@@ -10,11 +10,14 @@
 #ifndef REJI_VULKAN_MOCK
 struct VkDevice_T;
 struct VkPhysicalDevice_T;
+struct VkImage_T;
 using VkDevice = VkDevice_T*;
 using VkPhysicalDevice = VkPhysicalDevice_T*;
+using VkImage = VkImage_T*;
 #else
 using VkDevice = void*;
 using VkPhysicalDevice = void*;
+using VkImage = void*;
 #endif
 
 namespace rj {
@@ -84,6 +87,10 @@ public:
     /// Accessor for the frame profiler (initialized during init).
     /// Returns nullptr before init() or if profiler creation failed.
     rj::FrameProfiler* profiler() { return profiler_.get(); }
+
+    /// v0.5.1: Get last frame images (staging VkImage + target VkImage).
+    /// Called from run_frame thread; returns false if images unavailable.
+    bool get_last_frame_images(VkImage* out_staging, VkImage* out_target);
 
 private:
     struct Impl;

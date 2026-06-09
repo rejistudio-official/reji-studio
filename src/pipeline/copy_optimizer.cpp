@@ -88,6 +88,8 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      uint64_t* out_timeline_value,
                                      VkImage* out_target_image) {
     if (!device_ || !command_buffer_) {
+        fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buffer=%p (not initialized)\n",
+                device_, command_buffer_);
         return false;
     }
 

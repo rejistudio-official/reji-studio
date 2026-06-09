@@ -217,6 +217,10 @@ struct Pipeline::Impl {
     // v0.5.1: D3D11 zero-copy callback - called from run_frame() with staging texture
     Pipeline::D3D11FrameCallback     d3d11_frame_cb;
 
+    // v0.5.1: Cache last frame images for get_last_frame_images() getter
+    VkImage last_staging_vk = nullptr;
+    VkImage last_target_vk = nullptr;
+
     void apply_command(const RjCommand& c) noexcept {
         switch (c.cmd_type) {
             case RJ_CMD_BITRATE_SET:
@@ -575,6 +579,9 @@ bool Pipeline::run_frame() {
                     fprintf(stderr, "[Pipeline] get_frame_images: staging=%p target=%p\n",
                             staging_vk, target_vk);
                     fflush(stderr);
+                    // v0.5.1: Cache for get_last_frame_images() getter
+                    s.last_staging_vk = staging_vk;
+                    s.last_target_vk = target_vk;
                 }
 
                 s.d3d11_frame_cb(static_cast<void*>(tex),
@@ -691,6 +698,14 @@ bool Pipeline::shutdown() {
     s.initialized.store(false, std::memory_order_release);
     dbglog(ok ? "[Pipeline] shutdown clean" : "[Pipeline] shutdown SEH fault");
     return ok;
+}
+
+bool Pipeline::get_last_frame_images(VkImage* out_staging, VkImage* out_target) {
+    if (!impl_ || !out_staging || !out_target) return false;
+    // v0.5.1: Return cached frame images from last run_frame()
+    *out_staging = impl_->last_staging_vk;
+    *out_target = impl_->last_target_vk;
+    return impl_->last_staging_vk != nullptr && impl_->last_target_vk != nullptr;
 }
 
 uint32_t Pipeline::display_vendor_id() const {

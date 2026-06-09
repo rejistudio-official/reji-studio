@@ -253,6 +253,49 @@ Test: cmake --build + reji_app.exe çalıştır, 30s crash olmadan
 
 ---
 
+## Mimari Savunma Kuralları (Pre-mortem 2026)
+
+### Senaryo 4 — Donanım Değişimi (Symbian Dersi)
+**Risk:** Unified memory mimarisi yaygınlaşırsa D3D11↔Vulkan zero-copy bridge atıl kalır.
+
+**Kural — Donanım bağımlı kod izolasyonu:**
+- Donanım bağımlı kod SADECE şu dosyalarda yaşar:
+  - `src/pipeline/gpu/external_memory_bridge.*`
+  - `src/pipeline/capture/capture_dxgi.*`
+- `pipeline.cpp` bu dosyaları doğrudan include etmez — sadece abstract callback üzerinden iletişim kurar
+- v0.6'da `IRenderBridge` abstract arayüzü eklenecek: `ZeroCopyLegacyBridge` ve `UnifiedMemoryBridge` ayrı implementasyon olarak yaşayacak
+
+**Erken uyarı — GitHub Actions (haftalık):**
+```yaml
+- name: Check Vulkan deprecation notices
+  run: |
+    curl -s https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/CHANGELOG.adoc |
+    grep -i "deprecated\|removed" | head -20
+```
+
+---
+
+### Senaryo 5 — Ekosistem Direnci (Itanium Dersi)
+**Risk:** NVENC SDK lisansı değişirse veya SRT ölürse bağımlılıklar projeyi bloke eder.
+
+**Kural — Vendor lock-in yasağı:**
+- NVENC ve SRT implementasyonlarında vendor-specific struct'lar `pipeline.cpp`'e sızmaz
+- Encoder arayüzü `IVideoEncoder` olacak — NVENC bir implementasyon, FFmpeg/VAAPI fallback mimaride hazır
+- Ağ katmanı `INetworkSender` soyut arayüzü — SRT bir implementasyon, plugin olarak değiştirilebilir
+- Hiçbir NVENC-specific veya SRT-specific tip `src/pipeline/include/` dışına çıkmaz
+
+**Erken uyarı — CI lisans tarayıcı:**
+```yaml
+# .github/workflows/license-audit.yml — her PR'da çalışır
+- name: Rust license audit
+  run: cargo deny check licenses
+
+- name: Dependency audit
+  run: cargo audit
+```
+
+---
+
 ## Bağlam Sıfırlama
 
 **Her büyük görevden sonra `/clear` veya yeni pencere aç.**

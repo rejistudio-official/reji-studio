@@ -94,6 +94,8 @@ PreviewWidget::~PreviewWidget() {
 
 void PreviewWidget::setCopyOptimizer(GpuCopyOptimizer* optimizer) {
     copy_optimizer_ = optimizer;
+    fprintf(stderr, "[PreviewWidget] setCopyOptimizer: optimizer=%p\n", optimizer);
+    fflush(stderr);
 }
 
 void PreviewWidget::selectRenderPath(uint32_t vendor_id) {
@@ -177,6 +179,13 @@ void PreviewWidget::resizeGL(int w, int h) {
 
 void PreviewWidget::paintGL() {
     if (profiler_) profiler_->markPaintGLStart();
+
+    // v0.5.1: Debug logging for frame flow
+    static int paint_count = 0;
+    if (++paint_count % 30 == 0) {
+        fprintf(stderr, "[PreviewWidget] paintGL #%d, copy_optimizer_=%p\n", paint_count, copy_optimizer_);
+        fflush(stderr);
+    }
 
     // ---- Snapshot state under lock (no heap, no blocking) ----
     bool     was_pending    = false;

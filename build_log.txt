@@ -1,0 +1,25 @@
+-- Platform: Windows
+-- Build type: Release
+-- Vulkan: 1.4.350
+-- Vulkan mock mode: OFF (real hardware)
+-- NVENC SDK not found ‚Äî encode_nvenc.cpp builds as stub. Set NVENC_SDK_PATH to enable.
+-- WASAPI audio capture mod√ºl√º etkinle≈ütirildi
+-- SRT output: stub module
+-- Qt6 6.8.0 bulundu ‚Äî tam UI etkinle≈ütirildi
+-- Reji Studio v0.1.0 yapƒ±landƒ±rƒ±ldƒ±
+-- Configuring done (0.7s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/reji-studio/build
+[1/4] Building CXX object src\pipeline\CMakeFiles\reji_pipeline.dir\gpu\external_memory_bridge.cpp.obj
+cl: Komut satçrç warning D9025: '/EHs', '/EHa' ile geáersiz kçlçnçyor
+[2/4] Building CXX object src\pipeline\CMakeFiles\reji_pipeline.dir\pipeline.cpp.obj
+cl: Komut satçrç warning D9025: '/EHs', '/EHa' ile geáersiz kçlçnçyor
+C:\reji-studio\src\pipeline\audio/wasapi_capture.h(181): warning C4324: 'reji::pipeline::audio::WasapiCapture': hizalama tançmlayçcçsç nedeniyle yapçnçn sonu dolduruldu
+[3/4] Linking CXX static library src\pipeline\reji_pipeline.lib
+[4/4] Linking CXX executable src\ui\reji_app.exe
+FAILED: [code=4294967295] src/ui/reji_app.exe 
+C:\WINDOWS\system32\cmd.exe /C "cd . && "C:\Program Files\CMake\bin\cmake.exe" -E vs_link_exe --msvc-ver=1951 --intdir=src\ui\CMakeFiles\reji_app.dir --rc=C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\rc.exe --mt=C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\mt.exe --manifests  -- C:\PROGRA~1\MICROS~1\18\COMMUN~1\VC\Tools\MSVC\1451~1.362\bin\Hostx64\x64\link.exe /nologo src\ui\CMakeFiles\reji_app.dir\reji_app_autogen\mocs_compilation.cpp.obj src\ui\CMakeFiles\reji_app.dir\main.cpp.obj  /out:src\ui\reji_app.exe /implib:src\ui\reji_app.lib /pdb:src\ui\reji_app.pdb /version:0.0 /machine:x64 /MANIFEST:NO /INCREMENTAL:NO /subsystem:windows -LIBPATH:C:\PROGRA~2\WI3CF2~1\10\Lib\100261~1.0\ucrt\x64   -LIBPATH:C:\PROGRA~2\WI3CF2~1\10\Lib\100261~1.0\um\x64 src\ui\reji_ui.lib  src\ffi\reji_ffi.lib  C:\reji-studio\target\release\reji_orchestrator.lib  ws2_32.lib  bcrypt.lib  userenv.lib  ntdll.lib  C:\Qt\6.8.0\msvc2022_64\lib\Qt6OpenGLWidgets.lib  C:\Qt\6.8.0\msvc2022_64\lib\Qt6Widgets.lib  C:\Qt\6.8.0\msvc2022_64\lib\Qt6OpenGL.lib  C:\Qt\6.8.0\msvc2022_64\lib\Qt6Gui.lib  C:\Qt\6.8.0\msvc2022_64\lib\Qt6Core.lib  mpr.lib  C:\Qt\6.8.0\msvc2022_64\lib\Qt6EntryPoint.lib  shell32.lib  d3d11.lib  dxgi.lib  dxguid.lib  d3d12.lib  src\pipeline\reji_pipeline.lib  d3d11.lib  dxgi.lib  ole32.lib  oleaut32.lib  wbemuuid.lib  avrt.lib  winmm.lib  dwmapi.lib  C:\VulkanSDK\1.4.350.0\Lib\vulkan-1.lib  userenv.lib  kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib && cd ."
+LINK: command "C:\PROGRA~1\MICROS~1\18\COMMUN~1\VC\Tools\MSVC\1451~1.362\bin\Hostx64\x64\link.exe /nologo src\ui\CMakeFiles\reji_app.dir\reji_app_autogen\mocs_compilation.cpp.obj src\ui\CMakeFiles\reji_app.dir\main.cpp.obj /out:src\ui\reji_app.exe /implib:src\ui\reji_app.lib /pdb:src\ui\reji_app.pdb /version:0.0 /machine:x64 /MANIFEST:NO /INCREMENTAL:NO /subsystem:windows -LIBPATH:C:\PROGRA~2\WI3CF2~1\10\Lib\100261~1.0\ucrt\x64 -LIBPATH:C:\PROGRA~2\WI3CF2~1\10\Lib\100261~1.0\um\x64 src\ui\reji_ui.lib src\ffi\reji_ffi.lib C:\reji-studio\target\release\reji_orchestrator.lib ws2_32.lib bcrypt.lib userenv.lib ntdll.lib C:\Qt\6.8.0\msvc2022_64\lib\Qt6OpenGLWidgets.lib C:\Qt\6.8.0\msvc2022_64\lib\Qt6Widgets.lib C:\Qt\6.8.0\msvc2022_64\lib\Qt6OpenGL.lib C:\Qt\6.8.0\msvc2022_64\lib\Qt6Gui.lib C:\Qt\6.8.0\msvc2022_64\lib\Qt6Core.lib mpr.lib C:\Qt\6.8.0\msvc2022_64\lib\Qt6EntryPoint.lib shell32.lib d3d11.lib dxgi.lib dxguid.lib d3d12.lib src\pipeline\reji_pipeline.lib d3d11.lib dxgi.lib ole32.lib oleaut32.lib wbemuuid.lib avrt.lib winmm.lib dwmapi.lib C:\VulkanSDK\1.4.350.0\Lib\vulkan-1.lib userenv.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib" failed (exit code 1120) with the following output:
+reji_pipeline.lib(external_memory_bridge.cpp.obj) : error LNK2019: áîzÅmlenmemiü dçü sembol vkGetMemoryWin32HandleKHR iáin "public: bool __cdecl rj::pipeline::gpu::ExternalMemoryBridge::initialize_gl_target_pool(enum VkFormat,unsigned int,unsigned int)" (?initialize_gl_target_pool@ExternalMemoryBridge@gpu@pipeline@rj@@QEAA_NW4VkFormat@@II@Z) iülevinde baüvuruldu
+src\ui\reji_app.exe : fatal error LNK1120: 1 áîzÅmlenmemiü dçülar
+ninja: build stopped: subcommand failed.

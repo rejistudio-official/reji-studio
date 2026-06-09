@@ -183,6 +183,7 @@ bool VulkanInitializer::create_device() {
 
   const char* device_extensions[] = {
     VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+    VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,  // v0.5.1: Enable timeline semaphores for GpuCopyOptimizer
   };
 
   VkPhysicalDeviceFeatures device_features{};
@@ -192,7 +193,7 @@ bool VulkanInitializer::create_device() {
   create_info.queueCreateInfoCount = 1;
   create_info.pQueueCreateInfos = &queue_create_info;
   create_info.pEnabledFeatures = &device_features;
-  create_info.enabledExtensionCount = 1;
+  create_info.enabledExtensionCount = 2;  // Updated extension count
   create_info.ppEnabledExtensionNames = device_extensions;
 
   VkResult result = vkCreateDevice(physical_device_, &create_info, nullptr, &device_);
@@ -235,14 +236,23 @@ bool VulkanInitializer::check_required_extensions() {
   std::vector<VkExtensionProperties> extensions(ext_count);
   vkEnumerateDeviceExtensionProperties(physical_device_, nullptr, &ext_count, extensions.data());
 
-  const char* required_ext = VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME;
-  for (const auto& ext : extensions) {
-    if (std::strcmp(ext.extensionName, required_ext) == 0) {
-      return true;
+  // Check for required extensions
+  const char* required_exts[] = {
+    VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+    VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+  };
+  int found_count = 0;
+
+  for (const auto& req_ext : required_exts) {
+    for (const auto& ext : extensions) {
+      if (std::strcmp(ext.extensionName, req_ext) == 0) {
+        found_count++;
+        break;
+      }
     }
   }
 
-  return false;
+  return found_count == 2;  // All required extensions found
 }
 
 bool VulkanInitializer::has_extension(const std::string& ext_name) const {
