@@ -49,9 +49,8 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         sem_info.pNext = &timeline_info;
         CHECK_VK(vkCreateSemaphore(device_, &sem_info, nullptr, &timeline_semaphore_));
-        printf("[GpuCopyOptimizer] vkCreateSemaphore: timeline_semaphore_=%p\n",
-               (void*)timeline_semaphore_);
-        fflush(stdout);
+        fprintf(stderr, "[GpuCopyOptimizer] vkCreateSemaphore: timeline_semaphore_=%p\n",
+                (void*)timeline_semaphore_);
 
         // Resolve extension function pointer (must happen after device creation).
         // vkGetSemaphoreCounterValueKHR is NOT part of the Vulkan 1.0 core API
@@ -154,9 +153,8 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         blit_region.dstOffsets[0] = {0, 0, 0};
         blit_region.dstOffsets[1] = {(int32_t)width, (int32_t)height, 1};
 
-        printf("[GpuCopyOptimizer] About to blit: src=%p (TRANSFER_SRC) -> dst=%p (TRANSFER_DST), %u x %u\n",
-               (void*)d3d11_staging_vk, (void*)vulkan_target, width, height);
-        fflush(stdout);
+        fprintf(stderr, "[GpuCopyOptimizer] About to blit: src=%p (TRANSFER_SRC) -> dst=%p (TRANSFER_DST), %u x %u\n",
+                (void*)d3d11_staging_vk, (void*)vulkan_target, width, height);
 
         vkCmdBlitImage(command_buffer_,
                        d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,

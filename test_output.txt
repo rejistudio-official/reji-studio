@@ -1,0 +1,1118 @@
+[reji] [Pipeline] COM apartment set by caller  uninit skipped
+[Pipeline] VulkanInit: device=0000000000000000 phys=0000000000000000
+[ExternalMemoryBridge] Image pool initialized (size: 3, 1920x1080)
+[reji] [Pipeline] NvencEncoder::init failed -- running in preview-only mode
+[reji] [Pipeline] SrtOutput::init failed -- running without SRT output
+[reji] [Pipeline] init OK 1920x1080@60 fps 6000 kbps audio=0 loopback=1
+[Vulkan] Available instance layers: 14
+[Vulkan] Layer: VK_LAYER_NV_optimus (spec ver: 4211017, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_NV_present (spec ver: 4211017, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_AMD_switchable_graphics (spec ver: 4206879, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_VALVE_steam_overlay (spec ver: 4206799, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_VALVE_steam_fossilize (spec ver: 4210991, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_LUNARG_api_dump (spec ver: 4211038, impl ver: 2)
+[Vulkan] Layer: VK_LAYER_LUNARG_gfxreconstruct (spec ver: 4211038, impl ver: 4194309)
+[Vulkan] Layer: VK_LAYER_KHRONOS_synchronization2 (spec ver: 4211038, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_KHRONOS_validation (spec ver: 4211038, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_LUNARG_monitor (spec ver: 4211038, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_LUNARG_screenshot (spec ver: 4211038, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_KHRONOS_profiles (spec ver: 4211038, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_KHRONOS_shader_object (spec ver: 4211038, impl ver: 1)
+[Vulkan] Layer: VK_LAYER_LUNARG_crash_diagnostic (spec ver: 4211038, impl ver: 1)
+[Vulkan] Selected device: AMD Radeon 780M Graphics
+[Vulkan] Device: AMD Radeon 780M Graphics (vendor: 0x1002)
+[Vulkan] Initialized (vendor: 0x1002)
+[CapabilityDetector] Using Vulkan (vendor: 0x1002)
+[PreviewWidget] render path: Vulkan (vendor=0x1002)
+[ExternalMemoryBridge] set_device: device=0000020EF45555D0 phys=0000020EF452EDD0
+[Pipeline] notify_vulkan_ready: device=0000020EF45555D0 phys=0000020EF452EDD0
+[ExternalMemoryBridge] GL target slot 0: image=0000020F39184680, handle=00000000000013EC
+[ExternalMemoryBridge] GL target slot 1: image=0000020F39188C50, handle=00000000000013FC
+[ExternalMemoryBridge] GL target slot 2: image=0000020F39189EC0, handle=0000000000001410
+[ExternalMemoryBridge] GL target pool initialized: 3 x 1920x1080
+[MainWindow] notify_vulkan_ready
+[GpuCopyOptimizer] Initialized (command pool, buffer, timeline semaphore)
+[PreviewWidget] setCopyOptimizer: optimizer=000000BD7295FA68
+[MainWindow] GpuCopyOptimizer initialized
+[ExternalMemoryBridge] set_device: device=0000020EF45555D0 phys=0000020EF452EDD0
+[Pipeline] d3d11_frame_cb set OK
+[ExternalMemoryBridge] Exported NT handle: 000000000000143C
+[ExternalMemoryBridge] Created Vulkan image from D3D11 handle
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F39184680
+[ExternalMemoryBridge] Created Vulkan image from D3D11 handle
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F39188C50
+[ExternalMemoryBridge] Created Vulkan image from D3D11 handle
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F39189EC0
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F39184680
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F39188C50
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F39189EC0
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F39184680
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F39188C50
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F39189EC0
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F39184680
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F39188C50
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F39189EC0
+[PreviewWidget] shader compile vs=1 fs=1 link=1
+[ExternalMemoryBridge] set_device: device=0000020EF45555D0 phys=0000020EF452EDD0
+[Pipeline] notify_vulkan_ready: device=0000020EF45555D0 phys=0000020EF452EDD0
+[ExternalMemoryBridge] GL target slot 0: image=0000020F4130E680, handle=0000000000001704
+[ExternalMemoryBridge] GL target slot 1: image=0000020F4130F8F0, handle=0000000000001714
+[ExternalMemoryBridge] GL target slot 2: image=0000020F41310B60, handle=0000000000001724
+[ExternalMemoryBridge] GL target pool initialized: 3 x 1920x1080
+[PreviewWidget] notify_vulkan_ready: device=0000020EF45555D0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #30, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #60, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #90, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #120, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #150, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #180, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #210, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[PreviewWidget] paintGL #240, copy_optimizer_=000000BD7295FA68
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F39791740 target=0000020F41310B60
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F390C78C0 target=0000020F4130E680
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[Pipeline] get_frame_images: staging=0000020F392D96B0 target=0000020F4130F8F0
+[GpuCopyOptimizer] execute_copy: device=0000020EF45555D0 cmd_buf=0000020F390B0090 queue=0000020F390FE6F0 sem=0000020EF42C03F0 counter=0
+[GpuCopyOptimizer] VK error: 0xfffffff3 at C:\reji-studio\src\pipeline\copy_optimizer.cpp:194
+[PreviewWidget] execute_copy failed, skipping frame
+[GpuScan] [0] AMD Radeon 780M Graphics  vendor=0x1002  VRAM=417MB
+[GpuScan] [1] NVIDIA GeForce RTX 4070 Laptop GPU  vendor=0x10DE  VRAM=7948MB
+[GpuScan] 2 hardware adapter(s) found
+[DxgiCapture] Display adapter: AMD Radeon 780M Graphics
+[DxgiCapture] Encode adapter: NVIDIA GeForce RTX 4070 Laptop GPU (NVIDIA)
+[GpuContext] Ready: AMD Radeon 780M Graphics
+[GpuContext] Ready: NVIDIA GeForce RTX 4070 Laptop GPU
+[DxgiCapture] Session ready  output=0  1920x1080  fmt=87
+[GpuRM] Display: AMD Radeon 780M Graphics  vendor=0x1002  VRAM=417MB
+[GpuRM] Encode:  NVIDIA GeForce RTX 4070 Laptop GPU  vendor=0x10DE  VRAM=7948MB
+[GpuRM] Init OK  adapter=same  1920x1080  fmt=87
+[DxgiCapture] Pipeline ready  1920x1080  cross_adapter=no
+[NVENC] SDK not available — set NVENC_SDK_PATH at CMake configure time
+[DxgiCapture] Dual textures initialized: 1920x1080 fmt=87
