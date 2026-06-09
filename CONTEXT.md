@@ -117,10 +117,11 @@ cmake --build --preset mock
 
 ### Devam Eden / Debugging 🔧
 - GpuCopyOptimizer::execute_copy() — vkCmdBlitImage impl done, **vkQueueSubmit VK_ERROR_DEVICE_LOST (0xfffffff3)**
-  - Timeline semaphore create successful
-  - Image layout transitions + blit command buffer record successful
-  - Queue submit failing → device lost state detected
-  - Debug logs added (printf + fflush) but not showing in output (build.py stderr capture issue)
+  - Timeline semaphore create ✅
+  - Image layout transitions + blit command record ✅
+  - Queue submit ❌ VK_ERROR_DEVICE_LOST repeatedly
+  - Debug logs: fprintf(stderr) partially visible (execute_copy start ok, vkCreateSemaphore + "About to blit" missing)
+  - Likely compile optimization or unflushed buffering
 
 ### Stub / Eksik ❌
 - NVENC encoder — SDK yok, preview-only mode
