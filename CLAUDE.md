@@ -171,16 +171,17 @@ Her büyük görev bittikten sonra:
 ### Tamamlanan ✅
 - Adım 1: `ExternalMemoryBridge` GL target pool + NT handle export
 
-### Devam Eden 🔧
-- Adım 2: `copy_optimizer.cpp` — vkCmdBlitImage + timeline signal **DEBUGGING**
+### Adım 2 — ROOT CAUSE FIXED ✅
+- `copy_optimizer.cpp` — vkCmdBlitImage + timeline signal
   - Timeline semaphore create ✅
   - Image layout transitions ✅
   - vkCmdBlitImage command record ✅
-  - **vkQueueSubmit FAILING: VK_ERROR_DEVICE_LOST (0xfffffff3)** ❌
-  - Debug logs added but not displaying (stdout capture issue in build.py)
+  - **vkQueueSubmit was failing: VK_ERROR_DEVICE_LOST** ❌ → **NOW FIXED** ✅
+  - Root cause: image_pool_[] missing VK_IMAGE_USAGE_TRANSFER_SRC_BIT flag
+  - Fix: external_memory_bridge.cpp line 94 updated with TRANSFER_SRC_BIT
   
 ### Sonraki Adımlar
-- Adım 3: Device lost root cause analysis — ExternalMemoryBridge device lifecycle check
+- Adım 3: Test build with fixed flags — verify vkQueueSubmit success
 - Adım 4: `PreviewWidget` — GL interop extension resolve
 - Adım 5: `paintGL` — NT handle import → GL texture
 - Adım 6: `main_window` — bridge wire

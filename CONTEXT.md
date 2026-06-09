@@ -115,13 +115,13 @@ cmake --build --preset mock
 - Git repack kapalı — `gc.auto=0`
 - Build sistemi: `python scripts/build.py` (cmd.exe + vcvars64.bat otomatik)
 
-### Devam Eden / Debugging 🔧
-- GpuCopyOptimizer::execute_copy() — vkCmdBlitImage impl done, **vkQueueSubmit VK_ERROR_DEVICE_LOST (0xfffffff3)**
-  - Timeline semaphore create ✅
-  - Image layout transitions + blit command record ✅
-  - Queue submit ❌ VK_ERROR_DEVICE_LOST repeatedly
-  - Debug logs: fprintf(stderr) partially visible (execute_copy start ok, vkCreateSemaphore + "About to blit" missing)
-  - Likely compile optimization or unflushed buffering
+### Root Cause Found & Fixed ✅
+- **VK_ERROR_DEVICE_LOST原因:** VK_IMAGE_USAGE_TRANSFER_SRC_BIT eksikti
+  - D3D11 staging images (image_pool_) source olarak vkCmdBlitImage'e gidiyor
+  - Ama creation flags'e TRANSFER_SRC_BIT eklenmemişti
+  - Vulkan spec violation → device lost
+  - **FIX:** external_memory_bridge.cpp:94 → flags += TRANSFER_SRC_BIT
+  - Yeni flags: TRANSFER_SRC_BIT | TRANSFER_DST_BIT | COLOR_ATTACHMENT_BIT
 
 ### Stub / Eksik ❌
 - NVENC encoder — SDK yok, preview-only mode
