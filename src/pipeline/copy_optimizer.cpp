@@ -114,12 +114,12 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         begin_info.flags = 0;  // No ONE_TIME_SUBMIT_BIT — buffer is reused per frame
         CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
 
-        // ========== LAYOUT TRANSITION 1: Staging GENERAL → TRANSFER_SRC ==========
+        // ========== LAYOUT TRANSITION 1: Staging TRANSFER_SRC → TRANSFER_SRC (buffer reuse) ==========
         VkImageMemoryBarrier barrier_staging = {};
         barrier_staging.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier_staging.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier_staging.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         barrier_staging.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier_staging.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier_staging.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier_staging.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         barrier_staging.image = d3d11_staging_vk;
         barrier_staging.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -129,12 +129,12 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
 
-        // ========== LAYOUT TRANSITION 2: Target UNDEFINED → TRANSFER_DST ==========
+        // ========== LAYOUT TRANSITION 2: Target SHADER_READ → TRANSFER_DST (buffer reuse) ==========
         VkImageMemoryBarrier barrier_target = {};
         barrier_target.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier_target.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier_target.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         barrier_target.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier_target.srcAccessMask = 0;
+        barrier_target.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
         barrier_target.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier_target.image = vulkan_target;
         barrier_target.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
