@@ -142,6 +142,9 @@ void PreviewWidget::setBridge(rj::pipeline::gpu::ExternalMemoryBridge* b) noexce
 }
 
 void PreviewWidget::initializeGL() {
+    fprintf(stderr, "[PreviewWidget] initializeGL() called\n");
+    fflush(stderr);
+
     initializeOpenGLFunctions();
     glClearColor(0.f, 0.f, 0.f, 1.f);
 
@@ -207,6 +210,9 @@ void PreviewWidget::resizeGL(int w, int h) {
 }
 
 void PreviewWidget::paintGL() {
+    fprintf(stderr, "[PreviewWidget] paintGL called, bridge_=%p\n", bridge_);
+    fflush(stderr);
+
     if (profiler_) profiler_->markPaintGLStart();
 
     // v0.5.1: Debug logging for frame flow
