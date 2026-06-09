@@ -114,7 +114,9 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;  // Buffer reused/pending
         CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
 
-        // ========== LAYOUT TRANSITION 1: Staging GENERAL → TRANSFER_SRC (idempotent) ==========
+        // ========== LAYOUT TRANSITION 1: Staging GENERAL → TRANSFER_SRC ==========
+        // Staging image may have D3D11 writes from external source (synchronized via semaphore)
+        // srcStage = ALL_GRAPHICS_BIT covers potential shader/transfer writes from D3D11
         VkImageMemoryBarrier barrier_staging = {};
         barrier_staging.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier_staging.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -125,16 +127,18 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         barrier_staging.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         vkCmdPipelineBarrier(command_buffer_,
-                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                              VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
 
-        // ========== LAYOUT TRANSITION 2: Target GENERAL → TRANSFER_DST (idempotent, covers UNDEFINED) ==========
+        // ========== LAYOUT TRANSITION 2: Target GENERAL → TRANSFER_DST ==========
+        // Target image starts clean (no pending writes), so srcStage can be TOP_OF_PIPE
+        // but srcAccessMask must be 0 since TOP_OF_PIPE supports no access flags
         VkImageMemoryBarrier barrier_target = {};
         barrier_target.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier_target.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
         barrier_target.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier_target.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier_target.srcAccessMask = 0;  // TOP_OF_PIPE supports no access flags
         barrier_target.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier_target.image = vulkan_target;
         barrier_target.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};

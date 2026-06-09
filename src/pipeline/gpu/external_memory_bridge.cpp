@@ -93,7 +93,7 @@ VkImage ExternalMemoryBridge::create_vulkan_image_from_d3d11(
   img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   img_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
   img_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  img_info.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+  img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
   VkImage vk_img = nullptr;
   VkResult result = vkCreateImage(device_, &img_info, nullptr, &vk_img);
@@ -103,17 +103,22 @@ VkImage ExternalMemoryBridge::create_vulkan_image_from_d3d11(
     return nullptr;
   }
 
+  VkMemoryRequirements mem_reqs;
+  vkGetImageMemoryRequirements(device_, vk_img, &mem_reqs);
+
   VkImportMemoryWin32HandleInfoKHR import_info{};
   import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
   import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
   import_info.handle = d3d11_handle;
 
-  VkMemoryRequirements mem_reqs;
-  vkGetImageMemoryRequirements(device_, vk_img, &mem_reqs);
+  VkMemoryDedicatedAllocateInfo dedicated_alloc{};
+  dedicated_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+  dedicated_alloc.image = vk_img;
+  dedicated_alloc.pNext = &import_info;
 
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.pNext = &import_info;
+  alloc_info.pNext = &dedicated_alloc;
   alloc_info.allocationSize = mem_reqs.size;
 
   VkPhysicalDeviceMemoryProperties mem_props;
@@ -202,7 +207,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
     img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     img_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;  // GL texture sampling
     img_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    img_info.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+    img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VkImage vk_img = nullptr;
     VkResult result = vkCreateImage(device_, &img_info, nullptr, &vk_img);
@@ -220,9 +225,14 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
     export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
     export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 
+    VkMemoryDedicatedAllocateInfo dedicated_alloc{};
+    dedicated_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    dedicated_alloc.image = vk_img;
+    dedicated_alloc.pNext = &export_info;
+
     VkMemoryAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.pNext = &export_info;
+    alloc_info.pNext = &dedicated_alloc;
     alloc_info.allocationSize = mem_reqs.size;
 
     VkPhysicalDeviceMemoryProperties mem_props;

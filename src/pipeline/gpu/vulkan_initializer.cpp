@@ -201,10 +201,15 @@ bool VulkanInitializer::create_device() {
     VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,  // v0.5.1: Enable timeline semaphores for GpuCopyOptimizer
   };
 
+  VkPhysicalDeviceTimelineSemaphoreFeatures timeline_sem_features{};
+  timeline_sem_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+  timeline_sem_features.timelineSemaphore = VK_TRUE;
+
   VkPhysicalDeviceFeatures device_features{};
 
   VkDeviceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  create_info.pNext = &timeline_sem_features;
   create_info.queueCreateInfoCount = 1;
   create_info.pQueueCreateInfos = &queue_create_info;
   create_info.pEnabledFeatures = &device_features;
