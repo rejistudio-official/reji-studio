@@ -169,16 +169,6 @@ void PreviewWidget::initializeGL() {
     d_->vao.release();
     glFinish();  // ensure shader/VBO compiled before first paintGL
 
-    // v0.5.1: One-shot Vulkan late-binding
-    if (pipeline_) {
-        auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
-        if (vk && vk->device()) {
-            pipeline_->notify_vulkan_ready(vk->device(), vk->physical_device());
-            fprintf(stderr, "[PreviewWidget] notify_vulkan_ready: device=%p\n", (void*)vk->device());
-            fflush(stderr);
-        }
-    }
-
     // v0.5.2: GL_EXT_memory_object_win32 extension check (GL interop)
     bool has_mem_obj = context()->hasExtension("GL_EXT_memory_object");
     bool has_win32   = context()->hasExtension("GL_EXT_memory_object_win32");
