@@ -18,6 +18,7 @@ public:
     // Initialize Vulkan compute pipeline
     // Returns true on success, false if Vulkan unavailable or init failed
     bool init(VkDevice device, VkQueue queue, VkPhysicalDevice phys_device,
+              uint32_t queue_family_index,
               const Config& config = Config{});
 
     // Execute GPU-side copy: D3D11 external memory → Vulkan target image

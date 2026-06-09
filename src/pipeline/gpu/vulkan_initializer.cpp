@@ -42,6 +42,21 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
 #endif
 
 bool VulkanInitializer::initialize() {
+  // Debug: List available instance layers
+  uint32_t layer_count = 0;
+  vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
+  fprintf(stderr, "[Vulkan] Available instance layers: %u\n", layer_count);
+  fflush(stderr);
+  if (layer_count > 0) {
+    std::vector<VkLayerProperties> layers(layer_count);
+    vkEnumerateInstanceLayerProperties(&layer_count, layers.data());
+    for (const auto& layer : layers) {
+      fprintf(stderr, "[Vulkan] Layer: %s (spec ver: %u, impl ver: %u)\n",
+              layer.layerName, layer.specVersion, layer.implementationVersion);
+      fflush(stderr);
+    }
+  }
+
   if (!create_instance()) {
     fprintf(stderr, "[Vulkan] Failed to create instance\n");
     fflush(stderr);

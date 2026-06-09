@@ -12,6 +12,7 @@
     } while(0)
 
 bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phys_device,
+                            uint32_t queue_family_index,
                             const Config& config) {
     if (!device || !queue || !phys_device) {
         fprintf(stderr, "[GpuCopyOptimizer] Invalid device/queue/phys_device\n");
@@ -22,15 +23,6 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         device_ = device;
         queue_ = queue;
         phys_device_ = phys_device;
-
-        // Query queue family properties (default to 0 if unavailable)
-        uint32_t queue_family_index = 0;
-        uint32_t queue_family_count = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(phys_device_, &queue_family_count, nullptr);
-        if (queue_family_count > 0) {
-            // Use queue family 0 (typically supports graphics + compute)
-            queue_family_index = 0;
-        }
 
         // Create command pool
         VkCommandPoolCreateInfo pool_info = {};
@@ -57,6 +49,9 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         sem_info.pNext = &timeline_info;
         CHECK_VK(vkCreateSemaphore(device_, &sem_info, nullptr, &timeline_semaphore_));
+        printf("[GpuCopyOptimizer] vkCreateSemaphore: timeline_semaphore_=%p\n",
+               (void*)timeline_semaphore_);
+        fflush(stdout);
 
         // Resolve extension function pointer (must happen after device creation).
         // vkGetSemaphoreCounterValueKHR is NOT part of the Vulkan 1.0 core API
@@ -87,9 +82,12 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      VkSemaphore* out_timeline_semaphore,
                                      uint64_t* out_timeline_value,
                                      VkImage* out_target_image) {
-    if (!device_ || !command_buffer_) {
-        fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buffer=%p (not initialized)\n",
-                device_, command_buffer_);
+    fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu\n",
+            (void*)device_, (void*)command_buffer_, (void*)queue_,
+            (void*)timeline_semaphore_, (unsigned long long)timeline_counter_);
+
+    if (!device_ || !command_buffer_ || !queue_) {
+        fprintf(stderr, "[GpuCopyOptimizer] ABORT: null handle\n");
         return false;
     }
 
@@ -108,10 +106,13 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             return false;
         }
 
+        // Reset command buffer for reuse (safe explicit reset)
+        CHECK_VK(vkResetCommandBuffer(command_buffer_, 0));
+
         // Begin command buffer
         VkCommandBufferBeginInfo begin_info = {};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        begin_info.flags = 0;  // No ONE_TIME_SUBMIT_BIT — buffer is reused per frame
         CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
 
         // ========== LAYOUT TRANSITION 1: Staging GENERAL → TRANSFER_SRC ==========
@@ -152,6 +153,10 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         blit_region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit_region.dstOffsets[0] = {0, 0, 0};
         blit_region.dstOffsets[1] = {(int32_t)width, (int32_t)height, 1};
+
+        printf("[GpuCopyOptimizer] About to blit: src=%p (TRANSFER_SRC) -> dst=%p (TRANSFER_DST), %u x %u\n",
+               (void*)d3d11_staging_vk, (void*)vulkan_target, width, height);
+        fflush(stdout);
 
         vkCmdBlitImage(command_buffer_,
                        d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,

@@ -69,27 +69,23 @@ src/
 
 ---
 
-## 4. Build Komutları
+## 4. Build Komutları (Claude Code için)
 
-```cmd
-# Tercih edilen
-cd C:\reji-studio
-cmake --build --preset release
+```bash
+# Build
+cd C:/reji-studio && python scripts/build.py
+
+# Build + test çalıştır
+cd C:/reji-studio && python scripts/build.py --run
 
 # Temiz build
-rmdir /S /Q build
-cmake --preset release
-cmake --build --preset release
-
-# Test
-C:\reji-studio\build\src\ui\reji_app.exe > run.log 2>&1
-type run.log | findstr "ERROR\|FAILED\|ExternalMemoryBridge"
+cd C:/reji-studio && python scripts/build.py --clean
 ```
 
 **Kurallar:**
-- Build ortamı: x64 Native Tools Command Prompt (MSVC zorunlu)
-- Claude Code bash: `cd C:/reji-studio && cmake --build --preset release`
-- PowerShell'de build YAPMA — cstdint hatası
+- Claude Code bash'ten çalıştır — Windows cmd.exe ve vcvars64.bat otomatik yönetilir
+- `--run` bayrağı binary çalıştırır ve `run.log`'a yazar
+- CMakeLists.txt'e dokunma
 
 ---
 

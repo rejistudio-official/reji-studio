@@ -69,7 +69,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 // v0.5.1: Initialize GpuCopyOptimizer with Vulkan device + queue
                 if (vk->graphics_queue() != VK_NULL_HANDLE) {
                     GpuCopyOptimizer::Config copy_cfg;
-                    if (copy_optimizer_.init(vk->device(), vk->graphics_queue(), vk->physical_device(), copy_cfg)) {
+                    if (copy_optimizer_.init(vk->device(), vk->graphics_queue(), vk->physical_device(),
+                                             vk->graphics_queue_family(), copy_cfg)) {
                         preview_widget_->setCopyOptimizer(&copy_optimizer_);
                         fprintf(stderr, "[MainWindow] GpuCopyOptimizer initialized\n");
                         fflush(stderr);

@@ -1,0 +1,11 @@
+C:\reji-studio\build_debug\src\ui\reji_ui_autogen\mocs_compilation_Debug.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\mocs_compilation_Debug.obj
+C:\reji-studio\src\ui\main_window.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\main_window.obj
+C:\reji-studio\src\ui\preview_widget.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\preview_widget.obj
+C:\reji-studio\src\ui\program_widget.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\program_widget.obj
+C:\reji-studio\src\ui\rust_bridge.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\rust_bridge.obj
+C:\reji-studio\src\ui\healing_overlay.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\healing_overlay.obj
+C:\reji-studio\src\ui\settings_dialog.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\settings_dialog.obj
+C:\reji-studio\src\ui\render_capability.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\render_capability.obj
+C:\reji-studio\src\ui\shader_cache.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\shader_cache.obj
+C:\reji-studio\src\ui\vulkan_render_path.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\vulkan_render_path.obj
+C:\reji-studio\src\ui\qrhi_window_wrapper.cpp;C:\reji-studio\build_debug\src\ui\reji_ui.dir\Debug\qrhi_window_wrapper.obj

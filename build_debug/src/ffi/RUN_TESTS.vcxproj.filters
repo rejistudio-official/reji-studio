@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\reji-studio\build_debug\CMakeFiles\14c07fe6cd644cc3ce39361363d976bf\RUN_TESTS_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{7967871A-5380-3DFA-A5CA-9EE99CC5F124}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
