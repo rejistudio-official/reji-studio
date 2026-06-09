@@ -94,7 +94,7 @@ public:
 
     /// v0.5.2: Get external memory bridge for GL interop NT handle access.
     /// Returns nullptr before init() or if bridge creation failed.
-    class ExternalMemoryBridge* get_external_memory_bridge() const;
+    rj::pipeline::gpu::ExternalMemoryBridge* get_external_memory_bridge() const;
 
 private:
     struct Impl;

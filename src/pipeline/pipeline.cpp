@@ -714,7 +714,7 @@ uint32_t Pipeline::display_vendor_id() const {
     return scan.count > 0 ? scan.entries[0].vendor_id : 0;
 }
 
-class ExternalMemoryBridge* Pipeline::get_external_memory_bridge() const {
+rj::pipeline::gpu::ExternalMemoryBridge* Pipeline::get_external_memory_bridge() const {
     if (!impl_) return nullptr;
     return impl_->ext_bridge.get();
 }
