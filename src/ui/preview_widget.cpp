@@ -135,7 +135,7 @@ void PreviewWidget::setPipeline(rj::Pipeline* pipeline) noexcept {
     pipeline_ = pipeline;
 }
 
-void PreviewWidget::setBridge(ExternalMemoryBridge* b) noexcept {
+void PreviewWidget::setBridge(rj::pipeline::gpu::ExternalMemoryBridge* b) noexcept {
     bridge_ = b;
     fprintf(stderr, "[PreviewWidget] setBridge: bridge=%p\n", b);
     fflush(stderr);

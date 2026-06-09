@@ -6,7 +6,9 @@ namespace rj {
     class FrameProfiler;
 }
 class GpuCopyOptimizer;
-class ExternalMemoryBridge;
+namespace rj::pipeline::gpu {
+    class ExternalMemoryBridge;
+}
 
 #include "render_capability.h"
 #include "../pipeline/gpu/external_memory_bridge.h"
@@ -80,7 +82,7 @@ public:
 
     // Wire bridge for GL interop (external memory NT handle).
     // Bridge is borrowed; lifecycle managed externally.
-    void setBridge(ExternalMemoryBridge* b) noexcept;
+    void setBridge(rj::pipeline::gpu::ExternalMemoryBridge* b) noexcept;
 
 protected:
     void initializeGL() override;
@@ -91,7 +93,7 @@ private:
     class Impl;
     std::unique_ptr<Impl> d_;
     GpuCopyOptimizer* copy_optimizer_ = nullptr;  // borrowed, not owned
-    ExternalMemoryBridge* bridge_ = nullptr;      // borrowed, not owned
+    rj::pipeline::gpu::ExternalMemoryBridge* bridge_ = nullptr;      // borrowed, not owned
     rj::FrameProfiler* profiler_ = nullptr;
     rj::Pipeline* pipeline_ = nullptr;            // borrowed, not owned
     VkImage gl_target_image_ = VK_NULL_HANDLE;    // Target image from execute_copy (GL interop)
