@@ -182,6 +182,24 @@ void PreviewWidget::initializeGL() {
     fprintf(stderr, "[PreviewWidget] GL_EXT_memory_object=%d win32=%d\n",
             has_mem_obj, has_win32);
     fflush(stderr);
+
+    // Resolve GL extension function pointers
+    if (has_mem_obj && has_win32) {
+        auto* ctx = QOpenGLContext::currentContext();
+        pfn_CreateMemoryObjects_     = (PFNGLCREATEMEMORYOBJECTSEXT)
+            ctx->getProcAddress("glCreateMemoryObjectsEXT");
+        pfn_DeleteMemoryObjects_     = (PFNGLDELETEMEMORYOBJECTSEXT)
+            ctx->getProcAddress("glDeleteMemoryObjectsEXT");
+        pfn_ImportMemoryWin32Handle_ = (PFNGLIMPORTMEMORYWIN32HANDLEEXT)
+            ctx->getProcAddress("glImportMemoryWin32HandleEXT");
+        pfn_TexStorageMem2D_         = (PFNGLTEXSTORAGEMEM2DEXT)
+            ctx->getProcAddress("glTexStorageMem2DEXT");
+
+        bool all_ok = pfn_CreateMemoryObjects_ && pfn_ImportMemoryWin32Handle_
+                   && pfn_TexStorageMem2D_;
+        fprintf(stderr, "[PreviewWidget] GL interop functions resolved: %d\n", all_ok);
+        fflush(stderr);
+    }
 }
 
 void PreviewWidget::resizeGL(int w, int h) {
@@ -270,15 +288,15 @@ void PreviewWidget::paintGL() {
         gl_target_image_ = result_target_image;
 
         // v0.5.2: GL interop — import NT handle → GL texture
-        if (bridge_ && gl_target_image_ != VK_NULL_HANDLE) {
+        if (bridge_ && gl_target_image_ != VK_NULL_HANDLE && pfn_ImportMemoryWin32Handle_) {
             HANDLE nt_handle = bridge_->get_gl_target_handle(static_cast<uint32_t>(w % 3)); // round-robin
             if (nt_handle) {
                 // Create GL memory object from Win32 handle (GL_EXT_memory_object_win32)
-                if (!gl_memory_object_) {
-                    glCreateMemoryObjectsEXT(1, &gl_memory_object_);
+                if (!gl_memory_object_ && pfn_CreateMemoryObjects_) {
+                    pfn_CreateMemoryObjects_(1, &gl_memory_object_);
                 }
                 if (gl_memory_object_) {
-                    glImportMemoryWin32HandleEXT(gl_memory_object_,
+                    pfn_ImportMemoryWin32Handle_(gl_memory_object_,
                                                  w * h * 4,  // approximate size (RGBA8)
                                                  GL_HANDLE_TYPE_OPAQUE_WIN32_EXT,
                                                  nt_handle);
@@ -287,12 +305,13 @@ void PreviewWidget::paintGL() {
                     if (!gl_interop_texture_) {
                         glGenTextures(1, &gl_interop_texture_);
                     }
-                    if (gl_interop_texture_) {
+                    if (gl_interop_texture_ && pfn_TexStorageMem2D_) {
                         glBindTexture(GL_TEXTURE_2D, gl_interop_texture_);
-                        glTexStorageMem2DEXT(GL_TEXTURE_2D, 1, GL_RGBA8,
+                        pfn_TexStorageMem2D_(GL_TEXTURE_2D, 1, GL_RGBA8,
                                             w, h, gl_memory_object_, 0);
                         glBindTexture(GL_TEXTURE_2D, 0);
                         fprintf(stderr, "[PreviewWidget] GL interop texture created: %ux%u\n", w, h);
+                        fflush(stderr);
                     }
                 }
             }

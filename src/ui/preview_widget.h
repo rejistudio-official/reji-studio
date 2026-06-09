@@ -17,6 +17,12 @@ class ExternalMemoryBridge;
 
 namespace reji {
 
+// GL_EXT_memory_object_win32 function pointers
+using PFNGLCREATEMEMORYOBJECTSEXT    = void(*)(GLsizei, GLuint*);
+using PFNGLDELETEMEMORYOBJECTSEXT    = void(*)(GLsizei, const GLuint*);
+using PFNGLIMPORTMEMORYWIN32HANDLEEXT = void(*)(GLuint, GLuint64, GLenum, void*);
+using PFNGLTEXSTORAGEMEM2DEXT        = void(*)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLuint, GLuint64);
+
 // ---------------------------------------------------------------------------
 // PreviewWidget — Preview (left) monitor.
 //
@@ -91,6 +97,12 @@ private:
     VkImage gl_target_image_ = VK_NULL_HANDLE;    // Target image from execute_copy (GL interop)
     GLuint gl_interop_texture_ = 0;               // GL texture from NT handle import
     GLuint gl_memory_object_ = 0;                 // GL memory object from external memory
+
+    // GL_EXT_memory_object_win32 function pointers
+    PFNGLCREATEMEMORYOBJECTSEXT     pfn_CreateMemoryObjects_     = nullptr;
+    PFNGLDELETEMEMORYOBJECTSEXT     pfn_DeleteMemoryObjects_     = nullptr;
+    PFNGLIMPORTMEMORYWIN32HANDLEEXT pfn_ImportMemoryWin32Handle_ = nullptr;
+    PFNGLTEXSTORAGEMEM2DEXT         pfn_TexStorageMem2D_         = nullptr;
 };
 
 } // namespace reji

@@ -92,6 +92,10 @@ public:
     /// Called from run_frame thread; returns false if images unavailable.
     bool get_last_frame_images(VkImage* out_staging, VkImage* out_target);
 
+    /// v0.5.2: Get external memory bridge for GL interop NT handle access.
+    /// Returns nullptr before init() or if bridge creation failed.
+    class ExternalMemoryBridge* get_external_memory_bridge() const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

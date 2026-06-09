@@ -714,6 +714,11 @@ uint32_t Pipeline::display_vendor_id() const {
     return scan.count > 0 ? scan.entries[0].vendor_id : 0;
 }
 
+class ExternalMemoryBridge* Pipeline::get_external_memory_bridge() const {
+    if (!impl_) return nullptr;
+    return impl_->ext_bridge.get();
+}
+
 // v0.4+: Action processor thread main loop
 void Pipeline::action_processor_main() {
     while (impl_->action_processor_running.load(std::memory_order_acquire)) {

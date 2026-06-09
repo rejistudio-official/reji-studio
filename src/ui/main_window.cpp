@@ -72,6 +72,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                     if (copy_optimizer_.init(vk->device(), vk->graphics_queue(), vk->physical_device(),
                                              vk->graphics_queue_family(), copy_cfg)) {
                         preview_widget_->setCopyOptimizer(&copy_optimizer_);
+                        // v0.5.2: Wire GL interop bridge for NT handle import
+                        preview_widget_->setBridge(pipeline_.get_external_memory_bridge());
                         fprintf(stderr, "[MainWindow] GpuCopyOptimizer initialized\n");
                         fflush(stderr);
                     } else {
