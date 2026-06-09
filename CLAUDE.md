@@ -171,16 +171,25 @@ Her büyük görev bittikten sonra:
 ### Tamamlanan ✅
 - Adım 1: `ExternalMemoryBridge` GL target pool + NT handle export
 
-### Devam Eden
-- Adım 2: `copy_optimizer.cpp` — gerçek `vkCmdBlitImage` + timeline signal
-- Adım 3: `PreviewWidget` — GL interop extension resolve
-- Adım 4: `paintGL` — NT handle import → GL texture
-- Adım 5: `main_window` — bridge wire
-- Adım 6: `PreviewWidget` — `setBridge()` bağlantısı
+### Devam Eden 🔧
+- Adım 2: `copy_optimizer.cpp` — vkCmdBlitImage + timeline signal **DEBUGGING**
+  - Timeline semaphore create ✅
+  - Image layout transitions ✅
+  - vkCmdBlitImage command record ✅
+  - **vkQueueSubmit FAILING: VK_ERROR_DEVICE_LOST (0xfffffff3)** ❌
+  - Debug logs added but not displaying (stdout capture issue in build.py)
+  
+### Sonraki Adımlar
+- Adım 3: Device lost root cause analysis — ExternalMemoryBridge device lifecycle check
+- Adım 4: `PreviewWidget` — GL interop extension resolve
+- Adım 5: `paintGL` — NT handle import → GL texture
+- Adım 6: `main_window` — bridge wire
+- Adım 7: `PreviewWidget` — `setBridge()` bağlantısı
 
 ### Hedef Log (v0.5.2 tamamlandığında)
 ```
 [PreviewWidget] GL_EXT_memory_object=1 win32=1
 [PreviewWidget] GL interop texture created: 1920x1080
+[GpuCopyOptimizer] About to blit: src=... -> dst=..., 1920x1080
 [GpuCopyOptimizer] execute_copy: blit submitted, timeline=1
 ```

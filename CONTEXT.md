@@ -104,7 +104,7 @@ cmake --build --preset mock
 
 ---
 
-## Mevcut Durum (2026-06-07)
+## Mevcut Durum (2026-06-09)
 
 ### Çalışan ✅
 - D3D11 → NT handle export → VkImage import (zero-copy)
@@ -113,12 +113,21 @@ cmake --build --preset mock
 - Pipeline → PreviewWidget callback zinciri
 - CMakePresets.json — `cmake --preset release`
 - Git repack kapalı — `gc.auto=0`
+- Build sistemi: `python scripts/build.py` (cmd.exe + vcvars64.bat otomatik)
+
+### Devam Eden / Debugging 🔧
+- GpuCopyOptimizer::execute_copy() — vkCmdBlitImage impl done, **vkQueueSubmit VK_ERROR_DEVICE_LOST (0xfffffff3)**
+  - Timeline semaphore create successful
+  - Image layout transitions + blit command buffer record successful
+  - Queue submit failing → device lost state detected
+  - Debug logs added (printf + fflush) but not showing in output (build.py stderr capture issue)
 
 ### Stub / Eksik ❌
 - NVENC encoder — SDK yok, preview-only mode
 - SRT output — stub
 - paintGL'de VkImage → OpenGL texture transfer — henüz yok
 - FrameProfiler benchmark — No samples collected
+- VkQueueSubmit device lost root cause — needs investigation
 
 ---
 
