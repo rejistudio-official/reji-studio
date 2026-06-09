@@ -93,7 +93,7 @@ VkImage ExternalMemoryBridge::create_vulkan_image_from_d3d11(
   img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   img_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
   img_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  img_info.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
 
   VkImage vk_img = nullptr;
   VkResult result = vkCreateImage(device_, &img_info, nullptr, &vk_img);
@@ -202,7 +202,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
     img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     img_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     img_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    img_info.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
 
     VkImage vk_img = nullptr;
     VkResult result = vkCreateImage(device_, &img_info, nullptr, &vk_img);
