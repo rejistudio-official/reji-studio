@@ -123,7 +123,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         barrier_staging.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         vkCmdPipelineBarrier(command_buffer_,
-                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
 
