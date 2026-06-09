@@ -20,6 +20,11 @@ using VkPhysicalDevice = void*;
 using VkImage = void*;
 #endif
 
+// Forward declaration for GL interop bridge
+namespace rj::pipeline::gpu {
+    class ExternalMemoryBridge;
+}
+
 namespace rj {
 
 /// DXGI capture → NVENC encode → SRT transport pipeline controller.
