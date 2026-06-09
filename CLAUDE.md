@@ -180,12 +180,19 @@ Her büyük görev bittikten sonra:
   - Root cause: image_pool_[] missing VK_IMAGE_USAGE_TRANSFER_SRC_BIT flag
   - Fix: external_memory_bridge.cpp line 94 updated with TRANSFER_SRC_BIT
   
+### Adım 2 Başarılı ✅
+- Adım 1: `ExternalMemoryBridge` pool + NT handle export ✅
+- Adım 2: `copy_optimizer.cpp` vkCmdBlitImage + timeline ✅
+  - VK_IMAGE_USAGE_TRANSFER_SRC_BIT fix → vkQueueSubmit çalışıyor ✅
+- Adım 3: `PreviewWidget` GL extension resolve ✅
+- Adım 4: `paintGL` NT handle import → GL texture ✅
+- Adım 5: `Pipeline::get_external_memory_bridge()` ✅
+- Adım 6: `main_window::setBridge()` wire ✅
+
 ### Sonraki Adımlar
-- Adım 3: Test build with fixed flags — verify vkQueueSubmit success
-- Adım 4: `PreviewWidget` — GL interop extension resolve
-- Adım 5: `paintGL` — NT handle import → GL texture
-- Adım 6: `main_window` — bridge wire
-- Adım 7: `PreviewWidget` — `setBridge()` bağlantısı
+- Build: x64 Native Tools Command Prompt'ta çalıştır (bash/PowerShell env sorunu)
+- Verify: [GpuCopyOptimizer] blit submitted + [PreviewWidget] GL texture created logs
+- Test: Ekranda frame görünüyor mu?
 
 ### Hedef Log (v0.5.2 tamamlandığında)
 ```

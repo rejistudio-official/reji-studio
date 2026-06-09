@@ -123,12 +123,18 @@ cmake --build --preset mock
   - **FIX:** external_memory_bridge.cpp:94 → flags += TRANSFER_SRC_BIT
   - Yeni flags: TRANSFER_SRC_BIT | TRANSFER_DST_BIT | COLOR_ATTACHMENT_BIT
 
+### GL Interop Bridge Wiring ✅ (v0.5.2 Step 4)
+- **Pipeline accessor:** Pipeline::get_external_memory_bridge() (pipeline.cpp:717-720)
+- **Main window wiring:** preview_widget_->setBridge() after copy_optimizer init (main_window.cpp:75-76)
+- **PreviewWidget:** GL extension function pointer resolution in initializeGL() (preview_widget.cpp:179-202)
+- **paintGL interop:** NT handle import + GL texture creation (preview_widget.cpp:290-318)
+- **Render path:** Prefer gl_interop_texture, fallback to d_->tex_id (preview_widget.cpp:335)
+
 ### Stub / Eksik ❌
 - NVENC encoder — SDK yok, preview-only mode
 - SRT output — stub
-- paintGL'de VkImage → OpenGL texture transfer — henüz yok
+- Build environment — CMake MSVC include paths from bash/PowerShell (x64 Native Tools required)
 - FrameProfiler benchmark — No samples collected
-- VkQueueSubmit device lost root cause — needs investigation
 
 ---
 
