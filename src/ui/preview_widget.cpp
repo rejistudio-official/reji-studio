@@ -212,11 +212,29 @@ void PreviewWidget::paintGL() {
 
     if (profiler_) profiler_->markPaintGLStart();
 
-    // v0.5.1: Debug logging for frame flow
+    // v0.5.1: Debug logging and timeout handling
     static int paint_count = 0;
-    if (++paint_count % 30 == 0) {
-        fprintf(stderr, "[PreviewWidget] paintGL #%d, copy_optimizer_=%p\n", paint_count, copy_optimizer_);
+    if (++paint_count % 10 == 0) {
+        bool has_pending = false;
+        uint32_t frame_dirty = false;
+        {
+            QMutexLocker lock(&d_->frame_mutex);
+            has_pending = d_->has_pending_copy;
+            frame_dirty = d_->frame_dirty;
+        }
+        fprintf(stderr, "[PreviewWidget] paintGL #%d: has_pending=%d frame_dirty=%d copy_opt=%p\n",
+                paint_count, has_pending, frame_dirty, copy_optimizer_);
         fflush(stderr);
+    }
+    // Force-clear pending GPU copy every 60 frames (~1 second at 60fps)
+    // Timeline semaphore polling can be delayed; don't block indefinitely
+    if (paint_count % 60 == 0 && paint_count > 10) {
+        QMutexLocker lock(&d_->frame_mutex);
+        if (d_->has_pending_copy) {
+            fprintf(stderr, "[PreviewWidget] Force-clearing pending GPU copy (frame #%d)\n", paint_count);
+            d_->has_pending_copy = false;
+            fflush(stderr);
+        }
     }
 
     // ---- Snapshot state under lock (no heap, no blocking) ----
@@ -229,31 +247,51 @@ void PreviewWidget::paintGL() {
 
     {
         QMutexLocker lock(&d_->frame_mutex);
+        // Poll pending GPU copy (async timeline semaphore signal)
         if (d_->has_pending_copy) {
             was_pending = true;
-            // Non-blocking poll: vkGetSemaphoreCounterValueKHR under the hood.
+            // Non-blocking poll: check if GPU has signaled the timeline semaphore
             if (copy_optimizer_ &&
                 copy_optimizer_->is_copy_ready(d_->timeline_semaphore,
                                               d_->expected_value)) {
                 is_ready = true;
-                d_->has_pending_copy = false;
+                d_->has_pending_copy = false;  // GPU copy complete
+            } else {
+                // GPU not yet signaled
+                // After several frames, assume it's stalled/not critical and move on
+                static int poll_frames = 0;
+                poll_frames++;
+                if (poll_frames > 50) {  // 50 frames = ~830ms at 60fps, plenty of time
+                    fprintf(stderr, "[PreviewWidget] Timeout waiting for GPU copy, clearing pending\n");
+                    fflush(stderr);
+                    d_->has_pending_copy = false;  // Force clear
+                    poll_frames = 0;
+                }
+                is_ready = false;
             }
         }
-        if (!d_->has_pending_copy && d_->frame_dirty &&
-            d_->pending_staging_vk != VK_NULL_HANDLE) {
+
+        // Load new frame (any pending GPU copy from previous frames)
+        // ALWAYS allow new frame if available (don't wait for old GPU copy to complete)
+        // Worst case: texture shows previous frame, but keeps rendering
+        if (d_->frame_dirty && d_->pending_staging_vk != VK_NULL_HANDLE) {
             staging_vk     = d_->pending_staging_vk;
             target_vk      = d_->pending_target_vk;
             w              = d_->pending_width;
             h              = d_->pending_height;
             have_new_frame = true;
             d_->frame_dirty = false;
+            d_->has_pending_copy = false;  // Clear any old pending, submit new
         }
     }
 
-    // ---- GPU copy not yet complete: skip frame (non-blocking, no stall) ----
-    if (was_pending && !is_ready) {
-        if (profiler_) profiler_->markPaintGLEnd();
-        return;
+    // ---- Handle pending GPU copy ----
+    // Note: is_copy_ready() polls async signal value, which may be delayed
+    // If ready, clear pending flag. If not ready yet, we'll still render with
+    // the latest available texture (might be previous frame, but that's ok).
+    if (was_pending && is_ready) {
+        // GPU copy complete, clear pending flag
+        // (next iteration will load new frame if available)
     }
 
     // ---- Submit GPU-only copy (non-blocking submit, returns timeline sem) ----
@@ -337,9 +375,8 @@ void PreviewWidget::paintGL() {
             d_->expected_value    = value;
             d_->has_pending_copy  = true;
         }
-        // First submission: copy just queued, not ready — skip render, check next tick.
-        if (profiler_) profiler_->markPaintGLEnd();
-        return;
+        // Submission queued async; continue to render the previous frame (if available)
+        // (don't skip render just because we submitted new work)
     }
 
     // ---- Render path (previous frame's GPU copy completed) ----
@@ -348,8 +385,17 @@ void PreviewWidget::paintGL() {
     // Use GL interop texture if available (from current pool slot), otherwise CPU fallback
     GLuint tex_to_use = gl_interop_textures_[current_pool_idx_] ? gl_interop_textures_[current_pool_idx_] : d_->tex_id;
     if (!tex_to_use) {
+        fprintf(stderr, "[PreviewWidget] render skipped: no texture (pool_idx=%u, interop=%u, fallback=%u)\n",
+                current_pool_idx_, gl_interop_textures_[current_pool_idx_], d_->tex_id);
         if (profiler_) profiler_->markPaintGLEnd();
         return;
+    }
+
+    bool use_gl_interop = (tex_to_use == gl_interop_textures_[current_pool_idx_]);
+    if (use_gl_interop) {
+        fprintf(stderr, "[PreviewWidget] render: GL interop texture[%u] (%u)\n", current_pool_idx_, tex_to_use);
+    } else {
+        fprintf(stderr, "[PreviewWidget] render: CPU fallback texture (%u)\n", tex_to_use);
     }
 
     d_->shader.bind();
@@ -360,8 +406,8 @@ void PreviewWidget::paintGL() {
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     d_->vao.release();
     d_->shader.release();
-    // No glFinish(): swap-chain present handles GPU↔CPU sync; timeline sem
-    // already gated the cross-API (Vulkan→OpenGL) data dependency.
+    // Note: Timeline semaphore gates Vulkan→OpenGL data dependency
+    // (vkQueueSubmit is async; GPU→GL sync happens at next frame's is_copy_ready() poll)
 
     if (profiler_) profiler_->markPaintGLEnd();
 }

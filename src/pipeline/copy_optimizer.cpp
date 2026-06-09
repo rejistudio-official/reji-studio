@@ -223,6 +223,9 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value) {
     if (!device_ || !pfn_get_semaphore_counter_value_ ||
         timeline_semaphore == VK_NULL_HANDLE) {
+        fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] FAIL: device=%p fn=%p sem=%p\n",
+                (void*)device_, pfn_get_semaphore_counter_value_, (void*)timeline_semaphore);
+        fflush(stderr);
         return false;
     }
 
@@ -230,10 +233,25 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
         uint64_t current_value = 0;
         VkResult res = pfn_get_semaphore_counter_value_(device_, timeline_semaphore, &current_value);
         if (res != VK_SUCCESS) {
+            static int err_count = 0;
+            if (++err_count % 30 == 0) {
+                fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] vkGetSemaphoreCounterValueKHR error: %d (count=%d)\n",
+                        res, err_count);
+                fflush(stderr);
+            }
             return false;
         }
-        return current_value >= expected_value;
+        bool ready = current_value >= expected_value;
+        static int poll_count = 0;
+        if (++poll_count % 30 == 0) {
+            fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] current=%llu expected=%llu ready=%d\n",
+                    (unsigned long long)current_value, (unsigned long long)expected_value, ready);
+            fflush(stderr);
+        }
+        return ready;
     } __except (1) {
+        fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] SEH exception\n");
+        fflush(stderr);
         return false;
     }
 }
