@@ -54,6 +54,9 @@ private:
 
     VkSemaphore timeline_semaphore_ = VK_NULL_HANDLE;
     uint64_t timeline_counter_ = 0;
+    uint64_t signal_value_for_submit_ = 0;  // Must persist for async vkQueueSubmit (not stack-local)
+    VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info_ = {};  // Must persist (submit_info.pNext)
+    VkSubmitInfo submit_info_ = {};  // Must persist for reuse
     static constexpr uint64_t FRAME_INCREMENT = 1;
 
     // Extension function pointer (loaded once in init()).

@@ -181,33 +181,36 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         CHECK_VK(vkEndCommandBuffer(command_buffer_));
 
         // ========== SUBMIT WITH TIMELINE SIGNAL ==========
-        uint64_t signal_value = timeline_counter_;
+        // CRITICAL: All submit structs must be member variables, NOT local!
+        // vkQueueSubmit is async; GPU reads pointers in pNext chain during execute.
+        // Local stack variables become garbage → VK_ERROR_DEVICE_LOST
+        signal_value_for_submit_ = timeline_counter_;
 
-        VkTimelineSemaphoreSubmitInfo timeline_submit_info = {};
-        timeline_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-        timeline_submit_info.signalSemaphoreValueCount = 1;
-        timeline_submit_info.pSignalSemaphoreValues = &signal_value;
+        timeline_submit_info_ = {};
+        timeline_submit_info_.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+        timeline_submit_info_.signalSemaphoreValueCount = 1;
+        timeline_submit_info_.pSignalSemaphoreValues = &signal_value_for_submit_;
 
-        VkSubmitInfo submit_info = {};
-        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit_info.pNext = &timeline_submit_info;
-        submit_info.commandBufferCount = 1;
-        submit_info.pCommandBuffers = &command_buffer_;
-        submit_info.signalSemaphoreCount = 1;
-        submit_info.pSignalSemaphores = &timeline_semaphore_;
+        submit_info_ = {};
+        submit_info_.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info_.pNext = &timeline_submit_info_;
+        submit_info_.commandBufferCount = 1;
+        submit_info_.pCommandBuffers = &command_buffer_;
+        submit_info_.signalSemaphoreCount = 1;
+        submit_info_.pSignalSemaphores = &timeline_semaphore_;
 
-        CHECK_VK(vkQueueSubmit(queue_, 1, &submit_info, VK_NULL_HANDLE));
+        CHECK_VK(vkQueueSubmit(queue_, 1, &submit_info_, VK_NULL_HANDLE));
 
         // Return outputs
         *out_timeline_semaphore = timeline_semaphore_;
-        *out_timeline_value = signal_value;
+        *out_timeline_value = signal_value_for_submit_;
         *out_target_image = vulkan_target;
 
         // Increment for next frame
         timeline_counter_ += FRAME_INCREMENT;
 
         fprintf(stderr, "[GpuCopyOptimizer] execute_copy: blit submitted, timeline=%llu\n",
-                signal_value);
+                signal_value_for_submit_);
 
         return true;
     } catch (...) {
