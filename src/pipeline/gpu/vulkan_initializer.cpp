@@ -102,17 +102,12 @@ bool VulkanInitializer::create_instance() {
   app_info.engineVersion = VK_MAKE_VERSION(0, 5, 0);
   app_info.apiVersion = VK_API_VERSION_1_3;
 
-#ifdef _DEBUG
-  const char* layers[] = {"VK_LAYER_KHRONOS_validation"};
-  uint32_t layer_count = 1;
-  const char* extensions[] = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
-  uint32_t ext_count = 1;
-#else
-  uint32_t layer_count = 0;
-  const char** layers = nullptr;
-  uint32_t ext_count = 0;
-  const char** extensions = nullptr;
-#endif
+// v0.5.2: Enable validation layers for ALL builds (debug + release)
+// VK_ERROR_DEVICE_LOST requires validation layer diagnostics
+const char* layers[] = {"VK_LAYER_KHRONOS_validation"};
+uint32_t layer_count = 1;
+const char* extensions[] = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+uint32_t ext_count = 1;
 
   VkInstanceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -130,21 +125,26 @@ bool VulkanInitializer::create_instance() {
   }
 
 #ifndef REJI_VULKAN_MOCK
-#ifdef _DEBUG
+  // v0.5.2: Enable debug messenger for ALL builds
   auto create_debug_utils = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
       instance_, "vkCreateDebugUtilsMessengerEXT");
   if (create_debug_utils) {
     VkDebugUtilsMessengerCreateInfoEXT debug_info{};
     debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
     debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                              VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                              VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     debug_info.pfnUserCallback = debug_callback;
     create_debug_utils(instance_, &debug_info, nullptr, &debug_messenger_);
+    fprintf(stderr, "[Vulkan] Debug messenger created\n");
+    fflush(stderr);
+  } else {
+    fprintf(stderr, "[Vulkan] Warning: vkCreateDebugUtilsMessengerEXT not available\n");
+    fflush(stderr);
   }
-#endif
 #endif
 
   return true;

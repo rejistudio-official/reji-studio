@@ -111,7 +111,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         // Begin command buffer
         VkCommandBufferBeginInfo begin_info = {};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin_info.flags = 0;  // No ONE_TIME_SUBMIT_BIT — buffer is reused per frame
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;  // Buffer reused/pending
         CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
 
         // ========== LAYOUT TRANSITION 1: Staging GENERAL → TRANSFER_SRC (idempotent) ==========
@@ -181,9 +181,9 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         CHECK_VK(vkEndCommandBuffer(command_buffer_));
 
         // ========== SUBMIT WITH TIMELINE SIGNAL ==========
-        // CRITICAL: All submit structs must be member variables, NOT local!
-        // vkQueueSubmit is async; GPU reads pointers in pNext chain during execute.
-        // Local stack variables become garbage → VK_ERROR_DEVICE_LOST
+        // CRITICAL: Timeline semaphore signal value MUST be > current value!
+        // Increment BEFORE submit (not after failure), then use incremented value
+        timeline_counter_ += FRAME_INCREMENT;
         signal_value_for_submit_ = timeline_counter_;
 
         timeline_submit_info_ = {};
@@ -205,9 +205,6 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         *out_timeline_semaphore = timeline_semaphore_;
         *out_timeline_value = signal_value_for_submit_;
         *out_target_image = vulkan_target;
-
-        // Increment for next frame
-        timeline_counter_ += FRAME_INCREMENT;
 
         fprintf(stderr, "[GpuCopyOptimizer] execute_copy: blit submitted, timeline=%llu\n",
                 signal_value_for_submit_);
