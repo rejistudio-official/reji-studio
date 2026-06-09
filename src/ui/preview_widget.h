@@ -97,8 +97,11 @@ private:
     rj::FrameProfiler* profiler_ = nullptr;
     rj::Pipeline* pipeline_ = nullptr;            // borrowed, not owned
     VkImage gl_target_image_ = VK_NULL_HANDLE;    // Target image from execute_copy (GL interop)
-    GLuint gl_interop_texture_ = 0;               // GL texture from NT handle import
-    GLuint gl_memory_object_ = 0;                 // GL memory object from external memory
+    GLuint gl_interop_textures_[3] = {0, 0, 0};   // GL textures per pool slot (POOL_SIZE=3)
+    GLuint gl_memory_objects_[3] = {0, 0, 0};     // GL memory objects per pool slot (one per NT handle)
+    uint32_t gl_target_w_ = 0, gl_target_h_ = 0;  // Current GL interop texture dimensions
+    uint32_t current_pool_idx_ = 0;                // Current active pool index (for texture selection)
+    uint32_t frame_counter_ = 0;                   // Frame counter for round-robin pool cycling
 
     // GL_EXT_memory_object_win32 function pointers
     PFNGLCREATEMEMORYOBJECTSEXT     pfn_CreateMemoryObjects_     = nullptr;

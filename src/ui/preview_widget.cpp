@@ -87,6 +87,13 @@ PreviewWidget::PreviewWidget(QWidget* parent)
 PreviewWidget::~PreviewWidget() {
     makeCurrent();
     if (d_->tex_id) glDeleteTextures(1, &d_->tex_id);
+    // Clean up GL interop textures and memory objects (per-pool-slot)
+    for (int i = 0; i < 3; ++i) {
+        if (gl_interop_textures_[i]) glDeleteTextures(1, &gl_interop_textures_[i]);
+        if (gl_memory_objects_[i] && pfn_DeleteMemoryObjects_) {
+            pfn_DeleteMemoryObjects_(1, &gl_memory_objects_[i]);
+        }
+    }
     d_->vbo.destroy();
     d_->vao.destroy();
     doneCurrent();
@@ -283,30 +290,41 @@ void PreviewWidget::paintGL() {
         // Store result for GL interop (will be consumed in future GL interop setup)
         gl_target_image_ = result_target_image;
 
-        // v0.5.2: GL interop — import NT handle → GL texture
+        // v0.5.2: GL interop — import NT handle → GL texture (per-pool-slot)
         if (bridge_ && gl_target_image_ != VK_NULL_HANDLE && pfn_ImportMemoryWin32Handle_) {
-            HANDLE nt_handle = bridge_->get_gl_target_handle(static_cast<uint32_t>(w % 3)); // round-robin
+            uint32_t pool_idx = frame_counter_ % 3;  // round-robin: 0,1,2
+            current_pool_idx_ = pool_idx;
+            frame_counter_++;  // increment for next submit
+            HANDLE nt_handle = bridge_->get_gl_target_handle(pool_idx);
             if (nt_handle) {
-                // Create GL memory object from Win32 handle (GL_EXT_memory_object_win32)
-                if (!gl_memory_object_ && pfn_CreateMemoryObjects_) {
-                    pfn_CreateMemoryObjects_(1, &gl_memory_object_);
+                // Create GL memory object from Win32 handle if not yet created for this slot
+                if (!gl_memory_objects_[pool_idx] && pfn_CreateMemoryObjects_) {
+                    pfn_CreateMemoryObjects_(1, &gl_memory_objects_[pool_idx]);
                 }
-                if (gl_memory_object_) {
-                    pfn_ImportMemoryWin32Handle_(gl_memory_object_,
+                if (gl_memory_objects_[pool_idx]) {
+                    pfn_ImportMemoryWin32Handle_(gl_memory_objects_[pool_idx],
                                                  w * h * 4,  // approximate size (RGBA8)
                                                  GL_HANDLE_TYPE_OPAQUE_WIN32_EXT,
                                                  nt_handle);
 
-                    // Create GL texture from memory object
-                    if (!gl_interop_texture_) {
-                        glGenTextures(1, &gl_interop_texture_);
+                    // Delete old texture if size changed
+                    if ((w != gl_target_w_ || h != gl_target_h_) && gl_interop_textures_[pool_idx]) {
+                        glDeleteTextures(1, &gl_interop_textures_[pool_idx]);
+                        gl_interop_textures_[pool_idx] = 0;
                     }
-                    if (gl_interop_texture_ && pfn_TexStorageMem2D_) {
-                        glBindTexture(GL_TEXTURE_2D, gl_interop_texture_);
+
+                    // Create GL texture from memory object
+                    if (!gl_interop_textures_[pool_idx]) {
+                        glGenTextures(1, &gl_interop_textures_[pool_idx]);
+                    }
+                    if (gl_interop_textures_[pool_idx] && pfn_TexStorageMem2D_) {
+                        glBindTexture(GL_TEXTURE_2D, gl_interop_textures_[pool_idx]);
                         pfn_TexStorageMem2D_(GL_TEXTURE_2D, 1, GL_RGBA8,
-                                            w, h, gl_memory_object_, 0);
+                                            w, h, gl_memory_objects_[pool_idx], 0);
                         glBindTexture(GL_TEXTURE_2D, 0);
-                        fprintf(stderr, "[PreviewWidget] GL interop texture created: %ux%u\n", w, h);
+                        gl_target_w_ = w;
+                        gl_target_h_ = h;
+                        fprintf(stderr, "[PreviewWidget] GL interop texture [%u] created: %ux%u\n", pool_idx, w, h);
                         fflush(stderr);
                     }
                 }
@@ -327,8 +345,8 @@ void PreviewWidget::paintGL() {
     // ---- Render path (previous frame's GPU copy completed) ----
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Use GL interop texture if available, otherwise CPU upload texture
-    GLuint tex_to_use = gl_interop_texture_ ? gl_interop_texture_ : d_->tex_id;
+    // Use GL interop texture if available (from current pool slot), otherwise CPU fallback
+    GLuint tex_to_use = gl_interop_textures_[current_pool_idx_] ? gl_interop_textures_[current_pool_idx_] : d_->tex_id;
     if (!tex_to_use) {
         if (profiler_) profiler_->markPaintGLEnd();
         return;
