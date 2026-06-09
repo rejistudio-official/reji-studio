@@ -85,29 +85,124 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      uint32_t width,
                                      uint32_t height,
                                      VkSemaphore* out_timeline_semaphore,
-                                     uint64_t* out_timeline_value) {
+                                     uint64_t* out_timeline_value,
+                                     VkImage* out_target_image) {
     if (!device_ || !command_buffer_) {
         return false;
     }
 
     try {
-        if (!out_timeline_semaphore || !out_timeline_value) {
+        // Input validation
+        if (!d3d11_staging_vk || !vulkan_target) {
+            fprintf(stderr, "[GpuCopyOptimizer] Invalid images (staging or target null)\n");
+            return false;
+        }
+        if (width == 0 || height == 0) {
+            fprintf(stderr, "[GpuCopyOptimizer] Invalid dimensions (%u x %u)\n", width, height);
+            return false;
+        }
+        if (!out_timeline_semaphore || !out_timeline_value || !out_target_image) {
+            fprintf(stderr, "[GpuCopyOptimizer] Invalid output ptrs\n");
             return false;
         }
 
-        // For now, stub: just return semaphore values
-        // Compute shader dispatch will be added after shader compilation (Task 1.5)
+        // Begin command buffer
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
+
+        // ========== LAYOUT TRANSITION 1: Staging GENERAL → TRANSFER_SRC ==========
+        VkImageMemoryBarrier barrier_staging = {};
+        barrier_staging.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier_staging.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier_staging.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier_staging.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier_staging.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier_staging.image = d3d11_staging_vk;
+        barrier_staging.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        vkCmdPipelineBarrier(command_buffer_,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
+
+        // ========== LAYOUT TRANSITION 2: Target UNDEFINED → TRANSFER_DST ==========
+        VkImageMemoryBarrier barrier_target = {};
+        barrier_target.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier_target.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier_target.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier_target.srcAccessMask = 0;
+        barrier_target.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier_target.image = vulkan_target;
+        barrier_target.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        vkCmdPipelineBarrier(command_buffer_,
+                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              0, 0, nullptr, 0, nullptr, 1, &barrier_target);
+
+        // ========== BLIT IMAGE ==========
+        VkImageBlit blit_region = {};
+        blit_region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit_region.srcOffsets[0] = {0, 0, 0};
+        blit_region.srcOffsets[1] = {(int32_t)width, (int32_t)height, 1};
+        blit_region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit_region.dstOffsets[0] = {0, 0, 0};
+        blit_region.dstOffsets[1] = {(int32_t)width, (int32_t)height, 1};
+
+        vkCmdBlitImage(command_buffer_,
+                       d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       vulkan_target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &blit_region,
+                       VK_FILTER_LINEAR);
+
+        // ========== LAYOUT TRANSITION 3: Target TRANSFER_DST → SHADER_READ_ONLY ==========
+        VkImageMemoryBarrier barrier_final = {};
+        barrier_final.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier_final.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier_final.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier_final.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier_final.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier_final.image = vulkan_target;
+        barrier_final.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        vkCmdPipelineBarrier(command_buffer_,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                              0, 0, nullptr, 0, nullptr, 1, &barrier_final);
+
+        // End command buffer
+        CHECK_VK(vkEndCommandBuffer(command_buffer_));
+
+        // ========== SUBMIT WITH TIMELINE SIGNAL ==========
+        uint64_t signal_value = timeline_counter_;
+
+        VkTimelineSemaphoreSubmitInfo timeline_submit_info = {};
+        timeline_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+        timeline_submit_info.signalSemaphoreValueCount = 1;
+        timeline_submit_info.pSignalSemaphoreValues = &signal_value;
+
+        VkSubmitInfo submit_info = {};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.pNext = &timeline_submit_info;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &command_buffer_;
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &timeline_semaphore_;
+
+        CHECK_VK(vkQueueSubmit(queue_, 1, &submit_info, VK_NULL_HANDLE));
+
+        // Return outputs
         *out_timeline_semaphore = timeline_semaphore_;
-        *out_timeline_value = timeline_counter_;
+        *out_timeline_value = signal_value;
+        *out_target_image = vulkan_target;
 
-        // TODO: Record compute dispatch in command_buffer_
-        // TODO: Submit with timeline semaphore signal
-
-        fprintf(stderr, "[GpuCopyOptimizer] execute_copy stub (values: sem=%p, counter=%llu)\n",
-                (void*)timeline_semaphore_, timeline_counter_);
-
-        // Increment timeline counter for next frame
+        // Increment for next frame
         timeline_counter_ += FRAME_INCREMENT;
+
+        fprintf(stderr, "[GpuCopyOptimizer] execute_copy: blit submitted, timeline=%llu\n",
+                signal_value);
 
         return true;
     } catch (...) {
