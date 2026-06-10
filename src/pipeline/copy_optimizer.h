@@ -31,7 +31,8 @@ public:
                       VkSemaphore* out_timeline_semaphore,  // Caller polls this
                       uint64_t* out_timeline_value,         // Value to check
                       VkImage* out_target_image,            // Target image output
-                      VkSemaphore gl_sync_sem = VK_NULL_HANDLE); // B5: optional GL sync signal
+                      VkSemaphore gl_sync_sem = VK_NULL_HANDLE,         // B5: optional GL sync
+                      VkDeviceMemory d3d11_staging_memory = VK_NULL_HANDLE); // B6: keyed mutex mem
 
     // Check if copy is ready (non-blocking poll)
     bool is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value);

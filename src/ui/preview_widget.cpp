@@ -352,8 +352,13 @@ void PreviewWidget::paintGL() {
         VkSemaphore gl_sync_sem = (bridge_ && bridge_->get_gl_sync_semaphore() != VK_NULL_HANDLE)
                                   ? bridge_->get_gl_sync_semaphore()
                                   : VK_NULL_HANDLE;
+        // B6: keyed mutex memory for D3D11↔Vulkan sync
+        VkDeviceMemory staging_mem = bridge_
+            ? bridge_->get_staging_memory_for_image(staging_vk)
+            : VK_NULL_HANDLE;
         if (!copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
-                                           &sem, &value, &result_target_image, gl_sync_sem)) {
+                                           &sem, &value, &result_target_image,
+                                           gl_sync_sem, staging_mem)) {
             fprintf(stderr, "[PreviewWidget] execute_copy failed, skipping frame\n");
             if (profiler_) profiler_->markPaintGLEnd();
             return;

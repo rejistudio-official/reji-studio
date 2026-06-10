@@ -1,3 +1,12 @@
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#ifndef VK_USE_PLATFORM_WIN32_KHR
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_win32.h>
 #include "copy_optimizer.h"
 #include <cstring>
 #include <cstdio>
@@ -89,7 +98,8 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      VkSemaphore* out_timeline_semaphore,
                                      uint64_t* out_timeline_value,
                                      VkImage* out_target_image,
-                                     VkSemaphore gl_sync_sem) {
+                                     VkSemaphore gl_sync_sem,
+                                     VkDeviceMemory d3d11_staging_memory) {
     fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu\n",
             (void*)device_, (void*)command_buffer_, (void*)queue_,
             (void*)timeline_semaphore_, (unsigned long long)timeline_counter_);
@@ -226,6 +236,28 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         timeline_submit_info_.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
         timeline_submit_info_.signalSemaphoreValueCount = sem_count;
         timeline_submit_info_.pSignalSemaphoreValues    = signal_values_;
+
+        // B6: Chain keyed mutex acquire/release when D3D11 memory is provided.
+        // Acquire key=1 (D3D11 released with ReleaseSync(1)), release key=0 (D3D11 can re-acquire).
+        VkWin32KeyedMutexAcquireReleaseInfoKHR keyed_mutex_info{};
+        uint64_t km_acquire_key  = 1;
+        uint64_t km_release_key  = 0;
+        uint32_t km_timeout      = UINT32_MAX;
+        bool     has_keyed_mutex = (d3d11_staging_memory != VK_NULL_HANDLE);
+        if (has_keyed_mutex) {
+            keyed_mutex_info.sType            = VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR;
+            keyed_mutex_info.pNext            = nullptr;
+            keyed_mutex_info.acquireCount     = 1;
+            keyed_mutex_info.pAcquireSyncs    = &d3d11_staging_memory;
+            keyed_mutex_info.pAcquireKeys     = &km_acquire_key;
+            keyed_mutex_info.pAcquireTimeouts = &km_timeout;
+            keyed_mutex_info.releaseCount     = 1;
+            keyed_mutex_info.pReleaseSyncs    = &d3d11_staging_memory;
+            keyed_mutex_info.pReleaseKeys     = &km_release_key;
+            timeline_submit_info_.pNext       = &keyed_mutex_info;
+        } else {
+            timeline_submit_info_.pNext = nullptr;
+        }
 
         submit_info_ = {};
         submit_info_.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

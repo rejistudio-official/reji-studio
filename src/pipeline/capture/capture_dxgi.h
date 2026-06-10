@@ -192,6 +192,7 @@ private:
 
     // v0.5.1: Dual-texture approach for GPU/CPU paths
     Microsoft::WRL::ComPtr<ID3D11Texture2D> shared_texture_;   ///< GPU-side (DEFAULT + SHARED flags)
+    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> keyed_mutex_shared_; ///< B6: sync D3D11 write ↔ Vulkan read
     Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_texture_;  ///< CPU-side (STAGING + CPU_ACCESS_READ)
     Microsoft::WRL::ComPtr<ID3D11Texture2D> preview_staging_;  ///< Legacy preview (deprecated in v0.5.1)
     bool preview_staging_dirty_ = false;

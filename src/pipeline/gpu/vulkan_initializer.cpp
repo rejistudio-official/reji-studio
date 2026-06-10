@@ -9,6 +9,7 @@
 #define VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME        "VK_KHR_external_memory_win32"
 #define VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME           "VK_KHR_external_semaphore"
 #define VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME     "VK_KHR_external_semaphore_win32"
+#define VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME            "VK_KHR_win32_keyed_mutex"
 #define VK_EXT_DEBUG_UTILS_EXTENSION_NAME                  "VK_EXT_debug_utils"
 #endif
 
@@ -203,6 +204,7 @@ bool VulkanInitializer::create_device() {
     VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+    VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
   };
 
   VkPhysicalDeviceTimelineSemaphoreFeatures timeline_sem_features{};
@@ -217,7 +219,7 @@ bool VulkanInitializer::create_device() {
   create_info.queueCreateInfoCount = 1;
   create_info.pQueueCreateInfos = &queue_create_info;
   create_info.pEnabledFeatures = &device_features;
-  create_info.enabledExtensionCount = 4;
+  create_info.enabledExtensionCount = 5;
   create_info.ppEnabledExtensionNames = device_extensions;
 
   VkResult result = vkCreateDevice(physical_device_, &create_info, nullptr, &device_);
@@ -266,6 +268,7 @@ bool VulkanInitializer::check_required_extensions() {
     VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+    VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
   };
   int found_count = 0;
 
@@ -278,7 +281,7 @@ bool VulkanInitializer::check_required_extensions() {
     }
   }
 
-  return found_count == 4;  // All required extensions found
+  return found_count == 5;  // All required extensions found
 }
 
 bool VulkanInitializer::has_extension(const std::string& ext_name) const {

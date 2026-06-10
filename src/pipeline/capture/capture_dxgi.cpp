@@ -356,8 +356,21 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
     ID3D11Texture2D* encode_tex = resource_mgr_->transfer(frame.texture);
 
     // v0.5.1: Copy to dual textures (GPU-side shared + CPU-side staging)
+    // B6: Keyed mutex guarantees D3D11 write completes before Vulkan reads (key=0→write→key=1)
     if (shared_texture_) {
+        if (keyed_mutex_shared_) {
+            HRESULT hr = keyed_mutex_shared_->AcquireSync(0, 16);  // 16ms timeout
+            if (FAILED(hr)) {
+                fprintf(stderr, "[DxgiCapture] KeyedMutex AcquireSync failed: 0x%08lX\n", hr);
+                fflush(stderr);
+                capture_->release_frame();
+                return nullptr;
+            }
+        }
         display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
+        if (keyed_mutex_shared_) {
+            keyed_mutex_shared_->ReleaseSync(1);  // hand off to Vulkan (key=1)
+        }
     }
     if (staging_texture_) {
         display_ctx_->d3d_context()->CopyResource(staging_texture_.Get(), frame.texture);
@@ -404,6 +417,18 @@ bool DxgiCapturePipeline::init_preview_staging() {
     if (FAILED(hr)) {
         printf("[DxgiCapture] shared_texture_ creation failed: 0x%08lX\n", hr);
         return false;
+    }
+
+    // B6: Obtain keyed mutex interface for D3D11↔Vulkan sync
+    hr = shared_texture_->QueryInterface(__uuidof(IDXGIKeyedMutex),
+        reinterpret_cast<void**>(keyed_mutex_shared_.GetAddressOf()));
+    if (FAILED(hr)) {
+        fprintf(stderr, "[DxgiCapture] KeyedMutex QueryInterface failed: 0x%08lX\n", hr);
+        fflush(stderr);
+        // Non-fatal: proceed without keyed mutex sync
+    } else {
+        fprintf(stderr, "[DxgiCapture] KeyedMutex acquired OK\n");
+        fflush(stderr);
     }
 
     // 2. CPU-side staging texture (for Map/Unmap preview)

@@ -452,6 +452,15 @@ bool ExternalMemoryBridge::get_frame_images(
   return true;
 }
 
+VkDeviceMemory ExternalMemoryBridge::get_staging_memory_for_image(VkImage img) const {
+  for (int i = 0; i < static_cast<int>(image_pool_.size()); ++i) {
+    if (image_pool_[i] == img && i < static_cast<int>(pool_memory_.size())) {
+      return pool_memory_[i];
+    }
+  }
+  return VK_NULL_HANDLE;
+}
+
 void ExternalMemoryBridge::shutdown() {
   if (!device_) return;  // B10: guard against double-shutdown or null device
 

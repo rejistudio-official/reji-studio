@@ -71,6 +71,10 @@ class ExternalMemoryBridge {
   HANDLE  get_gl_sync_semaphore_handle() const;
   VkSemaphore get_gl_sync_semaphore() const;
 
+  // B6: Return the VkDeviceMemory imported from D3D11 for the given VkImage.
+  // Used to build VkWin32KeyedMutexAcquireReleaseInfoKHR in execute_copy().
+  VkDeviceMemory get_staging_memory_for_image(VkImage img) const;
+
   void shutdown();
 
  private:
