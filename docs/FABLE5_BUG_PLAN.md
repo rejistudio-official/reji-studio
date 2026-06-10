@@ -1156,7 +1156,19 @@ Sonuç boş olmalı.
 
 \- \[x] Sprint 2 tamamlandı  
 
-\- \[ ] Sprint 3 tamamlandı
+\- \[x] B11 tamamlandı (copy\_fence\_ null guard — same-adapter path)
+
+\- \[x] B12 tamamlandı (ProgramWidget tex swap race — atomic transition\_requested\_)
+
+\- \[x] B13 tamamlandı (initialize\_gl\_target\_pool rollback — kısmi başarısızlıkta sızıntı yok)
+
+\- \[x] B14 tamamlandı (FrameProfiler ring buffer — push\_back yerine sabit array)
+
+\- \[x] B15 tamamlandı (SEH içinde fprintf — SehFilter ile dışarı taşındı)
+
+\- \[x] B16 tamamlandı (NT handle sırası — GL memory object silme önce, handle kapatma sonra)
+
+\- \[x] Sprint 3 tamamlandı
 
 \- \[ ] Sprint 4 tamamlandı
 
