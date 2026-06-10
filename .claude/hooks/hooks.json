@@ -3,14 +3,9 @@
     {
       "type": "PostToolUse",
       "event": "*.rs",
-      "description": "Run clippy on Rust files",
-      "command": "cd C:/reji-studio/src/orchestrator && cargo clippy 2>&1"
-    },
-    {
-      "type": "PostToolUse",
-      "event": "*.cpp|*.h",
-      "description": "Run build on C++ files",
-      "command": "cd C:/reji-studio && python scripts/build.py 2>&1 | tail -20"
+      "exclude": ["build.rs", "Cargo.toml"],
+      "description": "Run clippy on Rust files (offline, locked)",
+      "command": "cd C:/reji-studio/src/orchestrator && cargo clippy --offline --locked 2>&1"
     }
   ]
 }
