@@ -1144,6 +1144,8 @@ Sonuç boş olmalı.
 
 \- \[x] Sprint 1 tamamlandı (B1, B2, B3, B4, B7)
 
+\- \[x] B5 tamamlandı (Vulkan/GL semaphore sync — glWaitSemaphoreEXT + command buffer reuse sync)
+
 \- \[ ] Sprint 2 tamamlandı  
 
 \- \[ ] Sprint 3 tamamlandı
