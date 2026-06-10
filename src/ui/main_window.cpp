@@ -113,7 +113,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             pipeline_.run_frame();
             QThread::msleep(16);
         }
-        worker->deleteLater();
+        delete worker;
     });
     frame_thread_->start();
 }
@@ -487,9 +487,12 @@ void MainWindow::onHealingNotification(const QString& message) {
 // ---------------------------------------------------------------------------
 void MainWindow::closeEvent(QCloseEvent* ev) {
     saveWindowState();
-    if (frame_thread_) {
+    if (frame_thread_ && frame_thread_->isRunning()) {
         frame_thread_->requestInterruption();
-        frame_thread_->wait(1000);
+        if (!frame_thread_->wait(5000)) {
+            frame_thread_->terminate();
+            frame_thread_->wait(1000);
+        }
     }
     ev->accept();
 }

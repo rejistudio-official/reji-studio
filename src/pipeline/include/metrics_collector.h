@@ -72,6 +72,7 @@ private:
   std::deque<uint32_t> frame_drop_window_;  // 30s worth of drops
   uint32_t total_frames_ = 0;
   uint32_t total_drops_ = 0;
+  uint32_t prev_total_drops_ = 0;
 
   // Polling throttle
   std::chrono::steady_clock::time_point last_poll_time_;

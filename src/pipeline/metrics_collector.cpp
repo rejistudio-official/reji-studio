@@ -120,8 +120,12 @@ void MetricsCollector::calculate_frame_drop_pct() {
   // Maintain 30s rolling window @ 60fps = 1800 frames
   static const size_t MAX_WINDOW_FRAMES = 1800;
 
-  // Add current drop count to window
-  frame_drop_window_.push_back(total_drops_);
+  // Calculate delta drops since last measurement
+  uint32_t delta = total_drops_ - prev_total_drops_;
+  prev_total_drops_ = total_drops_;
+
+  // Add delta to window
+  frame_drop_window_.push_back(delta);
 
   // Keep window size bounded
   while (frame_drop_window_.size() > MAX_WINDOW_FRAMES) {
