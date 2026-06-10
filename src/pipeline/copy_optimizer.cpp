@@ -66,6 +66,14 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
             return false;
         }
 
+        pfn_wait_semaphores_ =
+            reinterpret_cast<PFN_vkWaitSemaphores>(
+                vkGetDeviceProcAddr(device_, "vkWaitSemaphores"));
+        if (!pfn_wait_semaphores_) {
+            fprintf(stderr, "[GpuCopyOptimizer] vkGetDeviceProcAddr failed for vkWaitSemaphores\n");
+            return false;
+        }
+
         fprintf(stderr, "[GpuCopyOptimizer] Initialized (command pool, buffer, timeline semaphore)\n");
         return true;
     } catch (...) {
@@ -104,6 +112,22 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         if (!out_timeline_semaphore || !out_timeline_value || !out_target_image) {
             fprintf(stderr, "[GpuCopyOptimizer] Invalid output ptrs\n");
             return false;
+        }
+
+        // Wait for previous submit to complete before reusing the command buffer.
+        // signal_value_for_submit_ holds the timeline value from the last submit.
+        // Typically a no-op (GPU finishes well within the frame interval).
+        if (signal_value_for_submit_ > 0 && pfn_get_semaphore_counter_value_ && pfn_wait_semaphores_) {
+            uint64_t current_value = 0;
+            pfn_get_semaphore_counter_value_(device_, timeline_semaphore_, &current_value);
+            if (current_value < signal_value_for_submit_) {
+                VkSemaphoreWaitInfo wait_info{};
+                wait_info.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+                wait_info.semaphoreCount = 1;
+                wait_info.pSemaphores    = &timeline_semaphore_;
+                wait_info.pValues        = &signal_value_for_submit_;
+                pfn_wait_semaphores_(device_, &wait_info, UINT64_MAX);
+            }
         }
 
         // Reset command buffer for reuse (safe explicit reset)
@@ -229,34 +253,17 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 }
 
 bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value) {
-    if (!device_ || !pfn_get_semaphore_counter_value_ ||
-        timeline_semaphore == VK_NULL_HANDLE) {
-        fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] FAIL: device=%p fn=%p sem=%p\n",
-                (void*)device_, pfn_get_semaphore_counter_value_, (void*)timeline_semaphore);
-        fflush(stderr);
+    if (!device_ || !pfn_wait_semaphores_ || timeline_semaphore == VK_NULL_HANDLE) {
         return false;
     }
 
     __try {
-        uint64_t current_value = 0;
-        VkResult res = pfn_get_semaphore_counter_value_(device_, timeline_semaphore, &current_value);
-        if (res != VK_SUCCESS) {
-            static int err_count = 0;
-            if (++err_count % 30 == 0) {
-                fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] vkGetSemaphoreCounterValueKHR error: %d (count=%d)\n",
-                        res, err_count);
-                fflush(stderr);
-            }
-            return false;
-        }
-        bool ready = current_value >= expected_value;
-        static int poll_count = 0;
-        if (++poll_count % 30 == 0) {
-            fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] current=%llu expected=%llu ready=%d\n",
-                    (unsigned long long)current_value, (unsigned long long)expected_value, ready);
-            fflush(stderr);
-        }
-        return ready;
+        VkSemaphoreWaitInfo wait_info{};
+        wait_info.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores    = &timeline_semaphore;
+        wait_info.pValues        = &expected_value;
+        return pfn_wait_semaphores_(device_, &wait_info, 0) == VK_SUCCESS;
     } __except (1) {
         fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] SEH exception\n");
         fflush(stderr);

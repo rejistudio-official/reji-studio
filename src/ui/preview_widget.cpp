@@ -267,17 +267,6 @@ void PreviewWidget::paintGL() {
                 paint_count, has_pending, frame_dirty, copy_optimizer_);
         fflush(stderr);
     }
-    // Force-clear pending GPU copy every 60 frames (~1 second at 60fps)
-    // Timeline semaphore polling can be delayed; don't block indefinitely
-    if (paint_count % 60 == 0 && paint_count > 10) {
-        QMutexLocker lock(&d_->frame_mutex);
-        if (d_->has_pending_copy) {
-            fprintf(stderr, "[PreviewWidget] Force-clearing pending GPU copy (frame #%d)\n", paint_count);
-            d_->has_pending_copy = false;
-            fflush(stderr);
-        }
-    }
-
     // ---- Snapshot state under lock (no heap, no blocking) ----
     bool     was_pending    = false;
     bool     is_ready       = false;

@@ -63,10 +63,10 @@ private:
     uint64_t    signal_values_[2]     = {};
     static constexpr uint64_t FRAME_INCREMENT = 1;
 
-    // Extension function pointer (loaded once in init()).
-    // vkGetSemaphoreCounterValueKHR is an extension function; must be resolved
-    // via vkGetDeviceProcAddr rather than called directly.
+    // Extension function pointers (loaded once in init()).
+    // Both resolved via vkGetDeviceProcAddr rather than called directly.
     PFN_vkGetSemaphoreCounterValueKHR pfn_get_semaphore_counter_value_ = nullptr;
+    PFN_vkWaitSemaphores              pfn_wait_semaphores_             = nullptr;
 
     uint32_t dispatch_x_ = 1;
     uint32_t dispatch_y_ = 1;
