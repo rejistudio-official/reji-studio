@@ -75,6 +75,16 @@ class ExternalMemoryBridge {
   // Used to build VkWin32KeyedMutexAcquireReleaseInfoKHR in execute_copy().
   VkDeviceMemory get_staging_memory_for_image(VkImage img) const;
 
+  // B16: Register GL-side memory object cleanup hook.
+  // Must be called from the GL thread before shutdown() to delete imported GL memory
+  // objects before their NT handles are closed.
+  using PFN_glDeleteMemoryObjects = void(*)(int, const unsigned int*);
+  void set_gl_memory_objects(PFN_glDeleteMemoryObjects pfn,
+                             std::vector<unsigned int> objs) {
+    pfn_delete_memory_objects_ = pfn;
+    gl_memory_objects_         = std::move(objs);
+  }
+
   void shutdown();
 
  private:
@@ -92,6 +102,10 @@ class ExternalMemoryBridge {
   // B5: GL/Vulkan semaphore sync
   VkSemaphore gl_sync_semaphore_        = VK_NULL_HANDLE;
   HANDLE      gl_sync_semaphore_handle_ = nullptr;
+
+  // B16: GL-side memory object cleanup (call before NT handle close)
+  PFN_glDeleteMemoryObjects pfn_delete_memory_objects_ = nullptr;
+  std::vector<unsigned int> gl_memory_objects_;
 
   VkFormat format_;
   uint32_t width_;

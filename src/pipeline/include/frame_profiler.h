@@ -1,8 +1,8 @@
 #ifndef REJI_PIPELINE_FRAME_PROFILER_H
 #define REJI_PIPELINE_FRAME_PROFILER_H
 
+#include <array>
 #include <cstdint>
-#include <vector>
 #include <mutex>
 
 namespace rj {
@@ -43,11 +43,13 @@ private:
     uint64_t paintgl_end_us = 0;
   };
 
-  std::vector<FrameTiming> samples_;
+  static constexpr size_t MAX_SAMPLES = 3600;  // 1 minute @ 60 fps
+  std::array<FrameTiming, MAX_SAMPLES> samples_;
+  size_t head_  = 0;
+  size_t count_ = 0;
   Sample current_sample_;
   mutable std::mutex mutex_;
   bool finalized_ = false;
-  size_t frame_count_ = 0;
 };
 
 } // namespace rj

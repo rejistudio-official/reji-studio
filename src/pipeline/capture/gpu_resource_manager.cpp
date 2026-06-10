@@ -117,6 +117,7 @@ bool GpuResourceManager::create_cross_adapter_shared(uint32_t w, uint32_t h,
 }
 
 void GpuResourceManager::wait_display_gpu_idle() {
+    if (!copy_fence_) return;  // B11: cross-adapter path only; same-adapter has no fence
     auto* ctx = display_gpu_->d3d_context();
     ctx->End(copy_fence_.Get());
     BOOL done = FALSE;

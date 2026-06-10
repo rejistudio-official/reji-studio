@@ -3,6 +3,7 @@
 
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
+#include <atomic>
 #include <memory>
 
 namespace reji {
@@ -44,6 +45,7 @@ private slots:
 private:
     class Impl;
     std::unique_ptr<Impl> d_;
+    std::atomic<bool> transition_requested_{false};  // B12: deferred swap — set by beginTransition, consumed by paintGL
 };
 
 } // namespace reji

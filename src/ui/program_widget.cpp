@@ -113,13 +113,13 @@ void ProgramWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
 void ProgramWidget::beginTransition(Transition type, int duration_ms) {
     d_->active_transition = type;
     if (type == Transition::Cut) {
-        // Instant swap — next paintGL draws from tex_a (now the incoming content).
-        std::swap(d_->tex_a, d_->tex_b);
+        // B12: defer swap to paintGL — avoids race with concurrent uploadFrame on tex_a
+        transition_requested_.store(true);
         d_->fade_alpha = 1.f;
         update();
     } else {
-        // Snapshot current tex_a as outgoing (tex_b); fade toward the next uploadFrame.
-        std::swap(d_->tex_a, d_->tex_b);   // tex_b = outgoing snapshot
+        // B12: defer swap to paintGL — tex_b gets the outgoing snapshot at paint time
+        transition_requested_.store(true);
         d_->fade_alpha = 0.f;
         d_->fade_step  = (duration_ms > 0)
             ? (16.f / static_cast<float>(duration_ms))
@@ -171,6 +171,11 @@ void ProgramWidget::resizeGL(int w, int h) {
 void ProgramWidget::paintGL() {
     // --- HOT-PATH: no heap allocation after the first frame ---
     glClear(GL_COLOR_BUFFER_BIT);
+
+    // B12: consume deferred swap atomically before upload so uploadFrame writes the correct tex_a
+    if (transition_requested_.exchange(false)) {
+        std::swap(d_->tex_a, d_->tex_b);
+    }
 
     // Upload any pending frame into tex_a (the "current/incoming" texture).
     {

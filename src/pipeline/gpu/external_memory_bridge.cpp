@@ -190,6 +190,24 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
   gl_target_pool_.resize(POOL_SIZE);
   gl_target_memory_.resize(POOL_SIZE);
 
+  // B13: rollback helper — frees already-created slots [0, count) on partial failure
+  auto rollback = [&](uint32_t count) {
+    for (uint32_t j = 0; j < count; ++j) {
+      if (gl_target_pool_[j]) {
+        vkDestroyImage(device_, gl_target_pool_[j], nullptr);
+        gl_target_pool_[j] = nullptr;
+      }
+      if (gl_target_memory_[j]) {
+        vkFreeMemory(device_, gl_target_memory_[j], nullptr);
+        gl_target_memory_[j] = nullptr;
+      }
+      if (gl_target_handles_[j]) {
+        CloseHandle(gl_target_handles_[j]);
+        gl_target_handles_[j] = nullptr;
+      }
+    }
+  };
+
   for (uint32_t i = 0; i < POOL_SIZE; ++i) {
     VkExternalMemoryImageCreateInfo ext_img_info{};
     ext_img_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -215,6 +233,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
       fprintf(stderr, "[ExternalMemoryBridge] vkCreateImage (GL target) failed: %d (slot %u)\n",
               result, i);
       fflush(stderr);
+      rollback(i);
       return false;
     }
 
@@ -253,6 +272,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
       fprintf(stderr, "[ExternalMemoryBridge] No suitable memory type (GL target, slot %u)\n", i);
       fflush(stderr);
       vkDestroyImage(device_, vk_img, nullptr);
+      rollback(i);
       return false;
     }
 
@@ -265,6 +285,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
               result, i);
       fflush(stderr);
       vkDestroyImage(device_, vk_img, nullptr);
+      rollback(i);
       return false;
     }
 
@@ -277,6 +298,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
       fflush(stderr);
       vkFreeMemory(device_, vk_mem, nullptr);
       vkDestroyImage(device_, vk_img, nullptr);
+      rollback(i);
       return false;
     }
 
@@ -293,6 +315,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
       fflush(stderr);
       vkFreeMemory(device_, vk_mem, nullptr);
       vkDestroyImage(device_, vk_img, nullptr);
+      rollback(i);
       return false;
     }
     result = pfn_vkGetMemoryWin32HandleKHR(device_, &handle_info, &gl_target_handles_[i]);
@@ -302,6 +325,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
       fflush(stderr);
       vkFreeMemory(device_, vk_mem, nullptr);
       vkDestroyImage(device_, vk_img, nullptr);
+      rollback(i);
       return false;
     }
 
@@ -480,24 +504,25 @@ void ExternalMemoryBridge::shutdown() {
 
   // GL target pool memory
   for (auto mem : gl_target_memory_) {
-    if (mem) {
-      vkFreeMemory(device_, mem, nullptr);
-    }
+    if (mem) vkFreeMemory(device_, mem, nullptr);
   }
 
   // GL target pool images
   for (auto img : gl_target_pool_) {
-    if (img) {
-      vkDestroyImage(device_, img, nullptr);
-    }
+    if (img) vkDestroyImage(device_, img, nullptr);
   }
 
-  // GL target handles
-  for (int i = 0; i < POOL_SIZE; ++i) {
-    if (gl_target_handles_[i]) {
-      CloseHandle(gl_target_handles_[i]);
-      gl_target_handles_[i] = nullptr;
-    }
+  // B16: Delete GL memory objects BEFORE closing NT handles —
+  // GL side may still hold a reference via glImportMemoryWin32HandleEXT
+  if (pfn_delete_memory_objects_ && !gl_memory_objects_.empty()) {
+    pfn_delete_memory_objects_(static_cast<int>(gl_memory_objects_.size()),
+                               gl_memory_objects_.data());
+    gl_memory_objects_.clear();
+  }
+
+  // GL target handles (closed AFTER GL memory object deletion)
+  for (auto& h : gl_target_handles_) {
+    if (h) { CloseHandle(h); h = nullptr; }
   }
 
   image_pool_.clear();

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 namespace rj {
 
@@ -72,21 +73,23 @@ void FrameProfiler::markPaintGLEnd() {
         current_sample_.acquire_end_us - current_sample_.acquire_start_us,
         current_sample_.copy_end_us - current_sample_.copy_start_us,
         current_sample_.paintgl_end_us - current_sample_.paintgl_start_us};
-    samples_.push_back(timing);
+    samples_[head_ % MAX_SAMPLES] = timing;
+    ++head_;
+    count_ = std::min(count_ + 1, MAX_SAMPLES);
     current_sample_ = Sample();  // Reset
   }
 }
 
 size_t FrameProfiler::sampleCount() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return samples_.size();
+  return count_;
 }
 
 void FrameProfiler::finalize() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (finalized_) return;  // Idempotent
 
-  if (samples_.empty()) {
+  if (count_ == 0) {
     fprintf(stderr, "[FrameProfiler] No samples collected\n");
     finalized_ = true;
     return;
@@ -94,10 +97,10 @@ void FrameProfiler::finalize() {
 
   // Sort each phase independently for percentile calculation
   std::vector<uint64_t> acquire_times, copy_times, paintgl_times;
-  for (const auto& timing : samples_) {
-    acquire_times.push_back(timing.acquire_us);
-    copy_times.push_back(timing.copy_us);
-    paintgl_times.push_back(timing.paintgl_us);
+  for (size_t k = 0; k < count_; ++k) {
+    acquire_times.push_back(samples_[k].acquire_us);
+    copy_times.push_back(samples_[k].copy_us);
+    paintgl_times.push_back(samples_[k].paintgl_us);
   }
 
   std::sort(acquire_times.begin(), acquire_times.end());
@@ -119,7 +122,7 @@ void FrameProfiler::finalize() {
 
   // Log results
   fprintf(stderr, "\n[FrameProfiler] ========== RESULTS ==========\n");
-  fprintf(stderr, "[FrameProfiler] %zu frames collected\n", samples_.size());
+  fprintf(stderr, "[FrameProfiler] %zu frames collected\n", count_);
   fprintf(stderr, "[FrameProfiler] acquire   | p50=%6llu µs | p95=%6llu µs | max=%6llu µs\n",
           acq_p50, acq_p95, acq_max);
   fprintf(stderr, "[FrameProfiler] copy      | p50=%6llu µs | p95=%6llu µs | max=%6llu µs\n",

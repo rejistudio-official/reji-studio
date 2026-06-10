@@ -11,6 +11,12 @@
 #include <cstring>
 #include <cstdio>
 
+// B15: SEH filter — captures exception code, always executes handler
+static DWORD SehFilter(DWORD code, DWORD* out_code) {
+    *out_code = code;
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 #define CHECK_VK(expr) \
     do { \
         VkResult res = (expr); \
@@ -289,59 +295,66 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
         return false;
     }
 
+    bool result    = false;
+    bool seh_fired = false;
+    DWORD seh_code = 0;
     __try {
         VkSemaphoreWaitInfo wait_info{};
         wait_info.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores    = &timeline_semaphore;
         wait_info.pValues        = &expected_value;
-        return pfn_wait_semaphores_(device_, &wait_info, 0) == VK_SUCCESS;
-    } __except (1) {
-        fprintf(stderr, "[GpuCopyOptimizer::is_copy_ready] SEH exception\n");
-        fflush(stderr);
-        return false;
+        result = (pfn_wait_semaphores_(device_, &wait_info, 0) == VK_SUCCESS);
+    } __except (SehFilter(GetExceptionCode(), &seh_code)) {
+        seh_fired = true;
     }
+    if (seh_fired) {
+        fprintf(stderr, "[GpuCopyOptimizer] SEH: 0x%08lX\n", seh_code);
+        fflush(stderr);
+    }
+    return result;
 }
 
 void GpuCopyOptimizer::shutdown() {
+    bool device_null = false;
+    bool seh_fired   = false;
+    DWORD seh_code   = 0;
     __try {
-        if (!device_) {
-            fprintf(stderr, "[GpuCopyOptimizer] Device is null, skipping shutdown\n");
-            return;
+        device_null = (!device_);
+        if (!device_null) {
+            if (timeline_semaphore_ != VK_NULL_HANDLE) {
+                vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
+                timeline_semaphore_ = VK_NULL_HANDLE;
+            }
+            if (command_buffer_ != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
+                vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer_);
+                command_buffer_ = VK_NULL_HANDLE;
+            }
+            if (command_pool_ != VK_NULL_HANDLE) {
+                vkDestroyCommandPool(device_, command_pool_, nullptr);
+                command_pool_ = VK_NULL_HANDLE;
+            }
+            cleanup_pipeline();
+            device_ = VK_NULL_HANDLE;
+            queue_ = VK_NULL_HANDLE;
+            phys_device_ = VK_NULL_HANDLE;
+            pipeline_layout_ = VK_NULL_HANDLE;
+            compute_pipeline_ = VK_NULL_HANDLE;
+            descriptor_set_layout_ = VK_NULL_HANDLE;
+            descriptor_pool_ = VK_NULL_HANDLE;
+            descriptor_set_ = VK_NULL_HANDLE;
+            timeline_counter_ = 0;
+            pfn_get_semaphore_counter_value_ = nullptr;
         }
-
-        if (timeline_semaphore_ != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
-            timeline_semaphore_ = VK_NULL_HANDLE;
-        }
-
-        if (command_buffer_ != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
-            vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer_);
-            command_buffer_ = VK_NULL_HANDLE;
-        }
-
-        if (command_pool_ != VK_NULL_HANDLE) {
-            vkDestroyCommandPool(device_, command_pool_, nullptr);
-            command_pool_ = VK_NULL_HANDLE;
-        }
-
-        cleanup_pipeline();
-
-        // Reset all members
-        device_ = VK_NULL_HANDLE;
-        queue_ = VK_NULL_HANDLE;
-        phys_device_ = VK_NULL_HANDLE;
-        pipeline_layout_ = VK_NULL_HANDLE;
-        compute_pipeline_ = VK_NULL_HANDLE;
-        descriptor_set_layout_ = VK_NULL_HANDLE;
-        descriptor_pool_ = VK_NULL_HANDLE;
-        descriptor_set_ = VK_NULL_HANDLE;
-        timeline_counter_ = 0;
-        pfn_get_semaphore_counter_value_ = nullptr;
-
+    } __except (SehFilter(GetExceptionCode(), &seh_code)) {
+        seh_fired = true;
+    }
+    if (device_null) {
+        fprintf(stderr, "[GpuCopyOptimizer] Device is null, skipping shutdown\n");
+    } else if (seh_fired) {
+        fprintf(stderr, "[GpuCopyOptimizer] SEH exception during shutdown: 0x%08lX\n", seh_code);
+    } else {
         fprintf(stderr, "[GpuCopyOptimizer] Shutdown complete\n");
-    } __except (1) {
-        fprintf(stderr, "[GpuCopyOptimizer] SEH exception during shutdown\n");
     }
 }
 
