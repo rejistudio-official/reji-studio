@@ -140,13 +140,13 @@ pub extern "C" fn rj_action_dequeue(out: *mut ffi::RjAction) -> i32 {
     }
 
     match action_queue().pop() {
-        Ok(action) => {
+        Some(action) => {
             unsafe {
                 *out = action;
             }
             1  // true: action available
         }
-        Err(_) => 0,  // false: queue empty
+        None => 0,  // false: queue empty
     }
 }
 
@@ -228,7 +228,6 @@ mod tests {
             action_type: ffi::RjActionType::LogOnly,
             param1: 0,
             param2: 0,
-            timestamp_us: 0,
             canary: 0,
         };
 
