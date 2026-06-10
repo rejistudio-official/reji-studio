@@ -1142,7 +1142,7 @@ Sonuç boş olmalı.
 
 
 
-\- \[ ] Sprint 1 tamamlandı
+\- \[x] Sprint 1 tamamlandı (B1, B2, B3, B4, B7)
 
 \- \[ ] Sprint 2 tamamlandı  
 
