@@ -1170,7 +1170,11 @@ Sonuç boş olmalı.
 
 \- \[x] Sprint 3 tamamlandı
 
-\- \[ ] Sprint 4 tamamlandı
+\- \[x] B17 tamamlandı (frame\_pacing.cpp + gpu\_query\_timing.cpp — anlamsız try/catch kaldırıldı)
+
+\- \[x] B18 tamamlandı (gpu\_resource\_manager.cpp — cross-adapter TODO dokümante edildi)
+
+\- \[x] Sprint 4 tamamlandı
 
 \- \[ ] Fable 5 ile ikinci tarama yapıldı (skor iyileşmesi doğrulandı)
 

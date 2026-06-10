@@ -163,6 +163,12 @@ bool GpuResourceManager::init(
             encode_info_.dedicated_vram_mb);
 
     // Preview path: always use display GPU staging (bypass cross-adapter shared texture)
+    // TODO(cross-adapter): same_adapter_ = false yapılmadan önce:
+    // 1. D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i doğrula
+    // 2. IDXGIKeyedMutex::AcquireSync(0)/ReleaseSync(1) implement et
+    // 3. VkWin32KeyedMutexAcquireReleaseInfoKHR ekle
+    // 4. copy_fence_ (D3D11Query) oluştur
+    // Referans: docs/FABLE5_BUG_PLAN.md B6, B11
     same_adapter_ = true;
 
     bool ok = same_adapter_
