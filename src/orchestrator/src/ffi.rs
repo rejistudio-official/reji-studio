@@ -414,7 +414,12 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
 
         match RuleEngine::new(&path_str) {
             Ok(new_engine) => {
-                let mut engine_lock = state.rule_engine.lock().unwrap();
+                let mut engine_lock = state.rule_engine
+                    .lock()
+                    .unwrap_or_else(|poisoned| {
+                        warn!("rule_engine mutex poison — recovering");
+                        poisoned.into_inner()
+                    });
                 *engine_lock = Some(new_engine);
                 info!(path = ?path_str, "Rules reloaded successfully");
                 1

@@ -7,7 +7,7 @@
 use std::time::{Duration, Instant};
 
 use crossbeam::atomic::AtomicCell;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::{error::RecvError, Receiver, Sender};
 use tokio::time::{interval, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
 
@@ -203,11 +203,29 @@ impl HealingMonitor {
         loop {
             tokio::select! {
                 biased;
-                Ok(system) = self.system_rx.recv() => {
-                    self.handle_system(system);
+                result = self.system_rx.recv() => {
+                    match result {
+                        Ok(system) => { self.handle_system(system); }
+                        Err(RecvError::Lagged(n)) => {
+                            warn!("HealingMonitor: system_rx {} mesaj kaçtı", n);
+                        }
+                        Err(RecvError::Closed) => {
+                            info!("HealingMonitor: system_rx kapandı, çıkılıyor");
+                            break;
+                        }
+                    }
                 }
-                Ok(media) = self.media_rx.recv() => {
-                    self.handle_media(media);
+                result = self.media_rx.recv() => {
+                    match result {
+                        Ok(media) => { self.handle_media(media); }
+                        Err(RecvError::Lagged(n)) => {
+                            warn!("HealingMonitor: media_rx {} mesaj kaçtı", n);
+                        }
+                        Err(RecvError::Closed) => {
+                            info!("HealingMonitor: media_rx kapandı, çıkılıyor");
+                            break;
+                        }
+                    }
                 }
                 _ = ticker.tick() => {
                     self.on_periodic();
