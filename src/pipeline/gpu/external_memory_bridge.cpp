@@ -319,6 +319,66 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
   return true;
 }
 
+bool ExternalMemoryBridge::create_gl_sync_semaphore() {
+  if (gl_sync_semaphore_ != VK_NULL_HANDLE) {
+    fprintf(stderr, "[ExternalMemoryBridge] gl_sync_semaphore already created\n");
+    return true;
+  }
+
+  VkExportSemaphoreCreateInfo export_info{};
+  export_info.sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO;
+  export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+  VkSemaphoreCreateInfo sem_info{};
+  sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+  sem_info.pNext = &export_info;
+
+  VkResult result = vkCreateSemaphore(device_, &sem_info, nullptr, &gl_sync_semaphore_);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "[ExternalMemoryBridge] vkCreateSemaphore (gl_sync) failed: %d\n", result);
+    fflush(stderr);
+    return false;
+  }
+
+  auto pfn_vkGetSemaphoreWin32HandleKHR =
+      reinterpret_cast<PFN_vkGetSemaphoreWin32HandleKHR>(
+          vkGetDeviceProcAddr(device_, "vkGetSemaphoreWin32HandleKHR"));
+  if (!pfn_vkGetSemaphoreWin32HandleKHR) {
+    fprintf(stderr, "[ExternalMemoryBridge] vkGetSemaphoreWin32HandleKHR not available\n");
+    fflush(stderr);
+    vkDestroySemaphore(device_, gl_sync_semaphore_, nullptr);
+    gl_sync_semaphore_ = VK_NULL_HANDLE;
+    return false;
+  }
+
+  VkSemaphoreGetWin32HandleInfoKHR handle_info{};
+  handle_info.sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
+  handle_info.semaphore  = gl_sync_semaphore_;
+  handle_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+  result = pfn_vkGetSemaphoreWin32HandleKHR(device_, &handle_info, &gl_sync_semaphore_handle_);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "[ExternalMemoryBridge] vkGetSemaphoreWin32HandleKHR failed: %d\n", result);
+    fflush(stderr);
+    vkDestroySemaphore(device_, gl_sync_semaphore_, nullptr);
+    gl_sync_semaphore_ = VK_NULL_HANDLE;
+    return false;
+  }
+
+  fprintf(stderr, "[ExternalMemoryBridge] gl_sync_semaphore created: sem=%p handle=%p\n",
+          (void*)gl_sync_semaphore_, gl_sync_semaphore_handle_);
+  fflush(stderr);
+  return true;
+}
+
+HANDLE ExternalMemoryBridge::get_gl_sync_semaphore_handle() const {
+  return gl_sync_semaphore_handle_;
+}
+
+VkSemaphore ExternalMemoryBridge::get_gl_sync_semaphore() const {
+  return gl_sync_semaphore_;
+}
+
 HANDLE ExternalMemoryBridge::get_gl_target_handle(uint32_t idx) const {
   if (idx >= POOL_SIZE) {
     return nullptr;
@@ -438,6 +498,16 @@ void ExternalMemoryBridge::shutdown() {
   if (cached_d3d11_handle_) {
     CloseHandle(cached_d3d11_handle_);
     cached_d3d11_handle_ = nullptr;
+  }
+
+  // B5: GL sync semaphore cleanup
+  if (gl_sync_semaphore_ != VK_NULL_HANDLE) {
+    vkDestroySemaphore(device_, gl_sync_semaphore_, nullptr);
+    gl_sync_semaphore_ = VK_NULL_HANDLE;
+  }
+  if (gl_sync_semaphore_handle_) {
+    CloseHandle(gl_sync_semaphore_handle_);
+    gl_sync_semaphore_handle_ = nullptr;
   }
 
   fprintf(stderr, "[ExternalMemoryBridge] Shutdown complete\n");

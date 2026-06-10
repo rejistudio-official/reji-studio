@@ -30,7 +30,8 @@ public:
                       uint32_t height,
                       VkSemaphore* out_timeline_semaphore,  // Caller polls this
                       uint64_t* out_timeline_value,         // Value to check
-                      VkImage* out_target_image);           // Target image output
+                      VkImage* out_target_image,            // Target image output
+                      VkSemaphore gl_sync_sem = VK_NULL_HANDLE); // B5: optional GL sync signal
 
     // Check if copy is ready (non-blocking poll)
     bool is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value);
@@ -57,6 +58,9 @@ private:
     uint64_t signal_value_for_submit_ = 0;  // Must persist for async vkQueueSubmit (not stack-local)
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info_ = {};  // Must persist (submit_info.pNext)
     VkSubmitInfo submit_info_ = {};  // Must persist for reuse
+    // B5: multi-semaphore submit arrays (persist across async submit)
+    VkSemaphore signal_semaphores_[2] = {};
+    uint64_t    signal_values_[2]     = {};
     static constexpr uint64_t FRAME_INCREMENT = 1;
 
     // Extension function pointer (loaded once in init()).

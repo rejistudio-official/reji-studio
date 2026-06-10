@@ -80,7 +80,8 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      uint32_t height,
                                      VkSemaphore* out_timeline_semaphore,
                                      uint64_t* out_timeline_value,
-                                     VkImage* out_target_image) {
+                                     VkImage* out_target_image,
+                                     VkSemaphore gl_sync_sem) {
     fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu\n",
             (void*)device_, (void*)command_buffer_, (void*)queue_,
             (void*)timeline_semaphore_, (unsigned long long)timeline_counter_);
@@ -184,24 +185,31 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         // End command buffer
         CHECK_VK(vkEndCommandBuffer(command_buffer_));
 
-        // ========== SUBMIT WITH TIMELINE SIGNAL ==========
+        // ========== SUBMIT WITH TIMELINE + OPTIONAL GL SYNC SIGNAL ==========
         // CRITICAL: Timeline semaphore signal value MUST be > current value!
-        // Increment BEFORE submit (not after failure), then use incremented value
         timeline_counter_ += FRAME_INCREMENT;
         signal_value_for_submit_ = timeline_counter_;
 
+        bool has_gl_sync = (gl_sync_sem != VK_NULL_HANDLE);
+        uint32_t sem_count = has_gl_sync ? 2u : 1u;
+
+        signal_semaphores_[0] = timeline_semaphore_;
+        signal_semaphores_[1] = gl_sync_sem;       // VK_NULL_HANDLE when unused
+        signal_values_[0]     = signal_value_for_submit_;
+        signal_values_[1]     = 0;                 // binary semaphore: value ignored
+
         timeline_submit_info_ = {};
         timeline_submit_info_.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-        timeline_submit_info_.signalSemaphoreValueCount = 1;
-        timeline_submit_info_.pSignalSemaphoreValues = &signal_value_for_submit_;
+        timeline_submit_info_.signalSemaphoreValueCount = sem_count;
+        timeline_submit_info_.pSignalSemaphoreValues    = signal_values_;
 
         submit_info_ = {};
         submit_info_.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info_.pNext = &timeline_submit_info_;
-        submit_info_.commandBufferCount = 1;
-        submit_info_.pCommandBuffers = &command_buffer_;
-        submit_info_.signalSemaphoreCount = 1;
-        submit_info_.pSignalSemaphores = &timeline_semaphore_;
+        submit_info_.commandBufferCount   = 1;
+        submit_info_.pCommandBuffers      = &command_buffer_;
+        submit_info_.signalSemaphoreCount = sem_count;
+        submit_info_.pSignalSemaphores    = signal_semaphores_;
 
         CHECK_VK(vkQueueSubmit(queue_, 1, &submit_info_, VK_NULL_HANDLE));
 

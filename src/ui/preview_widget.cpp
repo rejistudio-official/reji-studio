@@ -94,6 +94,13 @@ PreviewWidget::~PreviewWidget() {
             pfn_DeleteMemoryObjects_(1, &gl_memory_objects_[i]);
         }
     }
+    // B5: GL sync semaphore cleanup
+    if (gl_sync_semaphore_) {
+        auto pfn_DeleteSemaphores = (void(*)(GLsizei, const GLuint*))
+            QOpenGLContext::currentContext()->getProcAddress("glDeleteSemaphoresEXT");
+        if (pfn_DeleteSemaphores) pfn_DeleteSemaphores(1, &gl_sync_semaphore_);
+        gl_sync_semaphore_ = 0;
+    }
     d_->vbo.destroy();
     d_->vao.destroy();
     doneCurrent();
@@ -199,6 +206,40 @@ void PreviewWidget::initializeGL() {
                    && pfn_TexStorageMem2D_;
         fprintf(stderr, "[PreviewWidget] GL interop functions resolved: %d\n", all_ok);
         fflush(stderr);
+    }
+
+    // B5: GL_EXT_semaphore_win32 — Vulkan/GL sync semaphore
+    bool has_sem     = context()->hasExtension("GL_EXT_semaphore");
+    bool has_sem_w32 = context()->hasExtension("GL_EXT_semaphore_win32");
+    fprintf(stderr, "[PreviewWidget] GL_EXT_semaphore=%d win32=%d\n", has_sem, has_sem_w32);
+    fflush(stderr);
+
+    if (has_sem && has_sem_w32) {
+        auto* ctx = QOpenGLContext::currentContext();
+        pfn_WaitSemaphore_ = (PFNGLWAITSEMAPHOREEXT)
+            ctx->getProcAddress("glWaitSemaphoreEXT");
+        pfn_ImportSemaphoreWin32Handle_ = (PFNGLIMPORTSEMAPHOREWIN32HANDLEEXT)
+            ctx->getProcAddress("glImportSemaphoreWin32HandleEXT");
+
+        bool fns_ok = pfn_WaitSemaphore_ && pfn_ImportSemaphoreWin32Handle_;
+        fprintf(stderr, "[PreviewWidget] GL semaphore functions resolved: %d\n", fns_ok);
+        fflush(stderr);
+
+        if (fns_ok && bridge_) {
+            auto pfn_GenSemaphores = (void(*)(GLsizei, GLuint*))
+                ctx->getProcAddress("glGenSemaphoresEXT");
+            if (pfn_GenSemaphores) {
+                pfn_GenSemaphores(1, &gl_sync_semaphore_);
+                HANDLE h = bridge_->get_gl_sync_semaphore_handle();
+                if (h && gl_sync_semaphore_) {
+                    pfn_ImportSemaphoreWin32Handle_(gl_sync_semaphore_,
+                        GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, h);
+                    fprintf(stderr, "[PreviewWidget] GL sync semaphore imported (sem=%u)\n",
+                            gl_sync_semaphore_);
+                    fflush(stderr);
+                }
+            }
+        }
     }
 }
 
@@ -319,8 +360,11 @@ void PreviewWidget::paintGL() {
         VkSemaphore sem   = VK_NULL_HANDLE;
         uint64_t    value = 0;
         VkImage result_target_image = VK_NULL_HANDLE;
+        VkSemaphore gl_sync_sem = (bridge_ && bridge_->get_gl_sync_semaphore() != VK_NULL_HANDLE)
+                                  ? bridge_->get_gl_sync_semaphore()
+                                  : VK_NULL_HANDLE;
         if (!copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
-                                           &sem, &value, &result_target_image)) {
+                                           &sem, &value, &result_target_image, gl_sync_sem)) {
             fprintf(stderr, "[PreviewWidget] execute_copy failed, skipping frame\n");
             if (profiler_) profiler_->markPaintGLEnd();
             return;
@@ -396,6 +440,13 @@ void PreviewWidget::paintGL() {
         fprintf(stderr, "[PreviewWidget] render: GL interop texture[%u] (%u)\n", current_pool_idx_, tex_to_use);
     } else {
         fprintf(stderr, "[PreviewWidget] render: CPU fallback texture (%u)\n", tex_to_use);
+    }
+
+    // B5: GPU-side sync — wait for Vulkan blit to complete before GL reads the texture
+    if (use_gl_interop && pfn_WaitSemaphore_ && gl_sync_semaphore_) {
+        GLenum layout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
+        pfn_WaitSemaphore_(gl_sync_semaphore_, 0, nullptr,
+                           1, &tex_to_use, &layout);
     }
 
     d_->shader.bind();

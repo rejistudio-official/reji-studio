@@ -6,8 +6,10 @@
 #include <vulkan/vulkan_win32.h>
 #else
 // Mock mode: define extension names as string constants
-#define VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME "VK_KHR_external_memory_win32"
-#define VK_EXT_DEBUG_UTILS_EXTENSION_NAME "VK_EXT_debug_utils"
+#define VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME        "VK_KHR_external_memory_win32"
+#define VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME           "VK_KHR_external_semaphore"
+#define VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME     "VK_KHR_external_semaphore_win32"
+#define VK_EXT_DEBUG_UTILS_EXTENSION_NAME                  "VK_EXT_debug_utils"
 #endif
 
 #include <vector>
@@ -198,7 +200,9 @@ bool VulkanInitializer::create_device() {
 
   const char* device_extensions[] = {
     VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
-    VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,  // v0.5.1: Enable timeline semaphores for GpuCopyOptimizer
+    VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
   };
 
   VkPhysicalDeviceTimelineSemaphoreFeatures timeline_sem_features{};
@@ -213,7 +217,7 @@ bool VulkanInitializer::create_device() {
   create_info.queueCreateInfoCount = 1;
   create_info.pQueueCreateInfos = &queue_create_info;
   create_info.pEnabledFeatures = &device_features;
-  create_info.enabledExtensionCount = 2;  // Updated extension count
+  create_info.enabledExtensionCount = 4;
   create_info.ppEnabledExtensionNames = device_extensions;
 
   VkResult result = vkCreateDevice(physical_device_, &create_info, nullptr, &device_);
@@ -260,6 +264,8 @@ bool VulkanInitializer::check_required_extensions() {
   const char* required_exts[] = {
     VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
     VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
   };
   int found_count = 0;
 
@@ -272,7 +278,7 @@ bool VulkanInitializer::check_required_extensions() {
     }
   }
 
-  return found_count == 2;  // All required extensions found
+  return found_count == 4;  // All required extensions found
 }
 
 bool VulkanInitializer::has_extension(const std::string& ext_name) const {

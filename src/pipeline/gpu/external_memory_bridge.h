@@ -11,10 +11,14 @@ using VkDevice = void*;
 using VkPhysicalDevice = void*;
 using VkImage = void*;
 using VkDeviceMemory = void*;
+using VkSemaphore = void*;
 using VkFormat = int;
 using VkResult = int;
 const int VK_FORMAT_UNDEFINED = 0;
 const int VK_SUCCESS = 0;
+#ifndef VK_NULL_HANDLE
+#define VK_NULL_HANDLE nullptr
+#endif
 #endif
 
 #include <d3d11_1.h>
@@ -62,6 +66,11 @@ class ExternalMemoryBridge {
     VkImage* out_target
   );
 
+  // B5: GL/Vulkan semaphore sync — create exportable binary semaphore for GL wait
+  bool    create_gl_sync_semaphore();
+  HANDLE  get_gl_sync_semaphore_handle() const;
+  VkSemaphore get_gl_sync_semaphore() const;
+
   void shutdown();
 
  private:
@@ -75,6 +84,10 @@ class ExternalMemoryBridge {
   std::vector<VkImage>        gl_target_pool_;
   std::vector<VkDeviceMemory> gl_target_memory_;
   HANDLE                      gl_target_handles_[POOL_SIZE]{};
+
+  // B5: GL/Vulkan semaphore sync
+  VkSemaphore gl_sync_semaphore_        = VK_NULL_HANDLE;
+  HANDLE      gl_sync_semaphore_handle_ = nullptr;
 
   VkFormat format_;
   uint32_t width_;

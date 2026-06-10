@@ -25,6 +25,10 @@ using PFNGLDELETEMEMORYOBJECTSEXT    = void(*)(GLsizei, const GLuint*);
 using PFNGLIMPORTMEMORYWIN32HANDLEEXT = void(*)(GLuint, GLuint64, GLenum, void*);
 using PFNGLTEXSTORAGEMEM2DEXT        = void(*)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLuint, GLuint64);
 
+// GL_EXT_semaphore_win32 function pointers (B5: Vulkan/GL sync)
+using PFNGLWAITSEMAPHOREEXT              = void(*)(GLuint, GLuint, const GLuint*, GLuint, const GLuint*, const GLenum*);
+using PFNGLIMPORTSEMAPHOREWIN32HANDLEEXT = void(*)(GLuint, GLenum, void*);
+
 // ---------------------------------------------------------------------------
 // PreviewWidget — Preview (left) monitor.
 //
@@ -108,6 +112,11 @@ private:
     PFNGLDELETEMEMORYOBJECTSEXT     pfn_DeleteMemoryObjects_     = nullptr;
     PFNGLIMPORTMEMORYWIN32HANDLEEXT pfn_ImportMemoryWin32Handle_ = nullptr;
     PFNGLTEXSTORAGEMEM2DEXT         pfn_TexStorageMem2D_         = nullptr;
+
+    // GL_EXT_semaphore_win32 function pointers (B5)
+    PFNGLWAITSEMAPHOREEXT              pfn_WaitSemaphore_              = nullptr;
+    PFNGLIMPORTSEMAPHOREWIN32HANDLEEXT pfn_ImportSemaphoreWin32Handle_ = nullptr;
+    GLuint                             gl_sync_semaphore_              = 0;
 };
 
 } // namespace reji
