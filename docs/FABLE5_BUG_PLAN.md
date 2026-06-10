@@ -1146,7 +1146,15 @@ Sonuç boş olmalı.
 
 \- \[x] B5 tamamlandı (Vulkan/GL semaphore sync — glWaitSemaphoreEXT + command buffer reuse sync)
 
-\- \[ ] Sprint 2 tamamlandı  
+\- \[x] B6 tamamlandı (D3D11→Vulkan keyed mutex sync — AcquireSync/ReleaseSync + VkWin32KeyedMutexAcquireReleaseInfoKHR)
+
+\- \[x] B8 tamamlandı (HealingMonitor Lagged/Closed recv hata yönetimi)
+
+\- \[x] B9 tamamlandı (mutex poison recovery — unwrap\_or\_else)
+
+\- \[x] B10 tamamlandı (ExternalMemoryBridge shutdown sırası — VkDevice lifetime garantisi)
+
+\- \[x] Sprint 2 tamamlandı  
 
 \- \[ ] Sprint 3 tamamlandı
 
