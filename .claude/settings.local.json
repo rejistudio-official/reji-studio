@@ -23,7 +23,9 @@
       "Bash(cargo test *)",
       "Bash(cmd *)",
       "Bash(dir \"C:\\\\\\\\Program Files \\(x86\\)\\\\\\\\Windows Kits\\\\\\\\10\\\\\\\\Include\")",
-      "Bash(dir \"C:\\\\\\\\Program Files\\\\\\\\Windows Kits\")"
+      "Bash(dir \"C:\\\\\\\\Program Files\\\\\\\\Windows Kits\")",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)"
     ]
   }
 }
