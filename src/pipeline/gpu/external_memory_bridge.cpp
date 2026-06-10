@@ -453,6 +453,8 @@ bool ExternalMemoryBridge::get_frame_images(
 }
 
 void ExternalMemoryBridge::shutdown() {
+  if (!device_) return;  // B10: guard against double-shutdown or null device
+
   // Staging pool memory
   for (auto mem : pool_memory_) {
     if (mem) {
@@ -510,6 +512,7 @@ void ExternalMemoryBridge::shutdown() {
     gl_sync_semaphore_handle_ = nullptr;
   }
 
+  device_ = VK_NULL_HANDLE;  // B10: makes destructor call idempotent
   fprintf(stderr, "[ExternalMemoryBridge] Shutdown complete\n");
   fflush(stderr);
 }

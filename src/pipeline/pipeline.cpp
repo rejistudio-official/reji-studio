@@ -685,6 +685,14 @@ bool Pipeline::shutdown() {
     s.encoder.reset();
     s.capture.reset();
 
+    // B10: Shutdown bridge before VulkanInitializer can release the device.
+    // ExternalMemoryBridge holds raw VkDevice/VkImage handles; resetting here
+    // while the singleton device is still valid prevents use-after-free.
+    if (s.ext_bridge) {
+        s.ext_bridge->shutdown();
+        s.ext_bridge.reset();
+    }
+
     if (s.timer_set.exchange(false, std::memory_order_acq_rel))
         timeEndPeriod(1);
 
