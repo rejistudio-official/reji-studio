@@ -8,6 +8,7 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
 #include "copy_optimizer.h"
+#include "gpu/vulkan_initializer.h"
 #include <cstring>
 #include <cstdio>
 
@@ -267,8 +268,11 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         // B6/D3: Chain keyed mutex acquire/release when D3D11 memory is provided.
         // D3: Store memory handle and struct as member fields — pAcquireSyncs/pReleaseSyncs
         //     point into members so pointers remain valid past async vkQueueSubmit.
+        // D11: AMD iGPU'da VK_KHR_win32_keyed_mutex desteklenmeyebilir — use_keyed_mutex() ile kontrol et.
         km_memory_ = d3d11_staging_memory;
-        bool has_keyed_mutex = (km_memory_ != VK_NULL_HANDLE);
+        auto* vulkan_init = rj::pipeline::gpu::VulkanInitializer::get();
+        bool has_keyed_mutex = (vulkan_init && vulkan_init->use_keyed_mutex()) &&
+                               (km_memory_ != VK_NULL_HANDLE);
         if (has_keyed_mutex) {
             keyed_mutex_info_ = {};
             keyed_mutex_info_.sType            = VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR;

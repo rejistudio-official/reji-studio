@@ -296,13 +296,25 @@ bool VulkanInitializer::create_device() {
   float queue_priority = 1.0f;
   queue_create_info.pQueuePriorities = &queue_priority;
 
-  const char* device_extensions[] = {
+  std::vector<const char*> device_extensions = {
     VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
     VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
-    VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
   };
+
+  // D11: VK_KHR_win32_keyed_mutex opsiyonel — AMD iGPU'da desteklenmeyebilir
+  bool keyed_mutex_supported = has_extension(VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME);
+  if (keyed_mutex_supported) {
+      device_extensions.push_back(VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME);
+      use_keyed_mutex_ = true;
+      fprintf(stderr, "[Vulkan] Keyed mutex destekleniyor — etkinleştiriliyor\n");
+      fflush(stderr);
+  } else {
+      fprintf(stderr, "[Vulkan] Keyed mutex desteklenmiyor"
+                      " — timeline semaphore sync kullanılacak\n");
+      fflush(stderr);
+  }
 
   VkPhysicalDeviceTimelineSemaphoreFeatures timeline_sem_features{};
   timeline_sem_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
@@ -316,8 +328,8 @@ bool VulkanInitializer::create_device() {
   create_info.queueCreateInfoCount = 1;
   create_info.pQueueCreateInfos = &queue_create_info;
   create_info.pEnabledFeatures = &device_features;
-  create_info.enabledExtensionCount = 5;
-  create_info.ppEnabledExtensionNames = device_extensions;
+  create_info.enabledExtensionCount = static_cast<uint32_t>(device_extensions.size());
+  create_info.ppEnabledExtensionNames = device_extensions.data();
 
   VkResult result = vkCreateDevice(physical_device_, &create_info, nullptr, &device_);
   if (result != VK_SUCCESS) {
@@ -348,13 +360,12 @@ bool VulkanInitializer::check_required_extensions() {
   std::vector<VkExtensionProperties> extensions(ext_count);
   vkEnumerateDeviceExtensionProperties(physical_device_, nullptr, &ext_count, extensions.data());
 
-  // Check for required extensions
+  // D11: VK_KHR_win32_keyed_mutex opsiyonel — sadece 4 zorunlu extension kontrol edilir
   const char* required_exts[] = {
     VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
     VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
-    VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME,
   };
   int found_count = 0;
 
@@ -367,7 +378,7 @@ bool VulkanInitializer::check_required_extensions() {
     }
   }
 
-  return found_count == 5;  // All required extensions found
+  return found_count == 4;  // Keyed mutex opsiyonel — 4 zorunlu extension yeterli
 }
 
 bool VulkanInitializer::has_extension(const std::string& ext_name) const {

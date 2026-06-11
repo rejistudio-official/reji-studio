@@ -44,6 +44,8 @@ class VulkanInitializer {
   uint32_t graphics_queue_family() const { return graphics_queue_family_; }
   VkQueue graphics_queue() const { return graphics_queue_; }
 
+  bool use_keyed_mutex() const { return use_keyed_mutex_; }
+
   void shutdown();
 
  private:
@@ -60,6 +62,7 @@ class VulkanInitializer {
   uint32_t graphics_queue_family_ = 0;
   VkQueue graphics_queue_ = nullptr;
   VkDebugUtilsMessengerEXT debug_messenger_ = nullptr;
+  bool use_keyed_mutex_ = false;  ///< D11: true only when VK_KHR_win32_keyed_mutex is available
 };
 
 }
