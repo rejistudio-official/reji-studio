@@ -430,23 +430,6 @@ void MainWindow::onSettingsClicked() {
 // rj_command_drain is lock-free (crossbeam ArrayQueue) and non-blocking.
 // ---------------------------------------------------------------------------
 void MainWindow::pollMetrics() {
-    RjCommand cmds[8];
-    int n = rj_command_drain(cmds, 8);
-    if (n < 0) n = 0;
-    else if (n > 8) n = 8;
-    for (int i = 0; i < n; ++i) {
-        switch (cmds[i].cmd_type) {
-            case RJ_CMD_BITRATE_SET:
-                lbl_bitrate_->setText(
-                    QString("%1 kbps").arg(cmds[i].param_u32));
-                break;
-            case RJ_CMD_PREVIEW_FPS:
-                // v0.2: throttle preview_widget_ refresh rate
-                break;
-            default:
-                break;
-        }
-    }
     (void)pipeline_.is_running();
 }
 

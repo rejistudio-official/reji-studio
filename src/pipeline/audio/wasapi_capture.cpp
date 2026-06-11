@@ -367,7 +367,6 @@ bool WasapiCapture::capture_loop() {
     {
         DWORD wr = ::WaitForMultipleObjects(2, evs, FALSE, 500);
         if (wr == WAIT_TIMEOUT) {
-            drain_commands_nonblocking();
             publish_metrics(now_us());
             continue;
         }
@@ -416,7 +415,6 @@ bool WasapiCapture::capture_loop() {
             hr = seh_next_packet_size(capture_client_.Get(), &pkt);
         }
 
-        drain_commands_nonblocking();
         publish_metrics(now_us());
     }
     return true;
@@ -481,22 +479,6 @@ void WasapiCapture::detect_silence_and_jitter(uint32_t frames, DWORD flags, int6
     } else {
         silence_start_us_ = 0;
         silence_logged_   = false;
-    }
-}
-
-// ============================================================================
-// Komut drenajı — non-blocking, [0,8] clamp, negatif logla
-// ============================================================================
-void WasapiCapture::drain_commands_nonblocking() {
-    int n = ::rj_command_drain(cmd_buffer_, kCmdDrainMax);
-    if (n < 0) {
-        OutputDebugStringA("[rj_wasapi] rj_command_drain negatif donus — "
-                           "FFI state henuz baslatilmamis\n");
-        n = 0;
-    }
-    if (n > kCmdDrainMax) n = kCmdDrainMax;
-    for (int i = 0; i < n; ++i) {
-        (void)cmd_buffer_[i]; // komut yönlendirmesi — genişletilecek
     }
 }
 

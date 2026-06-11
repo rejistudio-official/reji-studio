@@ -208,6 +208,44 @@ struct Pipeline::Impl {
     std::atomic<uint32_t> frame_drops{0};
     std::array<RjCommand, kCmdDrainMax> cmd_buf{};
 
+    // C6: SPSC ring buffer — action_processor (producer) → run_frame (consumer)
+    struct FrameCmd { int action_type; int32_t param1; };
+    static constexpr int kFrameCmdCap = 16;
+    std::array<FrameCmd, kFrameCmdCap> frame_cmd_buf_{};
+    std::atomic<uint32_t> frame_cmd_head_{0};
+    std::atomic<uint32_t> frame_cmd_tail_{0};
+
+    bool push_frame_cmd(const FrameCmd& cmd) noexcept {
+        uint32_t head = frame_cmd_head_.load(std::memory_order_relaxed);
+        uint32_t next = (head + 1) % kFrameCmdCap;
+        if (next == frame_cmd_tail_.load(std::memory_order_acquire)) return false;
+        frame_cmd_buf_[head] = cmd;
+        frame_cmd_head_.store(next, std::memory_order_release);
+        return true;
+    }
+
+    void apply_frame_cmd(const FrameCmd& cmd) noexcept {
+        if (!encoder) return;
+        switch (cmd.action_type) {
+            case RJ_ACTION_BITRATE_REDUCE:
+            case RJ_ACTION_BITRATE_RECOVER:
+                if (cmd.param1 > 0) {
+                    (void)encoder->set_bitrate(static_cast<uint32_t>(cmd.param1));
+                    bitrate_kbps     = static_cast<uint32_t>(cmd.param1);
+                    cfg.bitrate_kbps = static_cast<uint32_t>(cmd.param1);
+                }
+                break;
+            case RJ_ACTION_SCALE_RESOLUTION:
+                (void)encoder->set_resolution(cmd.param1 / 1000.0f);
+                break;
+            case RJ_ACTION_CAP_FPS:
+                (void)encoder->set_fps_limit(static_cast<uint32_t>(cmd.param1));
+                break;
+            default:
+                break;
+        }
+    }
+
     // Stored so TDR recovery can re-pass it to encoder->init.
     std::function<void(const reji::NvencEncoder::Packet&)> packet_cb;
 
@@ -557,6 +595,17 @@ bool Pipeline::run_frame() {
     }
     for (int i = 0; i < n; ++i) s.apply_command(s.cmd_buf[i]);
 
+    // 1b) C6: Drain SPSC frame commands from action_processor (no lock needed)
+    {
+        uint32_t tail = s.frame_cmd_tail_.load(std::memory_order_relaxed);
+        uint32_t head = s.frame_cmd_head_.load(std::memory_order_acquire);
+        while (tail != head) {
+            s.apply_frame_cmd(s.frame_cmd_buf_[tail]);
+            tail = (tail + 1) % Impl::kFrameCmdCap;
+        }
+        s.frame_cmd_tail_.store(tail, std::memory_order_release);
+    }
+
     // 2) Capture + encode
     if (s.capture) {
         ID3D11Texture2D* tex = s.capture->capture_next();
@@ -741,16 +790,20 @@ void Pipeline::action_processor_main() {
     dbglog("[Pipeline] action processor stopped");
 }
 
-// v0.4+: Apply a single action from the rule engine
+// v0.4+: Apply a single action from the rule engine.
+// C6: All encoder calls are routed through the SPSC frame_cmd queue so
+// that set_bitrate/set_resolution/set_fps_limit execute on the frame
+// thread (same thread as encode_frame), not on action_processor.
 bool Pipeline::apply_action(const RjAction& action) {
-    if (!impl_ || !impl_->encoder) return false;
+    if (!impl_) return false;
 
     switch (action.action_type) {
         case RJ_ACTION_BITRATE_REDUCE: {
             uint32_t new_rate = impl_->cfg.bitrate_kbps;
             if (new_rate > 1000) {
-                new_rate = static_cast<uint32_t>(new_rate * 0.85f);  // 85% of current
-                return impl_->encoder->set_bitrate(new_rate);
+                new_rate = static_cast<uint32_t>(new_rate * 0.85f);
+                impl_->push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_rate)});
+                return true;
             }
             break;
         }
@@ -758,22 +811,19 @@ bool Pipeline::apply_action(const RjAction& action) {
             uint32_t target_rate = impl_->cfg.bitrate_kbps;
             uint32_t current_rate = impl_->bitrate_kbps;
             if (current_rate < target_rate) {
-                uint32_t new_rate = static_cast<uint32_t>(current_rate * 1.05f);  // 105% of current
+                uint32_t new_rate = static_cast<uint32_t>(current_rate * 1.05f);
                 new_rate = new_rate > target_rate ? target_rate : new_rate;
-                return impl_->encoder->set_bitrate(new_rate);
+                impl_->push_frame_cmd({RJ_ACTION_BITRATE_RECOVER, static_cast<int32_t>(new_rate)});
+                return true;
             }
             break;
         }
-        case RJ_ACTION_SCALE_RESOLUTION: {
-            // param1 is scale factor as uint32_t (e.g., 750 = 0.75)
-            float scale = action.param1 / 1000.0f;
-            return impl_->encoder->set_resolution(scale);
-        }
-        case RJ_ACTION_CAP_FPS: {
-            // param1 is target FPS
-            uint32_t fps = action.param1;
-            return impl_->encoder->set_fps_limit(fps);
-        }
+        case RJ_ACTION_SCALE_RESOLUTION:
+            impl_->push_frame_cmd({RJ_ACTION_SCALE_RESOLUTION, action.param1});
+            return true;
+        case RJ_ACTION_CAP_FPS:
+            impl_->push_frame_cmd({RJ_ACTION_CAP_FPS, action.param1});
+            return true;
         default:
             dbglog("[Pipeline] unknown action_type=%u", action.action_type);
             break;

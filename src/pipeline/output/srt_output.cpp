@@ -25,7 +25,6 @@ namespace rj::pipeline::output {
 
 namespace {
 
-constexpr int kMaxDrain        = 8;
 constexpr int kEpollWaitMs     = 100;
 constexpr int kSendTimeoutMs   = 50;
 constexpr int kMsgTtlMs        = 100;
@@ -163,22 +162,6 @@ static void seh_safe_global_cleanup(int do_srt_cleanup) noexcept {
     __except (EXCEPTION_EXECUTE_HANDLER) { }
 }
 
-// Negatif dönüş FFI state henüz başlatılmamış demektir; debug log yazılır.
-static int drain_commands_clamped(RjCommand* out) noexcept {
-    int n = rj_command_drain(out, kMaxDrain);
-    if (n < 0) {
-        OutputDebugStringA("[rj_srt] rj_command_drain negatif donus — FFI state henuz baslatilmamis\n");
-        n = 0;
-    }
-    if (n > kMaxDrain) n = kMaxDrain;
-    return n;
-}
-
-enum : uint32_t {
-    CMD_SET_BITRATE = 0x01,
-    CMD_SHUTDOWN    = 0x02
-};
-
 } // namespace
 
 // ============================================================================
@@ -194,8 +177,6 @@ struct SrtOutput::Impl {
     std::atomic<bool>     shutting_down{false};
     std::atomic<bool>     notified_lost{false};
     std::atomic<uint32_t> bitrate_kbps{0};
-
-    std::array<RjCommand, kMaxDrain> cmd_buf{};
 
     ComGuard    com_guard;
     std::thread worker_thread;
@@ -322,21 +303,7 @@ struct SrtOutput::Impl {
         }
     }
 
-    void process_commands() noexcept {
-        int n = drain_commands_clamped(cmd_buf.data());
-        for (int i = 0; i < n; ++i) {
-            switch (cmd_buf[i].cmd_type) {
-                case CMD_SET_BITRATE:
-                    apply_bitrate(cmd_buf[i].param_u32);
-                    break;
-                case CMD_SHUTDOWN:
-                    shutting_down.store(true, std::memory_order_release);
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
+    void process_commands() noexcept {}
 
     void worker_loop() noexcept {
         while (!shutting_down.load(std::memory_order_acquire)) {

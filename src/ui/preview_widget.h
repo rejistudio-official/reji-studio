@@ -116,7 +116,7 @@ private:
     // GL_EXT_semaphore_win32 function pointers (B5)
     PFNGLWAITSEMAPHOREEXT              pfn_WaitSemaphore_              = nullptr;
     PFNGLIMPORTSEMAPHOREWIN32HANDLEEXT pfn_ImportSemaphoreWin32Handle_ = nullptr;
-    GLuint                             gl_sync_semaphore_              = 0;
+    GLuint                             gl_sync_semaphores_[3]          = {0, 0, 0};
 };
 
 } // namespace reji

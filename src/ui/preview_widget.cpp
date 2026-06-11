@@ -94,12 +94,18 @@ PreviewWidget::~PreviewWidget() {
             pfn_DeleteMemoryObjects_(1, &gl_memory_objects_[i]);
         }
     }
-    // B5: GL sync semaphore cleanup
-    if (gl_sync_semaphore_) {
+    // B5/C7: GL sync semaphore pool cleanup
+    {
         auto pfn_DeleteSemaphores = (void(*)(GLsizei, const GLuint*))
             QOpenGLContext::currentContext()->getProcAddress("glDeleteSemaphoresEXT");
-        if (pfn_DeleteSemaphores) pfn_DeleteSemaphores(1, &gl_sync_semaphore_);
-        gl_sync_semaphore_ = 0;
+        if (pfn_DeleteSemaphores) {
+            for (int i = 0; i < 3; ++i) {
+                if (gl_sync_semaphores_[i]) {
+                    pfn_DeleteSemaphores(1, &gl_sync_semaphores_[i]);
+                    gl_sync_semaphores_[i] = 0;
+                }
+            }
+        }
     }
     d_->vbo.destroy();
     d_->vao.destroy();
@@ -229,14 +235,16 @@ void PreviewWidget::initializeGL() {
             auto pfn_GenSemaphores = (void(*)(GLsizei, GLuint*))
                 ctx->getProcAddress("glGenSemaphoresEXT");
             if (pfn_GenSemaphores) {
-                pfn_GenSemaphores(1, &gl_sync_semaphore_);
-                HANDLE h = bridge_->get_gl_sync_semaphore_handle();
-                if (h && gl_sync_semaphore_) {
-                    pfn_ImportSemaphoreWin32Handle_(gl_sync_semaphore_,
-                        GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, h);
-                    fprintf(stderr, "[PreviewWidget] GL sync semaphore imported (sem=%u)\n",
-                            gl_sync_semaphore_);
-                    fflush(stderr);
+                pfn_GenSemaphores(3, gl_sync_semaphores_);
+                for (uint32_t slot = 0; slot < 3; ++slot) {
+                    HANDLE h = bridge_->get_gl_sync_semaphore_handle(slot);
+                    if (h && gl_sync_semaphores_[slot]) {
+                        pfn_ImportSemaphoreWin32Handle_(gl_sync_semaphores_[slot],
+                            GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, h);
+                        fprintf(stderr, "[PreviewWidget] GL sync semaphore[%u] imported (sem=%u)\n",
+                                slot, gl_sync_semaphores_[slot]);
+                        fflush(stderr);
+                    }
                 }
             }
         }
@@ -349,9 +357,13 @@ void PreviewWidget::paintGL() {
         VkSemaphore sem   = VK_NULL_HANDLE;
         uint64_t    value = 0;
         VkImage result_target_image = VK_NULL_HANDLE;
-        VkSemaphore gl_sync_sem = (bridge_ && bridge_->get_gl_sync_semaphore() != VK_NULL_HANDLE)
-                                  ? bridge_->get_gl_sync_semaphore()
-                                  : VK_NULL_HANDLE;
+        // C7: commit the pool slot here so execute_copy signal and glWaitSemaphoreEXT use the same slot
+        uint32_t pool_idx = frame_counter_ % 3;
+        current_pool_idx_ = pool_idx;
+        frame_counter_++;
+        VkSemaphore gl_sync_sem = bridge_
+            ? bridge_->get_gl_sync_semaphore(pool_idx)
+            : VK_NULL_HANDLE;
         // B6: keyed mutex memory for D3D11↔Vulkan sync
         VkDeviceMemory staging_mem = bridge_
             ? bridge_->get_staging_memory_for_image(staging_vk)
@@ -368,9 +380,6 @@ void PreviewWidget::paintGL() {
 
         // v0.5.2: GL interop — import NT handle → GL texture (per-pool-slot)
         if (bridge_ && gl_target_image_ != VK_NULL_HANDLE && pfn_ImportMemoryWin32Handle_) {
-            uint32_t pool_idx = frame_counter_ % 3;  // round-robin: 0,1,2
-            current_pool_idx_ = pool_idx;
-            frame_counter_++;  // increment for next submit
             HANDLE nt_handle = bridge_->get_gl_target_handle(pool_idx);
             if (nt_handle) {
                 // Create GL memory object from Win32 handle if not yet created for this slot
@@ -437,9 +446,9 @@ void PreviewWidget::paintGL() {
     }
 
     // B5: GPU-side sync — wait for Vulkan blit to complete before GL reads the texture
-    if (use_gl_interop && pfn_WaitSemaphore_ && gl_sync_semaphore_) {
+    if (use_gl_interop && pfn_WaitSemaphore_ && gl_sync_semaphores_[current_pool_idx_]) {
         GLenum layout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
-        pfn_WaitSemaphore_(gl_sync_semaphore_, 0, nullptr,
+        pfn_WaitSemaphore_(gl_sync_semaphores_[current_pool_idx_], 0, nullptr,
                            1, &tex_to_use, &layout);
     }
 

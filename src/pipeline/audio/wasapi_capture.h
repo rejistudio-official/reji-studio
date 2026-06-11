@@ -139,7 +139,6 @@ private:
     void    convert_to_float(const BYTE* src, uint32_t frames, DWORD flags);
     void    detect_silence_and_jitter(uint32_t frames, DWORD flags, int64_t now_us);
     void    publish_metrics(int64_t now_us);
-    void    drain_commands_nonblocking();
     void    on_device_change(const char* reason);
     float   compute_cpu_percent() noexcept;   // GetProcessTimes delta tabanlı
 
@@ -177,9 +176,7 @@ private:
     // ---- hot-path scratch (sabit boyutlu, heap YOK) ----
     static constexpr uint32_t kMaxFrames   = 8192;
     static constexpr uint32_t kMaxChannels = 8;
-    static constexpr int      kCmdDrainMax = 8;
     alignas(64) float scratch_[kMaxFrames * kMaxChannels]{};
-    RjCommand cmd_buffer_[kCmdDrainMax]{};
 
     // ---- istatistik / sezgi ----
     std::atomic<uint32_t> overrun_count_{0};

@@ -66,10 +66,10 @@ class ExternalMemoryBridge {
     VkImage* out_target
   );
 
-  // B5: GL/Vulkan semaphore sync — create exportable binary semaphore for GL wait
-  bool    create_gl_sync_semaphore();
-  HANDLE  get_gl_sync_semaphore_handle() const;
-  VkSemaphore get_gl_sync_semaphore() const;
+  // B5/C7: GL/Vulkan semaphore sync — 3-slot binary semaphore pool (prevents re-signal)
+  bool        create_gl_sync_semaphore();
+  HANDLE      get_gl_sync_semaphore_handle(uint32_t slot) const;
+  VkSemaphore get_gl_sync_semaphore(uint32_t slot) const;
 
   // B6: Return the VkDeviceMemory imported from D3D11 for the given VkImage.
   // Used to build VkWin32KeyedMutexAcquireReleaseInfoKHR in execute_copy().
@@ -99,9 +99,9 @@ class ExternalMemoryBridge {
   std::vector<VkDeviceMemory> gl_target_memory_;
   HANDLE                      gl_target_handles_[POOL_SIZE]{};
 
-  // B5: GL/Vulkan semaphore sync
-  VkSemaphore gl_sync_semaphore_        = VK_NULL_HANDLE;
-  HANDLE      gl_sync_semaphore_handle_ = nullptr;
+  // B5/C7: GL/Vulkan semaphore sync — 3-slot pool (round-robin, no re-signal)
+  VkSemaphore gl_sync_sem_pool_[3]    = {};
+  HANDLE      gl_sync_sem_handles_[3] = {};
 
   // B16: GL-side memory object cleanup (call before NT handle close)
   PFN_glDeleteMemoryObjects pfn_delete_memory_objects_ = nullptr;
