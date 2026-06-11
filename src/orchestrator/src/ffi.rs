@@ -10,6 +10,7 @@ use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossbeam::queue::ArrayQueue;
@@ -71,6 +72,7 @@ struct FfiState {
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
+static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
 
 fn now_us() -> u64 {
     SystemTime::now()
@@ -363,30 +365,17 @@ pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
     })
 }
 
-/// v0.4+: Set healing mode
-/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+/// v0.4+: Set healing mode (0=AutoPilot, 1=CoPilot, 2=Manual)
 #[no_mangle]
-pub extern "C" fn rj_set_healing_mode(_mode: u32) -> i32 {
-    catch_unwind(AssertUnwindSafe(|| {
-        1  // TODO: Implement healing mode setting
-    }))
-    .unwrap_or_else(|_| {
-        eprintln!("[PANIC] rj_set_healing_mode caught panic");
-        0
-    })
+pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
+    HEALING_MODE.store(mode, Ordering::SeqCst);
+    true
 }
 
-/// v0.4+: Get current healing mode
-/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+/// v0.4+: Get current healing mode (0=AutoPilot, 1=CoPilot, 2=Manual)
 #[no_mangle]
-pub extern "C" fn rj_get_healing_mode() -> i32 {
-    catch_unwind(AssertUnwindSafe(|| {
-        0  // RJ_MODE_AUTO_PILOT (default)
-    }))
-    .unwrap_or_else(|_| {
-        eprintln!("[PANIC] rj_get_healing_mode caught panic");
-        0
-    })
+pub extern "C" fn rj_get_healing_mode() -> u32 {
+    HEALING_MODE.load(Ordering::SeqCst)
 }
 
 /// Reload rules from file (async hot-reload)
@@ -538,6 +527,23 @@ mod tests {
         let mut action = RjAction { id: 0, action_type: RjActionType::BitrateReduce, param1: 0, param2: 0, canary: 0 };
         let _ = rj_action_dequeue(&mut action as *mut _);
         let _ = rj_action_dequeue(&mut action as *mut _); // Repeated call safe
+    }
+
+    #[test]
+    fn test_healing_mode_roundtrip() {
+        // AtomicU32 store/load doğruluğu
+        assert!(rj_set_healing_mode(0));
+        assert_eq!(rj_get_healing_mode(), 0);
+
+        assert!(rj_set_healing_mode(1));
+        assert_eq!(rj_get_healing_mode(), 1);
+
+        assert!(rj_set_healing_mode(2));
+        assert_eq!(rj_get_healing_mode(), 2);
+
+        // Sıfırlamayı doğrula
+        assert!(rj_set_healing_mode(0));
+        assert_eq!(rj_get_healing_mode(), 0);
     }
 
     #[test]
