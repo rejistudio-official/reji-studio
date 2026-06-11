@@ -67,6 +67,14 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         fprintf(stderr, "[GpuCopyOptimizer] vkCreateSemaphore: timeline_semaphore_=%p\n",
                 (void*)timeline_semaphore_);
 
+        // C7: Create 3-slot binary semaphore pool for GL sync
+        VkSemaphoreCreateInfo bin_sem_info{};
+        bin_sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        for (int i = 0; i < 3; ++i) {
+            CHECK_VK(vkCreateSemaphore(device_, &bin_sem_info, nullptr, &gl_sync_sem_pool_[i]));
+        }
+        fprintf(stderr, "[GpuCopyOptimizer] gl_sync_sem_pool: 3 binary semaphores created\n");
+
         // Resolve extension function pointer (must happen after device creation).
         // vkGetSemaphoreCounterValueKHR is NOT part of the Vulkan 1.0 core API
         // (it's from VK_KHR_timeline_semaphore); direct linking will fail at
@@ -155,31 +163,33 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;  // Buffer reused/pending
         CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
 
-        // ========== LAYOUT TRANSITION 1: Staging GENERAL → TRANSFER_SRC ==========
-        // Staging image may have D3D11 writes from external source (synchronized via semaphore)
-        // srcStage = ALL_GRAPHICS_BIT covers potential shader/transfer writes from D3D11
+        // ========== LAYOUT TRANSITION 1: Staging → TRANSFER_SRC ==========
+        // C3: oldLayout tracks actual state (UNDEFINED first call, TRANSFER_SRC after)
+        // C4: srcStageMask=TRANSFER_BIT (ALL_GRAPHICS + TRANSFER_WRITE was spec-invalid)
+        // D3D11 write ordering is provided by the keyed mutex acquire below, not this barrier.
         VkImageMemoryBarrier barrier_staging = {};
         barrier_staging.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier_staging.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier_staging.oldLayout = staging_layout_;
         barrier_staging.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier_staging.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier_staging.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier_staging.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         barrier_staging.image = d3d11_staging_vk;
         barrier_staging.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         vkCmdPipelineBarrier(command_buffer_,
-                              VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
+        staging_layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
-        // ========== LAYOUT TRANSITION 2: Target GENERAL → TRANSFER_DST ==========
-        // Target image starts clean (no pending writes), so srcStage can be TOP_OF_PIPE
-        // but srcAccessMask must be 0 since TOP_OF_PIPE supports no access flags
+        // ========== LAYOUT TRANSITION 2: Target → TRANSFER_DST ==========
+        // C3: oldLayout tracks actual state (UNDEFINED first call, SHADER_READ_ONLY after)
+        // Previous submit is waited on (timeline semaphore above), so TOP_OF_PIPE is safe.
         VkImageMemoryBarrier barrier_target = {};
         barrier_target.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier_target.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier_target.oldLayout = target_layout_;
         barrier_target.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier_target.srcAccessMask = 0;  // TOP_OF_PIPE supports no access flags
+        barrier_target.srcAccessMask = 0;
         barrier_target.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier_target.image = vulkan_target;
         barrier_target.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -221,6 +231,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_final);
+        target_layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         // End command buffer
         CHECK_VK(vkEndCommandBuffer(command_buffer_));
@@ -230,11 +241,19 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         timeline_counter_ += FRAME_INCREMENT;
         signal_value_for_submit_ = timeline_counter_;
 
-        bool has_gl_sync = (gl_sync_sem != VK_NULL_HANDLE);
+        // C7: Round-robin slot — prevents re-signaling the same binary semaphore
+        // before GL has consumed the previous signal (Vulkan spec violation).
+        uint32_t    gl_slot       = frame_counter_ % 3;
+        VkSemaphore active_gl_sem = (gl_sync_sem != VK_NULL_HANDLE)
+            ? gl_sync_sem
+            : gl_sync_sem_pool_[gl_slot];
+        ++frame_counter_;
+
+        bool has_gl_sync = (active_gl_sem != VK_NULL_HANDLE);
         uint32_t sem_count = has_gl_sync ? 2u : 1u;
 
         signal_semaphores_[0] = timeline_semaphore_;
-        signal_semaphores_[1] = gl_sync_sem;       // VK_NULL_HANDLE when unused
+        signal_semaphores_[1] = active_gl_sem;     // pool slot, VK_NULL_HANDLE when unused
         signal_values_[0]     = signal_value_for_submit_;
         signal_values_[1]     = 0;                 // binary semaphore: value ignored
 
@@ -290,6 +309,11 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
     }
 }
 
+VkSemaphore GpuCopyOptimizer::current_gl_sync_semaphore() const noexcept {
+    if (frame_counter_ == 0) return VK_NULL_HANDLE;
+    return gl_sync_sem_pool_[(frame_counter_ - 1) % 3];
+}
+
 bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value) {
     if (!device_ || !pfn_wait_semaphores_ || timeline_semaphore == VK_NULL_HANDLE) {
         return false;
@@ -326,6 +350,14 @@ void GpuCopyOptimizer::shutdown() {
                 vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
                 timeline_semaphore_ = VK_NULL_HANDLE;
             }
+            // C7: Destroy binary semaphore pool
+            for (int i = 0; i < 3; ++i) {
+                if (gl_sync_sem_pool_[i] != VK_NULL_HANDLE) {
+                    vkDestroySemaphore(device_, gl_sync_sem_pool_[i], nullptr);
+                    gl_sync_sem_pool_[i] = VK_NULL_HANDLE;
+                }
+            }
+            frame_counter_ = 0;
             if (command_buffer_ != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
                 vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer_);
                 command_buffer_ = VK_NULL_HANDLE;

@@ -3,18 +3,48 @@
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
-/// Anlık metrik snapshot — C++ tarafından ring buffer üzerinden gelir
+/// Anlık metrik snapshot — C++ RjMetricSample ile birebir ABI uyumlu (#[repr(C)], 56 byte)
+///
+/// C++ layout (ffi_bridge.h):
+///   +0   magic_head:       u32
+///   [+4  implicit padding for u64 alignment]
+///   +8   timestamp_us:     u64
+///   +16  bitrate_kbps:     u32
+///   +20  fps_actual:       f32
+///   +24  cpu_percent:      f32
+///   +28  frame_drops:      u32
+///   +32  frame_drop_pct:   u32   [0, 100]
+///   +36  gpu_temp_c:       i16
+///   +38  cpu_temp_c:       i16
+///   +40  memory_usage_pct: u32   [0, 100]
+///   +44  cpu_load_pct:     u32   [0, 100]
+///   +48  network_rtt_ms:   u16
+///   +50  network_loss_pct: u8    [0, 100]
+///   +51  _reserved:        u8
+///   +52  magic_tail:       u32
+///   = 56 bytes
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MetricSample {
-    pub magic_head:   u32,
-    pub timestamp_us: u64,
-    pub bitrate_kbps: u32,
-    pub fps_actual:   f32,
-    pub cpu_percent:  f32,
-    pub frame_drops:  u32,
-    pub magic_tail:   u32,
+    pub magic_head:       u32,
+    pub timestamp_us:     u64,    // +8 (4-byte implicit padding before this)
+    pub bitrate_kbps:     u32,
+    pub fps_actual:       f32,
+    pub cpu_percent:      f32,
+    pub frame_drops:      u32,
+    pub frame_drop_pct:   u32,
+    pub gpu_temp_c:       i16,
+    pub cpu_temp_c:       i16,
+    pub memory_usage_pct: u32,
+    pub cpu_load_pct:     u32,
+    pub network_rtt_ms:   u16,
+    pub network_loss_pct: u8,
+    pub _reserved:        u8,
+    pub magic_tail:       u32,
 }
+
+const _: () = assert!(core::mem::size_of::<MetricSample>() == 56);
+const _: () = assert!(core::mem::offset_of!(MetricSample, magic_tail) == 52);
 
 impl MetricSample {
     pub const MAGIC: u32 = 0xEEFF1234;
@@ -88,18 +118,36 @@ impl Default for MetricState {
 mod tests {
     use super::*;
 
+    fn valid_sample() -> MetricSample {
+        MetricSample {
+            magic_head:       MetricSample::MAGIC,
+            timestamp_us:     1_000_000,
+            bitrate_kbps:     6000,
+            fps_actual:       59.97,
+            cpu_percent:      32.5,
+            frame_drops:      0,
+            frame_drop_pct:   0,
+            gpu_temp_c:       65,
+            cpu_temp_c:       55,
+            memory_usage_pct: 40,
+            cpu_load_pct:     32,
+            network_rtt_ms:   15,
+            network_loss_pct: 0,
+            _reserved:        0,
+            magic_tail:       MetricSample::MAGIC,
+        }
+    }
+
+    #[test]
+    fn test_metric_sample_size() {
+        assert_eq!(core::mem::size_of::<MetricSample>(), 56);
+        assert_eq!(core::mem::offset_of!(MetricSample, magic_tail), 52);
+    }
+
     #[test]
     fn test_metric_state_update() {
         let state = MetricState::new();
-        let sample = MetricSample {
-            magic_head:   MetricSample::MAGIC,
-            timestamp_us: 1000000,
-            bitrate_kbps: 6000,
-            fps_actual:   59.97,
-            cpu_percent:  32.5,
-            frame_drops:  0,
-            magic_tail:   MetricSample::MAGIC,
-        };
+        let sample = valid_sample();
         assert!(sample.is_valid());
         state.update(&sample);
         assert_eq!(state.bitrate(), 6000);
@@ -109,17 +157,13 @@ mod tests {
 
     #[test]
     fn test_canary_validation() {
-        let mut sample = MetricSample {
-            magic_head:   MetricSample::MAGIC,
-            timestamp_us: 0,
-            bitrate_kbps: 0,
-            fps_actual:   0.0,
-            cpu_percent:  0.0,
-            frame_drops:  0,
-            magic_tail:   MetricSample::MAGIC,
-        };
+        let mut sample = valid_sample();
         assert!(sample.is_valid());
         sample.magic_head = 0xDEADBEEF;
         assert!(!sample.is_valid());
+
+        let mut sample2 = valid_sample();
+        sample2.magic_tail = 0xDEADBEEF;
+        assert!(!sample2.is_valid());
     }
 }

@@ -37,6 +37,9 @@ public:
     // Check if copy is ready (non-blocking poll)
     bool is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value);
 
+    // C7: Returns the binary semaphore signaled in the last execute_copy call (GL waits on this)
+    VkSemaphore current_gl_sync_semaphore() const noexcept;
+
     // Shutdown and cleanup
     void shutdown();
 
@@ -56,6 +59,14 @@ private:
 
     VkSemaphore timeline_semaphore_ = VK_NULL_HANDLE;
     uint64_t timeline_counter_ = 0;
+
+    // C7: 3-slot binary semaphore pool — round-robin avoids re-signaling before GL consumes
+    VkSemaphore gl_sync_sem_pool_[3] = {};
+    uint32_t    frame_counter_        = 0;
+
+    // C3: Per-image layout tracking — initialized UNDEFINED, updated after each transition
+    VkImageLayout staging_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImageLayout target_layout_  = VK_IMAGE_LAYOUT_UNDEFINED;
     uint64_t signal_value_for_submit_ = 0;  // Must persist for async vkQueueSubmit (not stack-local)
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info_ = {};  // Must persist (submit_info.pNext)
     VkSubmitInfo submit_info_ = {};  // Must persist for reuse

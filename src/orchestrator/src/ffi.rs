@@ -466,13 +466,21 @@ mod tests {
     fn test_push_valid_sample_does_not_crash() {
         rj_start_monitor();
         let sample = MetricSample {
-            magic_head:   MetricSample::MAGIC,
-            timestamp_us: 1_000_000,
-            bitrate_kbps: 6000,
-            fps_actual:   60.0,
-            cpu_percent:  40.0,
-            frame_drops:  0,
-            magic_tail:   MetricSample::MAGIC,
+            magic_head:       MetricSample::MAGIC,
+            timestamp_us:     1_000_000,
+            bitrate_kbps:     6000,
+            fps_actual:       60.0,
+            cpu_percent:      40.0,
+            frame_drops:      0,
+            frame_drop_pct:   0,
+            gpu_temp_c:       0,
+            cpu_temp_c:       0,
+            memory_usage_pct: 0,
+            cpu_load_pct:     40,
+            network_rtt_ms:   0,
+            network_loss_pct: 0,
+            _reserved:        0,
+            magic_tail:       MetricSample::MAGIC,
         };
         rj_metrics_push(&sample as *const _);
     }

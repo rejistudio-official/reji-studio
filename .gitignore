@@ -33,3 +33,6 @@ repo_snapshot.txt
 /pipeline.cpp
 fix_*.*
 .aider*
+
+# cbindgen otomatik üretilen C header
+src/ffi/ffi_auto.h
