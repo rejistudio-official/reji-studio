@@ -171,6 +171,12 @@ bool GpuResourceManager::init(
     // Referans: docs/FABLE5_BUG_PLAN.md B6, B11
     same_adapter_ = true;
 
+    // C9: same-adapter → encode_gpu_ must share the display device so that
+    // encode_tex_ (created on display_gpu_) and CopyResource are on the same D3D11 context.
+    if (same_adapter_) {
+        encode_gpu_ = display_gpu_;
+    }
+
     bool ok = same_adapter_
         ? create_same_adapter_staging(width, height, format)
         : create_cross_adapter_shared(width, height, format);

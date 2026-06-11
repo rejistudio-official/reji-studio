@@ -4,6 +4,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <vulkan/vulkan_win32.h>
+#include <dxgi1_2.h>
+#include <wrl/client.h>
 #else
 // Mock mode: define extension names as string constants
 #define VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME        "VK_KHR_external_memory_win32"
@@ -14,8 +16,10 @@
 #endif
 
 #include <vector>
+#include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 
 namespace rj::pipeline::gpu {
 
@@ -105,20 +109,49 @@ bool VulkanInitializer::create_instance() {
   app_info.engineVersion = VK_MAKE_VERSION(0, 5, 0);
   app_info.apiVersion = VK_API_VERSION_1_3;
 
-// v0.5.2: Enable validation layers for ALL builds (debug + release)
-// VK_ERROR_DEVICE_LOST requires validation layer diagnostics
-const char* layers[] = {"VK_LAYER_KHRONOS_validation"};
-uint32_t layer_count = 1;
-const char* extensions[] = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
-uint32_t ext_count = 1;
+  // Validation layer: debug builds always, release only if env var set
+  std::vector<const char*> req_layers;
+#ifdef NDEBUG
+  if (getenv("RJ_ENABLE_VULKAN_VALIDATION")) {
+    req_layers.push_back("VK_LAYER_KHRONOS_validation");
+  }
+#else
+  req_layers.push_back("VK_LAYER_KHRONOS_validation");
+#endif
+
+  // Remove layers not present on this system (prevents VK_ERROR_LAYER_NOT_PRESENT)
+  {
+    uint32_t avail_count = 0;
+    vkEnumerateInstanceLayerProperties(&avail_count, nullptr);
+    std::vector<VkLayerProperties> avail(avail_count);
+    vkEnumerateInstanceLayerProperties(&avail_count, avail.data());
+    req_layers.erase(
+      std::remove_if(req_layers.begin(), req_layers.end(),
+        [&](const char* name) {
+          bool found = std::any_of(avail.begin(), avail.end(),
+            [&](const VkLayerProperties& p) {
+              return strcmp(p.layerName, name) == 0;
+            });
+          if (!found)
+            fprintf(stderr, "[Vulkan] Layer %s not found, skipping\n", name);
+          return !found;
+        }),
+      req_layers.end());
+  }
+
+  // Debug utils extension only needed when validation layer is active
+  std::vector<const char*> req_extensions;
+  if (!req_layers.empty()) {
+    req_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
 
   VkInstanceCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
   create_info.pApplicationInfo = &app_info;
-  create_info.enabledLayerCount = layer_count;
-  create_info.ppEnabledLayerNames = layers;
-  create_info.enabledExtensionCount = ext_count;
-  create_info.ppEnabledExtensionNames = extensions;
+  create_info.enabledLayerCount     = static_cast<uint32_t>(req_layers.size());
+  create_info.ppEnabledLayerNames   = req_layers.empty() ? nullptr : req_layers.data();
+  create_info.enabledExtensionCount = static_cast<uint32_t>(req_extensions.size());
+  create_info.ppEnabledExtensionNames = req_extensions.empty() ? nullptr : req_extensions.data();
 
   VkResult result = vkCreateInstance(&create_info, nullptr, &instance_);
   if (result != VK_SUCCESS) {
@@ -156,35 +189,94 @@ uint32_t ext_count = 1;
 bool VulkanInitializer::select_device() {
   uint32_t device_count = 0;
   vkEnumeratePhysicalDevices(instance_, &device_count, nullptr);
-
   if (device_count == 0) {
     fprintf(stderr, "[Vulkan] No physical devices found\n");
     fflush(stderr);
     return false;
   }
-
   std::vector<VkPhysicalDevice> devices(device_count);
   vkEnumeratePhysicalDevices(instance_, &device_count, devices.data());
 
-  for (const auto& dev : devices) {
-    VkPhysicalDeviceProperties props;
-    vkGetPhysicalDeviceProperties(dev, &props);
+#ifndef REJI_VULKAN_MOCK
+  // C8: Discover display adapter LUID via DXGI (AMD iGPU — DXGI Duplication runs there).
+  // Matching prevents selecting NVIDIA when it has a graphics queue and enumerates first.
+  LUID display_luid{};
+  bool have_luid = false;
+  {
+    Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
+      Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+      for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+        DXGI_ADAPTER_DESC1 desc{};
+        adapter->GetDesc1(&desc);
+        if (desc.VendorId == 0x1002) {
+          display_luid = desc.AdapterLuid;
+          have_luid    = true;
+          fprintf(stderr, "[Vulkan] DXGI display adapter LUID: %08lX:%08lX (AMD)\n",
+                  display_luid.HighPart, display_luid.LowPart);
+          fflush(stderr);
+          break;
+        }
+        adapter.Reset();
+      }
+    }
+  }
+#endif
 
-    uint32_t queue_count = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(dev, &queue_count, nullptr);
-
-    std::vector<VkQueueFamilyProperties> queue_props(queue_count);
-    vkGetPhysicalDeviceQueueFamilyProperties(dev, &queue_count, queue_props.data());
-
-    for (uint32_t i = 0; i < queue_count; ++i) {
-      if (queue_props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-        physical_device_ = dev;
+  // Queue selection helper — sets physical_device_ + graphics_queue_family_.
+  auto try_select_queue = [&](VkPhysicalDevice dev) -> bool {
+    uint32_t qc = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(dev, &qc, nullptr);
+    std::vector<VkQueueFamilyProperties> qp(qc);
+    vkGetPhysicalDeviceQueueFamilyProperties(dev, &qc, qp.data());
+    for (uint32_t i = 0; i < qc; ++i) {
+      if (qp[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+        physical_device_       = dev;
         graphics_queue_family_ = i;
-        vendor_id_ = props.deviceID;
-        fprintf(stderr, "[Vulkan] Selected device: %s\n", props.deviceName);
+        return true;
+      }
+    }
+    return false;
+  };
+
+#ifndef REJI_VULKAN_MOCK
+  // C8: First pass — prefer the device whose LUID matches the DXGI display adapter.
+  if (have_luid) {
+    for (const auto& dev : devices) {
+      VkPhysicalDeviceIDProperties id_props{};
+      id_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+      VkPhysicalDeviceProperties2 props2{};
+      props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+      props2.pNext = &id_props;
+      vkGetPhysicalDeviceProperties2(dev, &props2);
+
+      if (id_props.deviceLUIDValid &&
+          memcmp(id_props.deviceLUID, &display_luid, VK_LUID_SIZE) == 0 &&
+          try_select_queue(dev)) {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(dev, &props);
+        vendor_id_ = props.vendorID;
+        fprintf(stderr, "[Vulkan] Selected device (LUID match): %s (vendor: 0x%04x)\n",
+                props.deviceName, vendor_id_);
         fflush(stderr);
         return true;
       }
+    }
+    fprintf(stderr, "[Vulkan] LUID match failed — falling back to first graphics device\n");
+    fflush(stderr);
+  }
+#endif
+
+  // Fallback: first device with a graphics queue.
+  for (const auto& dev : devices) {
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(dev, &props);
+    if (try_select_queue(dev)) {
+      vendor_id_ = props.vendorID;
+      fprintf(stderr, "[Vulkan] Selected device (fallback): %s (vendor: 0x%04x)\n",
+              props.deviceName, vendor_id_);
+      fflush(stderr);
+      return true;
     }
   }
 
