@@ -783,6 +783,13 @@ rj::pipeline::gpu::ExternalMemoryBridge* Pipeline::get_external_memory_bridge() 
 
 // v0.4+: Action processor thread main loop
 void Pipeline::action_processor_main() {
+    // D14: COM init once at thread start — required for WMI/DXGI calls on this thread
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+        fprintf(stderr, "[Pipeline] COM init failed: 0x%08X\n", hr);
+        fflush(stderr);
+    }
+
     while (impl_->action_processor_running.load(std::memory_order_acquire)) {
         RjAction action{};
         // Poll rj_action_dequeue (FFI call) — non-blocking, returns false if queue empty
@@ -793,6 +800,8 @@ void Pipeline::action_processor_main() {
         Sleep(5);  // 5ms poll interval
     }
     dbglog("[Pipeline] action processor stopped");
+
+    CoUninitialize();  // D14: paired with CoInitializeEx above
 }
 
 // v0.4+: Apply a single action from the rule engine.
