@@ -2,6 +2,17 @@
 
 #include <vulkan/vulkan.h>
 #include <cstdint>
+#include <array>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#ifndef VK_USE_PLATFORM_WIN32_KHR
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
+#include <vulkan/vulkan_win32.h>
+#endif
 
 class GpuResourceManager;  // Forward declare
 
@@ -64,9 +75,10 @@ private:
     VkSemaphore gl_sync_sem_pool_[3] = {};
     uint32_t    frame_counter_        = 0;
 
-    // C3: Per-image layout tracking — initialized UNDEFINED, updated after each transition
-    VkImageLayout staging_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
-    VkImageLayout target_layout_  = VK_IMAGE_LAYOUT_UNDEFINED;
+    // D2: Per-slot layout tracking — staging always UNDEFINED (D3D11 externally written each frame)
+    static constexpr uint32_t POOL_SIZE = 3;
+    std::array<VkImageLayout, POOL_SIZE> staging_layouts_{};  // always UNDEFINED; D3D11 owns between frames
+    std::array<VkImageLayout, POOL_SIZE> target_layouts_{};   // UNDEFINED → SHADER_READ_ONLY per slot
     uint64_t signal_value_for_submit_ = 0;  // Must persist for async vkQueueSubmit (not stack-local)
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info_ = {};  // Must persist (submit_info.pNext)
     VkSubmitInfo submit_info_ = {};  // Must persist for reuse
@@ -74,6 +86,14 @@ private:
     VkSemaphore signal_semaphores_[2] = {};
     uint64_t    signal_values_[2]     = {};
     static constexpr uint64_t FRAME_INCREMENT = 1;
+#ifdef _WIN32
+    // D3: Keyed mutex info as member — pointers into these fields must outlive vkQueueSubmit
+    VkWin32KeyedMutexAcquireReleaseInfoKHR keyed_mutex_info_ = {};
+    uint64_t       km_acquire_key_ = 1;
+    uint64_t       km_release_key_ = 0;
+    uint32_t       km_timeout_     = UINT32_MAX;
+    VkDeviceMemory km_memory_      = VK_NULL_HANDLE;
+#endif
 
     // Extension function pointers (loaded once in init()).
     // Both resolved via vkGetDeviceProcAddr rather than called directly.

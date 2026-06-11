@@ -138,6 +138,10 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             return false;
         }
 
+        // D2/D3: Compute round-robin slot once — shared by layout tracking, GL semaphore, keyed mutex.
+        // frame_counter_ incremented after use (at submit time).
+        const uint32_t slot = frame_counter_ % POOL_SIZE;
+
         // Wait for previous submit to complete before reusing the command buffer.
         // signal_value_for_submit_ holds the timeline value from the last submit.
         // Typically a no-op (GPU finishes well within the frame interval).
@@ -164,12 +168,12 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
 
         // ========== LAYOUT TRANSITION 1: Staging → TRANSFER_SRC ==========
-        // C3: oldLayout tracks actual state (UNDEFINED first call, TRANSFER_SRC after)
+        // D2: staging oldLayout always UNDEFINED — D3D11 externally writes this image each frame
+        //     via keyed mutex, so Vulkan cannot track its layout between frames.
         // C4: srcStageMask=TRANSFER_BIT (ALL_GRAPHICS + TRANSFER_WRITE was spec-invalid)
-        // D3D11 write ordering is provided by the keyed mutex acquire below, not this barrier.
         VkImageMemoryBarrier barrier_staging = {};
         barrier_staging.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier_staging.oldLayout = staging_layout_;
+        barrier_staging.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;  // D3D11 externally written
         barrier_staging.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         barrier_staging.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier_staging.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -180,14 +184,14 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
-        staging_layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        // staging_layouts_[slot] stays UNDEFINED — D3D11 retakes image after keyed mutex release
 
         // ========== LAYOUT TRANSITION 2: Target → TRANSFER_DST ==========
-        // C3: oldLayout tracks actual state (UNDEFINED first call, SHADER_READ_ONLY after)
+        // D2: per-slot target layout tracking (UNDEFINED on first use, SHADER_READ_ONLY after)
         // Previous submit is waited on (timeline semaphore above), so TOP_OF_PIPE is safe.
         VkImageMemoryBarrier barrier_target = {};
         barrier_target.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier_target.oldLayout = target_layout_;
+        barrier_target.oldLayout = target_layouts_[slot];
         barrier_target.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier_target.srcAccessMask = 0;
         barrier_target.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -231,7 +235,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_final);
-        target_layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        target_layouts_[slot] = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // D2: per-slot tracking
 
         // End command buffer
         CHECK_VK(vkEndCommandBuffer(command_buffer_));
@@ -241,12 +245,10 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         timeline_counter_ += FRAME_INCREMENT;
         signal_value_for_submit_ = timeline_counter_;
 
-        // C7: Round-robin slot — prevents re-signaling the same binary semaphore
-        // before GL has consumed the previous signal (Vulkan spec violation).
-        uint32_t    gl_slot       = frame_counter_ % 3;
+        // C7: Round-robin slot — uses same slot computed above for layout tracking.
         VkSemaphore active_gl_sem = (gl_sync_sem != VK_NULL_HANDLE)
             ? gl_sync_sem
-            : gl_sync_sem_pool_[gl_slot];
+            : gl_sync_sem_pool_[slot];
         ++frame_counter_;
 
         bool has_gl_sync = (active_gl_sem != VK_NULL_HANDLE);
@@ -262,24 +264,23 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         timeline_submit_info_.signalSemaphoreValueCount = sem_count;
         timeline_submit_info_.pSignalSemaphoreValues    = signal_values_;
 
-        // B6: Chain keyed mutex acquire/release when D3D11 memory is provided.
-        // Acquire key=1 (D3D11 released with ReleaseSync(1)), release key=0 (D3D11 can re-acquire).
-        VkWin32KeyedMutexAcquireReleaseInfoKHR keyed_mutex_info{};
-        uint64_t km_acquire_key  = 1;
-        uint64_t km_release_key  = 0;
-        uint32_t km_timeout      = UINT32_MAX;
-        bool     has_keyed_mutex = (d3d11_staging_memory != VK_NULL_HANDLE);
+        // B6/D3: Chain keyed mutex acquire/release when D3D11 memory is provided.
+        // D3: Store memory handle and struct as member fields — pAcquireSyncs/pReleaseSyncs
+        //     point into members so pointers remain valid past async vkQueueSubmit.
+        km_memory_ = d3d11_staging_memory;
+        bool has_keyed_mutex = (km_memory_ != VK_NULL_HANDLE);
         if (has_keyed_mutex) {
-            keyed_mutex_info.sType            = VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR;
-            keyed_mutex_info.pNext            = nullptr;
-            keyed_mutex_info.acquireCount     = 1;
-            keyed_mutex_info.pAcquireSyncs    = &d3d11_staging_memory;
-            keyed_mutex_info.pAcquireKeys     = &km_acquire_key;
-            keyed_mutex_info.pAcquireTimeouts = &km_timeout;
-            keyed_mutex_info.releaseCount     = 1;
-            keyed_mutex_info.pReleaseSyncs    = &d3d11_staging_memory;
-            keyed_mutex_info.pReleaseKeys     = &km_release_key;
-            timeline_submit_info_.pNext       = &keyed_mutex_info;
+            keyed_mutex_info_ = {};
+            keyed_mutex_info_.sType            = VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR;
+            keyed_mutex_info_.pNext            = nullptr;
+            keyed_mutex_info_.acquireCount     = 1;
+            keyed_mutex_info_.pAcquireSyncs    = &km_memory_;
+            keyed_mutex_info_.pAcquireKeys     = &km_acquire_key_;
+            keyed_mutex_info_.pAcquireTimeouts = &km_timeout_;
+            keyed_mutex_info_.releaseCount     = 1;
+            keyed_mutex_info_.pReleaseSyncs    = &km_memory_;
+            keyed_mutex_info_.pReleaseKeys     = &km_release_key_;
+            timeline_submit_info_.pNext        = &keyed_mutex_info_;
         } else {
             timeline_submit_info_.pNext = nullptr;
         }
@@ -346,6 +347,19 @@ void GpuCopyOptimizer::shutdown() {
     __try {
         device_null = (!device_);
         if (!device_null) {
+            // D4: Wait for last submitted GPU work before destroying semaphores (5s timeout)
+            if (signal_value_for_submit_ > 0 && pfn_wait_semaphores_ &&
+                timeline_semaphore_ != VK_NULL_HANDLE) {
+                VkSemaphoreWaitInfo wait_info{};
+                wait_info.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+                wait_info.semaphoreCount = 1;
+                wait_info.pSemaphores    = &timeline_semaphore_;
+                wait_info.pValues        = &signal_value_for_submit_;
+                constexpr uint64_t TIMEOUT_5S = 5'000'000'000ULL;
+                VkResult wr = pfn_wait_semaphores_(device_, &wait_info, TIMEOUT_5S);
+                if (wr != VK_SUCCESS)
+                    fprintf(stderr, "[GpuCopyOptimizer] shutdown: GPU idle wait timed out (0x%x)\n", wr);
+            }
             if (timeline_semaphore_ != VK_NULL_HANDLE) {
                 vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
                 timeline_semaphore_ = VK_NULL_HANDLE;

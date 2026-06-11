@@ -494,6 +494,9 @@ VkDeviceMemory ExternalMemoryBridge::get_staging_memory_for_image(VkImage img) c
 void ExternalMemoryBridge::shutdown() {
   if (!device_) return;  // B10: guard against double-shutdown or null device
 
+  // D4: Drain all in-flight GPU work before releasing Vulkan resources
+  vkDeviceWaitIdle(device_);
+
   // Staging pool memory
   for (auto mem : pool_memory_) {
     if (mem) {

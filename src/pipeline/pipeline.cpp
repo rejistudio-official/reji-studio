@@ -574,6 +574,10 @@ bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device
             (uint32_t)impl_->cfg.width,
             (uint32_t)impl_->cfg.height
         );
+        if (!impl_->ext_bridge->create_gl_sync_semaphore()) {
+            fprintf(stderr, "[Pipeline] GL sync semaphore oluşturulamadı\n");
+            fflush(stderr);
+        }
     }
     return true;
 }
