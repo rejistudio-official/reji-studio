@@ -120,6 +120,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
 MainWindow::~MainWindow() {
     saveWindowState();
+    stopFrameThread();
+}
+
+void MainWindow::stopFrameThread() {
+    if (frame_thread_ && frame_thread_->isRunning()) {
+        frame_thread_->requestInterruption();
+        if (!frame_thread_->wait(5000)) {
+            fprintf(stderr, "[MainWindow] Frame thread 5s timeout\n");
+            fflush(stderr);
+        }
+    }
 }
 
 bool MainWindow::initPipeline(const rj::Pipeline::Config& cfg) {
@@ -470,13 +481,7 @@ void MainWindow::onHealingNotification(const QString& message) {
 // ---------------------------------------------------------------------------
 void MainWindow::closeEvent(QCloseEvent* ev) {
     saveWindowState();
-    if (frame_thread_ && frame_thread_->isRunning()) {
-        frame_thread_->requestInterruption();
-        if (!frame_thread_->wait(5000)) {
-            frame_thread_->terminate();
-            frame_thread_->wait(1000);
-        }
-    }
+    stopFrameThread();
     ev->accept();
 }
 

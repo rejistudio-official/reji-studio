@@ -94,6 +94,7 @@ private:
     void buildStatusBar();
     void saveWindowState();
     void loadWindowState();
+    void stopFrameThread();
 
     // ── Video monitors ─────────────────────────────────────────────────────
     reji::PreviewWidget* preview_widget_{nullptr};
