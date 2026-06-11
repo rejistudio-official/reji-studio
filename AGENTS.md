@@ -309,6 +309,27 @@ Uzun baÄŸlam model performansÄ±nÄ± dÃ¼ÅŸÃ¼rÃ¼r. Yeni pencerede:
 
 ---
 
+## Vulkan/D3D11 Geliştirme Kuralları
+
+### Yeni Vulkan özelliği eklenirken zorunlu:
+- Vulkan spec VUID listesi okunmalı
+- validation layer aktifken test edilmeli
+- docs/vulkan-sync-diagram.md güncellenmeli
+
+### Zorunlu okuma listesi (bir kez):
+- VK_KHR_external_memory_win32 spec
+- VK_KHR_external_semaphore_win32 spec
+- VK_KHR_win32_keyed_mutex spec
+- VkImageMemoryBarrier oldLayout/newLayout kuralları
+- VK_QUEUE_FAMILY_EXTERNAL semantiği
+
+### Her PR öncesi kontrol:
+- type err.log | findstr "VUID" → boş olmalı
+- cargo test → 100% pass
+- sizeof_check.cpp → pass
+
+---
+
 ## Oturum Başlangıcı
 
 Her oturum başında şu dosyaları oku:
