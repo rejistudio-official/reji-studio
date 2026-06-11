@@ -355,66 +355,77 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
 }
 
 void GpuCopyOptimizer::shutdown() {
-    bool device_null = false;
-    bool seh_fired   = false;
-    DWORD seh_code   = 0;
+    if (!device_) {
+        fprintf(stderr, "[GpuCopyOptimizer] Device is null, skipping shutdown\n");
+        fflush(stderr);
+        return;
+    }
+
+    bool seh_fired      = false;
+    DWORD seh_code      = 0;
+    bool wait_timed_out = false;
+
     __try {
-        device_null = (!device_);
-        if (!device_null) {
-            // D4: Wait for last submitted GPU work before destroying semaphores (5s timeout)
-            if (signal_value_for_submit_ > 0 && pfn_wait_semaphores_ &&
-                timeline_semaphore_ != VK_NULL_HANDLE) {
-                VkSemaphoreWaitInfo wait_info{};
-                wait_info.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-                wait_info.semaphoreCount = 1;
-                wait_info.pSemaphores    = &timeline_semaphore_;
-                wait_info.pValues        = &signal_value_for_submit_;
-                constexpr uint64_t TIMEOUT_5S = 5'000'000'000ULL;
-                VkResult wr = pfn_wait_semaphores_(device_, &wait_info, TIMEOUT_5S);
-                if (wr != VK_SUCCESS)
-                    fprintf(stderr, "[GpuCopyOptimizer] shutdown: GPU idle wait timed out (0x%x)\n", wr);
-            }
-            if (timeline_semaphore_ != VK_NULL_HANDLE) {
-                vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
-                timeline_semaphore_ = VK_NULL_HANDLE;
-            }
-            // C7: Destroy binary semaphore pool
-            for (int i = 0; i < 3; ++i) {
-                if (gl_sync_sem_pool_[i] != VK_NULL_HANDLE) {
-                    vkDestroySemaphore(device_, gl_sync_sem_pool_[i], nullptr);
-                    gl_sync_sem_pool_[i] = VK_NULL_HANDLE;
-                }
-            }
-            frame_counter_ = 0;
-            if (command_buffer_ != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
-                vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer_);
-                command_buffer_ = VK_NULL_HANDLE;
-            }
-            if (command_pool_ != VK_NULL_HANDLE) {
-                vkDestroyCommandPool(device_, command_pool_, nullptr);
-                command_pool_ = VK_NULL_HANDLE;
-            }
-            cleanup_pipeline();
-            device_ = VK_NULL_HANDLE;
-            queue_ = VK_NULL_HANDLE;
-            phys_device_ = VK_NULL_HANDLE;
-            pipeline_layout_ = VK_NULL_HANDLE;
-            compute_pipeline_ = VK_NULL_HANDLE;
-            descriptor_set_layout_ = VK_NULL_HANDLE;
-            descriptor_pool_ = VK_NULL_HANDLE;
-            descriptor_set_ = VK_NULL_HANDLE;
-            timeline_counter_ = 0;
-            pfn_get_semaphore_counter_value_ = nullptr;
+        // D4: Wait for last submitted GPU work before destroying (5s timeout)
+        // D15: Only POD ops and raw Vulkan destroy calls inside __try
+        if (signal_value_for_submit_ > 0 && pfn_wait_semaphores_ &&
+            timeline_semaphore_ != VK_NULL_HANDLE) {
+            VkSemaphoreWaitInfo wait_info{};
+            wait_info.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+            wait_info.semaphoreCount = 1;
+            wait_info.pSemaphores    = &timeline_semaphore_;
+            wait_info.pValues        = &signal_value_for_submit_;
+            constexpr uint64_t TIMEOUT_5S = 5'000'000'000ULL;
+            VkResult wr = pfn_wait_semaphores_(device_, &wait_info, TIMEOUT_5S);
+            wait_timed_out = (wr != VK_SUCCESS);  // D15: flag, not fprintf
         }
+        if (timeline_semaphore_ != VK_NULL_HANDLE) {
+            vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
+            timeline_semaphore_ = VK_NULL_HANDLE;
+        }
+        // C7: Destroy binary semaphore pool
+        for (int i = 0; i < 3; ++i) {
+            if (gl_sync_sem_pool_[i] != VK_NULL_HANDLE) {
+                vkDestroySemaphore(device_, gl_sync_sem_pool_[i], nullptr);
+                gl_sync_sem_pool_[i] = VK_NULL_HANDLE;
+            }
+        }
+        frame_counter_ = 0;
+        if (command_buffer_ != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer_);
+            command_buffer_ = VK_NULL_HANDLE;
+        }
+        if (command_pool_ != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device_, command_pool_, nullptr);
+            command_pool_ = VK_NULL_HANDLE;
+        }
+        // D15: cleanup_pipeline() moved outside __try — C++ call not allowed in __try
+        device_ = VK_NULL_HANDLE;
+        queue_ = VK_NULL_HANDLE;
+        phys_device_ = VK_NULL_HANDLE;
+        pipeline_layout_ = VK_NULL_HANDLE;
+        compute_pipeline_ = VK_NULL_HANDLE;
+        descriptor_set_layout_ = VK_NULL_HANDLE;
+        descriptor_pool_ = VK_NULL_HANDLE;
+        descriptor_set_ = VK_NULL_HANDLE;
+        timeline_counter_ = 0;
+        pfn_get_semaphore_counter_value_ = nullptr;
     } __except (SehFilter(GetExceptionCode(), &seh_code)) {
         seh_fired = true;
     }
-    if (device_null) {
-        fprintf(stderr, "[GpuCopyOptimizer] Device is null, skipping shutdown\n");
-    } else if (seh_fired) {
+
+    // D15: All C++ calls and logging outside __try
+    if (wait_timed_out) {
+        fprintf(stderr, "[GpuCopyOptimizer] shutdown: GPU idle wait timed out\n");
+        fflush(stderr);
+    }
+    if (seh_fired) {
         fprintf(stderr, "[GpuCopyOptimizer] SEH exception during shutdown: 0x%08lX\n", seh_code);
+        fflush(stderr);
     } else {
+        cleanup_pipeline();
         fprintf(stderr, "[GpuCopyOptimizer] Shutdown complete\n");
+        fflush(stderr);
     }
 }
 
