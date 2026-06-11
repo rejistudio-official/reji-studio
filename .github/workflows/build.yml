@@ -62,3 +62,10 @@ jobs:
 
       - name: Rust testleri çalıştır
         run: cargo test
+
+      - name: Validate Vulkan (headless)
+        run: |
+          set RJ_ENABLE_VULKAN_VALIDATION=1
+          build\src\ui\reji_app.exe --headless --frames 10 2> vk_log.txt
+          findstr "VUID" vk_log.txt && exit 1 || exit 0
+        shell: cmd
