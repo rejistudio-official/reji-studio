@@ -51,6 +51,11 @@ public:
     // C7: Returns the binary semaphore signaled in the last execute_copy call (GL waits on this)
     VkSemaphore current_gl_sync_semaphore() const noexcept;
 
+    // D12: GL semaphore tüketildi — paintGL() içinde glWaitSemaphoreEXT sonrası çağır
+    void clear_gl_signal(uint32_t slot) {
+        if (slot < 3) slot_gl_signaled_[slot] = false;
+    }
+
     // Shutdown and cleanup
     void shutdown();
 
@@ -79,6 +84,9 @@ private:
     static constexpr uint32_t POOL_SIZE = 3;
     std::array<VkImageLayout, POOL_SIZE> staging_layouts_{};  // always UNDEFINED; D3D11 owns between frames
     std::array<VkImageLayout, POOL_SIZE> target_layouts_{};   // UNDEFINED → SHADER_READ_ONLY per slot
+
+    // D12: binary semaphore re-signal koruması — true: GL henüz bu slot'u tüketmedi
+    std::array<bool, 3> slot_gl_signaled_{false, false, false};
     uint64_t signal_value_for_submit_ = 0;  // Must persist for async vkQueueSubmit (not stack-local)
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info_ = {};  // Must persist (submit_info.pNext)
     VkSubmitInfo submit_info_ = {};  // Must persist for reuse

@@ -250,6 +250,16 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         VkSemaphore active_gl_sem = (gl_sync_sem != VK_NULL_HANDLE)
             ? gl_sync_sem
             : gl_sync_sem_pool_[slot];
+
+        // D12: binary semaphore re-signal koruması — GL henüz tüketmediyse signal atla
+        if (slot_gl_signaled_[slot]) {
+            fprintf(stderr, "[CopyOptimizer] slot %u: GL wait bekleniyor, signal atlandı\n", slot);
+            fflush(stderr);
+            active_gl_sem = VK_NULL_HANDLE;
+        } else if (active_gl_sem != VK_NULL_HANDLE) {
+            slot_gl_signaled_[slot] = true;
+        }
+
         ++frame_counter_;
 
         bool has_gl_sync = (active_gl_sem != VK_NULL_HANDLE);

@@ -473,6 +473,8 @@ void PreviewWidget::paintGL() {
         GLenum layout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
         pfn_WaitSemaphore_(gl_sync_semaphores_[current_pool_idx_], 0, nullptr,
                            1, &tex_to_use, &layout);
+        // D12: semaphore tüketildi — execute_copy bu slotu yeniden signal edebilir
+        if (copy_optimizer_) copy_optimizer_->clear_gl_signal(current_pool_idx_);
     }
 
     d_->shader.bind();
