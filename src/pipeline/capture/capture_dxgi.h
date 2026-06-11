@@ -4,6 +4,7 @@
 #include "gpu_resource_manager.h"
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <wrl/client.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
@@ -155,6 +156,10 @@ public:
     /// Call once after init(), before the first run_frame() that uses preview.
     bool init_preview_staging();
 
+    /// D10a: Notify whether a preview callback is registered.
+    /// Thread-safe — may be called from any thread.
+    void set_preview_requested(bool enabled);
+
     /// Map the staging texture written by the last capture_next().
     /// Returns false if no frame is pending or Map fails.
     /// Must call unmap_preview_frame() after use.
@@ -183,6 +188,8 @@ private:
     bool find_encode_adapter(IDXGIFactory1* factory, IDXGIAdapter* display,
                              IDXGIAdapter** out);
 
+    void ensure_preview_staging();  ///< D10a: lazy staging alloc/free per frame
+
     std::shared_ptr<D3D11GpuContext>     display_ctx_;
     std::shared_ptr<D3D11GpuContext>     encode_ctx_;
     std::unique_ptr<DxgiCaptureSession>  capture_;
@@ -197,6 +204,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Texture2D> preview_staging_;  ///< Legacy preview (deprecated in v0.5.1)
     bool preview_staging_dirty_ = false;
     bool preview_mapped_        = false;
+
+    mutable std::mutex cb_mutex_;       ///< D10a: guards preview_cb_
+    bool               preview_cb_ = false;  ///< D10a: true when Pipeline::preview_cb is registered
 
     GpuScan gpu_scan_{};
     Config  config_;

@@ -345,6 +345,7 @@ void DxgiCapturePipeline::setProfiler(rj::FrameProfiler* profiler) {
 // ---------------------------------------------------------------------------
 
 ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
+    ensure_preview_staging();  // D10a: lazy alloc/free each frame
     if (!initialized_) { return nullptr; }
 
     // Recover from screen lock / resolution change / remote session events.
@@ -401,6 +402,17 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
     }
 
     return encode_tex;  // nullptr if transfer failed
+}
+
+void DxgiCapturePipeline::set_preview_requested(bool enabled) {
+    std::lock_guard<std::mutex> lk(cb_mutex_);
+    preview_cb_ = enabled;
+}
+
+void DxgiCapturePipeline::ensure_preview_staging() {
+    std::lock_guard<std::mutex> lk(cb_mutex_);
+    if (preview_cb_ && !preview_staging_) init_preview_staging();
+    else if (!preview_cb_ && preview_staging_) preview_staging_.Reset();
 }
 
 bool DxgiCapturePipeline::init_preview_staging() {

@@ -111,7 +111,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(frame_thread_, &QThread::started, worker, [this, worker] {
         while (!frame_thread_->isInterruptionRequested()) {
             pipeline_.run_frame();
-            QThread::msleep(16);
+            // D10b: AcquireNextFrame timeout_ms=17>0 — DXGI zaten pacing yapar, msleep gereksiz
         }
         delete worker;
     });

@@ -543,6 +543,7 @@ bool Pipeline::is_running() const {
 bool Pipeline::set_preview_callback(PreviewCallback cb) {
     if (!impl_) impl_ = std::make_unique<Impl>();
     impl_->preview_cb = std::move(cb);
+    if (impl_->capture) impl_->capture->set_preview_requested(!!impl_->preview_cb);
     fprintf(stderr, "[Pipeline] preview_cb set OK\n"); fflush(stderr);
     return true;
 }
