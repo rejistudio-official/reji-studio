@@ -968,7 +968,7 @@ cargo test --manifest-path src/orchestrator/Cargo.toml
 
 \- \[x] Sprint 2 tamamlandı (C5, C6, C7, T2, T3)
 
-\- \[ ] Sprint 3 tamamlandı (C8, C9)
+\- \[x] Sprint 3 tamamlandı (C8, C9)
 
 \- \[ ] Fable 5 üçüncü tarama yapıldı
 
