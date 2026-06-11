@@ -35,6 +35,10 @@ shield:
     python scripts\build.py --config Debug
     powershell -NoLogo -File scripts\fable5-review.ps1 -module ffi
 
+# ABI cross-check: C++ sizeof_check.cpp vs Rust const_assert
+abi-check:
+    powershell -NoLogo -File scripts\check-abi.ps1
+
 # Show last 50 lines of run log
 log:
     powershell -NoLogo -Command "Get-Content run.log -Tail 50 -ErrorAction SilentlyContinue"
