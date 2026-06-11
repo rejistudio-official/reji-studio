@@ -88,6 +88,17 @@ if(MSVC)
 endif()
 
 # ---------------------------------------------------------------------------
+# Vulkan validation layer in Release builds
+# cmake -DRJ_VALIDATION=ON  → her zaman aktif (CI, QA ortamları)
+# RJ_ENABLE_VULKAN_VALIDATION env var → runtime opt-in (son kullanıcı)
+# ---------------------------------------------------------------------------
+option(RJ_VALIDATION "Force Vulkan validation layer in Release builds" OFF)
+if(RJ_VALIDATION)
+    target_compile_definitions(reji_pipeline PRIVATE RJ_VALIDATION)
+    message(STATUS "[Vulkan] Validation layer: forced ON (RJ_VALIDATION=ON)")
+endif()
+
+# ---------------------------------------------------------------------------
 # WASAPI audio capture — Windows only
 # ---------------------------------------------------------------------------
 if(WIN32)

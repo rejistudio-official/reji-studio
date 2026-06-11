@@ -10,6 +10,8 @@ jobs:
   build-windows:
     name: Windows Build
     runs-on: windows-latest
+    env:
+      RJ_ENABLE_VULKAN_VALIDATION: "1"
 
     steps:
       - name: Kodu indir
@@ -50,7 +52,7 @@ jobs:
         shell: cmd
 
       - name: CMake yapılandır
-        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DGTEST_ROOT=C:/gtest
+        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DGTEST_ROOT=C:/gtest -DRJ_VALIDATION=ON
 
       - name: C++ derle
         run: cmake --build build

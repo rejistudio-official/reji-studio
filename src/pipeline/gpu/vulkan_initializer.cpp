@@ -109,14 +109,19 @@ bool VulkanInitializer::create_instance() {
   app_info.engineVersion = VK_MAKE_VERSION(0, 5, 0);
   app_info.apiVersion = VK_API_VERSION_1_3;
 
-  // Validation layer: debug builds always, release only if env var set
+  // Validation layer priority:
+  //   1. Debug build          → always active
+  //   2. cmake -DRJ_VALIDATION=ON → always active (Release CI path)
+  //   3. RJ_ENABLE_VULKAN_VALIDATION env var → runtime opt-in (Release)
   std::vector<const char*> req_layers;
-#ifdef NDEBUG
+#ifndef NDEBUG
+  req_layers.push_back("VK_LAYER_KHRONOS_validation");
+#elif defined(RJ_VALIDATION)
+  req_layers.push_back("VK_LAYER_KHRONOS_validation");
+#else
   if (getenv("RJ_ENABLE_VULKAN_VALIDATION")) {
     req_layers.push_back("VK_LAYER_KHRONOS_validation");
   }
-#else
-  req_layers.push_back("VK_LAYER_KHRONOS_validation");
 #endif
 
   // Remove layers not present on this system (prevents VK_ERROR_LAYER_NOT_PRESENT)
