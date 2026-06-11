@@ -309,6 +309,15 @@ Uzun baÄŸlam model performansÄ±nÄ± dÃ¼ÅŸÃ¼rÃ¼r. Yeni pencerede:
 
 ---
 
+## Oturum Başlangıcı
+
+Her oturum başında şu dosyaları oku:
+- docs/ROADMAP.md
+- docs/FABLE5_BUG_PLAN_V2.md
+- docs/FABLE5_BUG_PLAN.md
+
+---
+
 ## Model SeÃ§imi
 
 | GÃ¶rev | Model |

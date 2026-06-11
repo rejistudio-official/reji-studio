@@ -964,7 +964,7 @@ cargo test --manifest-path src/orchestrator/Cargo.toml
 
 
 
-\- \[ ] Sprint 1 tamamlandı (C1, C2, C3, C4, T1)
+\- \[x] Sprint 1 tamamlandı (C1, C2, C3, C4, T1)
 
 \- \[x] Sprint 2 tamamlandı (C5, C6, C7, T2, T3)
 
