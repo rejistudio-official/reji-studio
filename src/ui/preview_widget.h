@@ -116,7 +116,18 @@ private:
     // GL_EXT_semaphore_win32 function pointers (B5)
     PFNGLWAITSEMAPHOREEXT              pfn_WaitSemaphore_              = nullptr;
     PFNGLIMPORTSEMAPHOREWIN32HANDLEEXT pfn_ImportSemaphoreWin32Handle_ = nullptr;
+
+    // GL 3.2 core sync object function pointers (D5)
+    using PFNGLFENCESYNCPROC      = GLsync(*)(GLenum, GLbitfield);
+    using PFNGLDELETESYNCPROC     = void(*)(GLsync);
+    using PFNGLCLIENTWAITSYNCPROC = GLenum(*)(GLsync, GLbitfield, GLuint64);
+    PFNGLFENCESYNCPROC      pfn_FenceSync_      = nullptr;
+    PFNGLDELETESYNCPROC     pfn_DeleteSync_     = nullptr;
+    PFNGLCLIENTWAITSYNCPROC pfn_ClientWaitSync_ = nullptr;
     GLuint                             gl_sync_semaphores_[3]          = {0, 0, 0};
+
+    // D5: Per-slot GL fence — ensures GL finishes reading slot before Vulkan overwrites it
+    GLsync gl_draw_fences_[3] = {nullptr, nullptr, nullptr};
 };
 
 } // namespace reji

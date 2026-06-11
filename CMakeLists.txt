@@ -64,6 +64,7 @@ if(MSVC)
         "${WINDOWS_SDK_PATH}/Include/${WINDOWS_SDK_VERSION}/ucrt"
         "${WINDOWS_SDK_PATH}/Include/${WINDOWS_SDK_VERSION}/um"
         "${WINDOWS_SDK_PATH}/Include/${WINDOWS_SDK_VERSION}/shared"
+        "${WINDOWS_SDK_PATH}/Include/${WINDOWS_SDK_VERSION}/winrt"
     )
 
     link_directories(

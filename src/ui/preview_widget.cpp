@@ -94,6 +94,13 @@ PreviewWidget::~PreviewWidget() {
             pfn_DeleteMemoryObjects_(1, &gl_memory_objects_[i]);
         }
     }
+    // D5: GL draw fence cleanup
+    for (int i = 0; i < 3; ++i) {
+        if (gl_draw_fences_[i] && pfn_DeleteSync_) {
+            pfn_DeleteSync_(gl_draw_fences_[i]);
+            gl_draw_fences_[i] = nullptr;
+        }
+    }
     // B5/C7: GL sync semaphore pool cleanup
     {
         auto pfn_DeleteSemaphores = (void(*)(GLsizei, const GLuint*))
@@ -211,6 +218,17 @@ void PreviewWidget::initializeGL() {
         bool all_ok = pfn_CreateMemoryObjects_ && pfn_ImportMemoryWin32Handle_
                    && pfn_TexStorageMem2D_;
         fprintf(stderr, "[PreviewWidget] GL interop functions resolved: %d\n", all_ok);
+        fflush(stderr);
+    }
+
+    // D5: GL 3.2 core sync object function pointers
+    {
+        auto* ctx = QOpenGLContext::currentContext();
+        pfn_FenceSync_      = (PFNGLFENCESYNCPROC)      ctx->getProcAddress("glFenceSync");
+        pfn_DeleteSync_     = (PFNGLDELETESYNCPROC)     ctx->getProcAddress("glDeleteSync");
+        pfn_ClientWaitSync_ = (PFNGLCLIENTWAITSYNCPROC) ctx->getProcAddress("glClientWaitSync");
+        fprintf(stderr, "[PreviewWidget] GL sync procs: fence=%p delete=%p wait=%p\n",
+                (void*)pfn_FenceSync_, (void*)pfn_DeleteSync_, (void*)pfn_ClientWaitSync_);
         fflush(stderr);
     }
 
@@ -368,6 +386,11 @@ void PreviewWidget::paintGL() {
         VkDeviceMemory staging_mem = bridge_
             ? bridge_->get_staging_memory_for_image(staging_vk)
             : VK_NULL_HANDLE;
+        // D5: GL draw fence — wait for GL to finish reading this slot before Vulkan overwrites it
+        if (gl_draw_fences_[pool_idx] && pfn_ClientWaitSync_) {
+            pfn_ClientWaitSync_(gl_draw_fences_[pool_idx],
+                                GL_SYNC_FLUSH_COMMANDS_BIT, 1000000);
+        }
         if (!copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
                                            &sem, &value, &result_target_image,
                                            gl_sync_sem, staging_mem)) {
@@ -460,8 +483,12 @@ void PreviewWidget::paintGL() {
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     d_->vao.release();
     d_->shader.release();
-    // Note: Timeline semaphore gates Vulkan→OpenGL data dependency
-    // (vkQueueSubmit is async; GPU→GL sync happens at next frame's is_copy_ready() poll)
+
+    // D5: record fence for this slot so the next Vulkan write waits for GL to finish
+    if (pfn_DeleteSync_ && gl_draw_fences_[current_pool_idx_])
+        pfn_DeleteSync_(gl_draw_fences_[current_pool_idx_]);
+    gl_draw_fences_[current_pool_idx_] = pfn_FenceSync_
+        ? pfn_FenceSync_(GL_SYNC_GPU_COMMANDS_COMPLETE, 0) : nullptr;
 
     if (profiler_) profiler_->markPaintGLEnd();
 }
