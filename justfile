@@ -26,6 +26,10 @@ test:
 review:
     powershell -NoLogo -File scripts\fable5-review.ps1
 
+# Zamanlanmis tarama: son taramadan 7 gun gecmisse calisir
+review-check:
+    powershell -NoLogo -File scripts\fable5-review.ps1 -Schedule
+
 # Security shield: Debug build + Fable5 FFI review
 shield:
     python scripts\build.py --config Debug

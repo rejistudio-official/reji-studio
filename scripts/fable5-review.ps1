@@ -1,7 +1,8 @@
 ﻿param(
-    [string]$Module = "all",
-    [switch]$DryRun = $false,
-    [string]$OutputDir = "C:\reji-studio\docs\reviews",
+    [string]$Module     = "all",
+    [switch]$DryRun     = $false,
+    [switch]$Schedule   = $false,
+    [string]$OutputDir  = "C:\reji-studio\docs\reviews",
     [string]$ProjectRoot = "C:\reji-studio\src"
 )
 
@@ -9,6 +10,28 @@ function Write-Info  { param($msg) Write-Host "  $msg" -ForegroundColor Cyan }
 function Write-OK    { param($msg) Write-Host "  OK  $msg" -ForegroundColor Green }
 function Write-Warn  { param($msg) Write-Host "  !!  $msg" -ForegroundColor Yellow }
 function Write-Fail  { param($msg) Write-Host "  ERR $msg" -ForegroundColor Red }
+
+# ---------------------------------------------------------------------------
+# Schedule mode: son taramadan 7 gun gecmediyse atla
+# ---------------------------------------------------------------------------
+$lastReviewFile = "$OutputDir\.last-review"
+if ($Schedule) {
+    if (Test-Path $lastReviewFile) {
+        try {
+            $lastDate  = [datetime]::Parse((Get-Content $lastReviewFile -Raw).Trim())
+            $daysSince = ((Get-Date) - $lastDate).TotalDays
+            if ($daysSince -lt 7) {
+                Write-Info ("Son tarama {0:F1} gun once yapildi. 7 gun dolmadi, atlaniyor." -f $daysSince)
+                exit 0
+            }
+            Write-Info ("Son taramadan {0:F1} gun gecti — tarama baslatiliyor." -f $daysSince)
+        } catch {
+            Write-Warn ".last-review okunamadi, tarama baslatiliyor."
+        }
+    } else {
+        Write-Info ".last-review bulunamadi — ilk zamanlanmis tarama baslatiliyor."
+    }
+}
 
 if (-not $DryRun -and -not $env:OPENROUTER_API_KEY) {
     Write-Fail "OPENROUTER_API_KEY bulunamadi."
@@ -92,12 +115,12 @@ if ($DryRun) {
 $moduleContext = switch ($Module) {
     "pipeline"     { "DXGI capture, NVENC encode, WASAPI audio, Vulkan GPU pipeline" }
     "ui"           { "Qt6 QOpenGLWidget preview, GL interop, ExternalMemoryBridge" }
-    "ffi"          { "C ABI koprusu, FFI guvenligi, RjFrameData struct" }
+    "ffi"          { "C ABI bridge, FFI safety, RjFrameData struct" }
     "orchestrator" { "Rust/Tokio event bus, self-healing, crossbeam SPSC" }
-    default        { "C++17/MSVC + Rust/Tokio + Qt6 + Vulkan 1.4 tam kod tabani" }
+    default        { "C++17/MSVC + Rust/Tokio + Qt6 + Vulkan 1.4 full codebase" }
 }
 
-$prompt = "Sen Reji Studio uzman kod denetcisisin.`n`nPROJE: Reji Studio - Windows canli yayin yazilimi`nSTACK: C++17/MSVC + Rust/Tokio + Qt6 6.8.0 + Vulkan 1.4 + DXGI`nDONANIM: AMD Radeon 780M (iGPU) + NVIDIA RTX 4070 Laptop (dGPU)`nMODUL: $moduleContext`n`nAsagidaki kategorilerde Turkce rapor yaz:`n1. KRITIK HATALAR (UB, null ptr, race condition, Vulkan spec ihlali)`n2. BELLEK YONETIMI (RAII ihlali, hot-path allocation, Vulkan object lifetime)`n3. VULKAN/GL INTEROP (sync eksigi, image layout, external memory)`n4. PERFORMANS (hot-path copy, suboptimal sync, cift GPU sorunu)`n5. MIMARI SORUNLAR (katman ihlali, refactor firsati)`n6. GUVENLIK (SEH scope, COM lifetime, input validation)`n`nHer bulgu icin: dosya, satir, aciklama, cozum onerisi.`n`nKOD TABANI ($($allFiles.Count) dosya):`n$codeBase"
+$prompt = "You are an expert code reviewer for Reji Studio.`n`nPROJECT: Reji Studio - Windows live streaming software`nSTACK: C++17/MSVC + Rust/Tokio + Qt6 6.8.0 + Vulkan 1.4 + DXGI`nHARDWARE: AMD Radeon 780M (iGPU) + NVIDIA RTX 4070 Laptop (dGPU)`nMODULE: $moduleContext`n`nWrite a report in English covering the following categories:`n1. CRITICAL BUGS (UB, null ptr, race condition, Vulkan spec violation)`n2. MEMORY MANAGEMENT (RAII violation, hot-path allocation, Vulkan object lifetime)`n3. VULKAN/GL INTEROP (missing sync, image layout, external memory)`n4. PERFORMANCE (hot-path copy, suboptimal sync, dual-GPU issues)`n5. ARCHITECTURE (layer violation, refactor opportunity)`n6. SECURITY (SEH scope, COM lifetime, input validation)`n`nFor each finding include: file, line, description, suggested fix.`n`nCODEBASE ($($allFiles.Count) files):`n$codeBase"
 
 $requestBody = @{
     model    = "anthropic/claude-5-fable-20260609"
@@ -135,12 +158,15 @@ try {
     $timestamp  = Get-Date -Format "yyyy-MM-dd_HH-mm"
     $outputFile = "$OutputDir\fable5-review-$Module-$timestamp.md"
 
-    $header = "# Fable 5 Kod Tarama Raporu`n**Tarih:** $(Get-Date -Format 'dd.MM.yyyy HH:mm')`n**Modul:** $Module`n**Dosya:** $($allFiles.Count)`n**Token:** $usedTokens | **Maliyet:** `$$cost`n`n---`n`n"
+    $header = "# Fable 5 Code Review Report`n**Date:** $(Get-Date -Format 'dd.MM.yyyy HH:mm')`n**Module:** $Module`n**Files:** $($allFiles.Count)`n**Tokens:** $usedTokens | **Cost:** `$$cost`n`n---`n`n"
     ($header + $reviewContent) | Set-Content $outputFile -Encoding UTF8
 
     Write-OK "Tarama tamamlandi!"
     Write-Info "Rapor: $outputFile"
     Write-Info "Token: $usedTokens | Maliyet: `$$cost"
+
+    # Son tarama tarihini kaydet (--schedule kontrolu icin)
+    (Get-Date -Format "yyyy-MM-dd HH:mm:ss") | Set-Content $lastReviewFile -Encoding UTF8
 
 } catch {
     Write-Fail "API hatasi: $($_.Exception.Message)"
