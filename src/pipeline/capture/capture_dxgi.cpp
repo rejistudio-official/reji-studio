@@ -128,6 +128,13 @@ bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
         return false;
     }
 
+    // D7: cursor-only frame — no pixel content, release immediately to avoid stale surface
+    if (info.AccumulatedFrames == 0) {
+        duplication_->ReleaseFrame();
+        frame_held_ = false;
+        return false;
+    }
+
     Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
 
     // Cursor-only update: still a valid frame for preview
