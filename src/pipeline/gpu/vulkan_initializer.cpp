@@ -333,22 +333,11 @@ bool VulkanInitializer::create_device() {
 void VulkanInitializer::detect_vendor() {
   VkPhysicalDeviceProperties props;
   vkGetPhysicalDeviceProperties(physical_device_, &props);
-
-  std::string device_name = props.deviceName;
-  if (device_name.find("AMD") != std::string::npos ||
-      device_name.find("Radeon") != std::string::npos) {
-    vendor_id_ = 0x1002;
-  } else if (device_name.find("NVIDIA") != std::string::npos ||
-             device_name.find("GeForce") != std::string::npos ||
-             device_name.find("RTX") != std::string::npos) {
-    vendor_id_ = 0x10DE;
-  } else if (device_name.find("Intel") != std::string::npos) {
-    vendor_id_ = 0x8086;
-  } else {
-    vendor_id_ = 0x0000;
-  }
-
-  fprintf(stderr, "[Vulkan] Device: %s (vendor: 0x%04x)\n", props.deviceName, vendor_id_);
+  // C8: Use PCI vendorID directly — string heuristic was unreliable and
+  // could override the correct value set in select_device().
+  vendor_id_ = props.vendorID;
+  fprintf(stderr, "[Vulkan] Device: %s (vendorID: 0x%04x deviceID: 0x%04x)\n",
+          props.deviceName, props.vendorID, props.deviceID);
   fflush(stderr);
 }
 
