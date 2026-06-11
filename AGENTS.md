@@ -304,6 +304,8 @@ Uzun baÄŸlam model performansÄ±nÄ± dÃ¼ÅŸÃ¼rÃ¼r. Yeni pencerede:
 1. Bu dosyayÄ± oku: `AGENTS.md`
 2. Durumu oku: `CONTEXT.md`
 3. Ä°lerlemeyi oku: `docs/progress.md`
+4. Yol haritasını oku: `docs/ROADMAP.md` — teknik yol haritası
+5. Aktif sprint planını oku: `docs/FABLE5_BUG_PLAN_V2.md` — aktif sprint planı
 
 ---
 
