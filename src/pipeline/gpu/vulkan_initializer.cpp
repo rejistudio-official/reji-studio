@@ -49,6 +49,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
 #endif
 
 bool VulkanInitializer::initialize() {
+  if (initialized_) {
+      fprintf(stderr, "[Vulkan] Zaten baslatildi, atlaniyor\n");
+      return true;
+  }
+
   // Debug: List available instance layers
   uint32_t layer_count = 0;
   vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
@@ -97,6 +102,7 @@ bool VulkanInitializer::initialize() {
 
   fprintf(stderr, "[Vulkan] Initialized (vendor: 0x%04x)\n", vendor_id_);
   fflush(stderr);
+  initialized_ = true;
   return true;
 }
 

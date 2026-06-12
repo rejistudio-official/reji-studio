@@ -63,6 +63,7 @@ class VulkanInitializer {
   VkQueue graphics_queue_ = nullptr;
   VkDebugUtilsMessengerEXT debug_messenger_ = nullptr;
   bool use_keyed_mutex_ = false;  ///< D11: true only when VK_KHR_win32_keyed_mutex is available
+  bool initialized_ = false;
 };
 
 }
