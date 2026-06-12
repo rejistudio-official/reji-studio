@@ -231,7 +231,8 @@ impl HealingMonitor {
                 }
                 _ = ticker.tick() => {
                     let mode = crate::ffi::HEALING_MODE.load(Ordering::Relaxed);
-                    if mode == 1 { continue; } // Manual mode — komut üretme
+                    // 0=AutoPilot, 1=CoPilot, 2=Assist, 3=Manual
+                    if mode == 3 { continue; } // Manual — komut üretme
                     self.on_periodic();
                 }
             }
