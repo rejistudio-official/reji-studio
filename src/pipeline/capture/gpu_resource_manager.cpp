@@ -162,14 +162,22 @@ bool GpuResourceManager::init(
             encode_info_.description, encode_info_.vendor_id,
             encode_info_.dedicated_vram_mb);
 
-    // Preview path: always use display GPU staging (bypass cross-adapter shared texture)
-    // TODO(cross-adapter): same_adapter_ = false yapılmadan önce:
-    // 1. D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i doğrula
-    // 2. IDXGIKeyedMutex::AcquireSync(0)/ReleaseSync(1) implement et
-    // 3. VkWin32KeyedMutexAcquireReleaseInfoKHR ekle
-    // 4. copy_fence_ (D3D11Query) oluştur
-    // Referans: docs/FABLE5_BUG_PLAN.md B6, B11
-    same_adapter_ = true;
+    // Detect same-adapter vs. cross-adapter topology.
+    // cross-adapter path (same_adapter_ = false) requires B6 keyed mutex +
+    // B11 copy_fence_ — both unimplemented. Keep same_adapter_ = true until v0.6.
+    {
+        IDXGIAdapter* encode_adapter  = encode_gpu_->dxgi_adapter();
+        IDXGIAdapter* display_adapter = display_gpu_->dxgi_adapter();
+        if (encode_adapter == display_adapter) {
+            fprintf(stderr, "[GpuRM] Same adapter detected — "
+                            "cross-adapter encode unavailable\n");
+            same_adapter_ = true;
+        } else {
+            fprintf(stderr, "[GpuRM] Encode adapter: NVIDIA — "
+                            "cross-adapter path required (TODO)\n");
+            same_adapter_ = true; // cross-adapter hazır değil, güvenli default
+        }
+    }
 
     // C9: same-adapter → encode_gpu_ must share the display device so that
     // encode_tex_ (created on display_gpu_) and CopyResource are on the same D3D11 context.
