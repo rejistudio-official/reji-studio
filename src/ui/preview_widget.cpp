@@ -312,16 +312,16 @@ void PreviewWidget::paintGL() {
                                               d_->expected_value)) {
                 is_ready = true;
                 d_->has_pending_copy = false;  // GPU copy complete
+                poll_frames_ = 0;
             } else {
                 // GPU not yet signaled
                 // After several frames, assume it's stalled/not critical and move on
-                static int poll_frames = 0;
-                poll_frames++;
-                if (poll_frames > 50) {  // 50 frames = ~830ms at 60fps, plenty of time
+                poll_frames_++;
+                if (poll_frames_ > 50) {  // 50 frames = ~830ms at 60fps, plenty of time
                     fprintf(stderr, "[PreviewWidget] Timeout waiting for GPU copy, clearing pending\n");
                     fflush(stderr);
                     d_->has_pending_copy = false;  // Force clear
-                    poll_frames = 0;
+                    poll_frames_ = 0;
                 }
                 is_ready = false;
             }

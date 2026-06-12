@@ -106,6 +106,7 @@ private:
     uint32_t gl_target_w_ = 0, gl_target_h_ = 0;  // Current GL interop texture dimensions
     uint32_t current_pool_idx_ = 0;                // Current active pool index (for texture selection)
     uint32_t frame_counter_ = 0;                   // Frame counter for round-robin pool cycling
+    int poll_frames_ = 0;
 
     // GL_EXT_memory_object_win32 function pointers
     PFNGLCREATEMEMORYOBJECTSEXT     pfn_CreateMemoryObjects_     = nullptr;
