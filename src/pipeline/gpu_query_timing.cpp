@@ -52,6 +52,11 @@ bool GpuQueryTiming::record_timestamp(VkCommandBuffer cmd, const char* label) {
         return false;
     }
 
+    // Reset all queries at frame start before first write
+    if (query_idx == 0) {
+        vkCmdResetQueryPool(cmd, query_pool_, 0, NUM_QUERIES);
+    }
+
     vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool_, query_idx);
     return true;
 }
@@ -61,20 +66,27 @@ bool GpuQueryTiming::retrieve_results(QueryResult* out_result) {
         return false;
     }
 
-    // Try to retrieve all 4 query results (non-blocking with VK_QUERY_RESULT_64_BIT)
+    // Interleaved layout: [timestamp, availability] per query (WITH_AVAILABILITY_BIT)
+    uint64_t buf[NUM_QUERIES * 2]{};
     VkResult res = vkGetQueryPoolResults(
         device_, query_pool_, 0, NUM_QUERIES,
-        sizeof(query_values_), query_values_, sizeof(uint64_t),
-        VK_QUERY_RESULT_64_BIT
+        sizeof(buf), buf, 2 * sizeof(uint64_t),
+        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
     );
 
     if (res == VK_NOT_READY) {
-        return false;  // Results not ready yet
+        return false;
     }
 
     if (res != VK_SUCCESS) {
         fprintf(stderr, "[GpuQueryTiming] vkGetQueryPoolResults failed: 0x%x\n", res);
         return false;
+    }
+
+    // Verify all queries are available and extract timestamps
+    for (uint32_t i = 0; i < NUM_QUERIES; ++i) {
+        if (!buf[i * 2 + 1]) return false;  // availability == 0: result not written yet
+        query_values_[i] = buf[i * 2];
     }
 
     // Convert raw timestamps to durations
