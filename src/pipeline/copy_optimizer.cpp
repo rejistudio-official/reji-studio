@@ -9,7 +9,6 @@
 #include <vulkan/vulkan_win32.h>
 #include "copy_optimizer.h"
 #include "gpu/vulkan_initializer.h"
-#include <cstring>
 #include <cstdio>
 
 // B15: SEH filter — captures exception code, always executes handler
@@ -403,11 +402,6 @@ void GpuCopyOptimizer::shutdown() {
         device_ = VK_NULL_HANDLE;
         queue_ = VK_NULL_HANDLE;
         phys_device_ = VK_NULL_HANDLE;
-        pipeline_layout_ = VK_NULL_HANDLE;
-        compute_pipeline_ = VK_NULL_HANDLE;
-        descriptor_set_layout_ = VK_NULL_HANDLE;
-        descriptor_pool_ = VK_NULL_HANDLE;
-        descriptor_set_ = VK_NULL_HANDLE;
         timeline_counter_ = 0;
         pfn_get_semaphore_counter_value_ = nullptr;
     } __except (SehFilter(GetExceptionCode(), &seh_code)) {
@@ -427,11 +421,6 @@ void GpuCopyOptimizer::shutdown() {
         fprintf(stderr, "[GpuCopyOptimizer] Shutdown complete\n");
         fflush(stderr);
     }
-}
-
-bool GpuCopyOptimizer::load_compute_shader(const char* spv_path) {
-    // Placeholder: will load SPIR-V from cache (Task 1.5)
-    return true;
 }
 
 void GpuCopyOptimizer::cleanup_pipeline() {

@@ -64,12 +64,6 @@ private:
     VkQueue queue_ = VK_NULL_HANDLE;
     VkPhysicalDevice phys_device_ = VK_NULL_HANDLE;
 
-    VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
-    VkPipeline compute_pipeline_ = VK_NULL_HANDLE;
-    VkDescriptorSetLayout descriptor_set_layout_ = VK_NULL_HANDLE;
-    VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
-    VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;
-
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
 
@@ -111,6 +105,5 @@ private:
     uint32_t dispatch_x_ = 1;
     uint32_t dispatch_y_ = 1;
 
-    bool load_compute_shader(const char* spv_path);
     void cleanup_pipeline();
 };
