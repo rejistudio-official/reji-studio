@@ -56,7 +56,23 @@ bool ShaderCache::ensure_cache_dir() {
 }
 
 uint64_t ShaderCache::compute_hash(const std::string& shader_source) {
-  return FNV1aHash::hash(shader_source);
+  // Bump CACHE_VERSION whenever the driver or shader pipeline changes
+  // to prevent stale SPIR-V from being loaded after an update.
+  constexpr uint32_t CACHE_VERSION = 2;
+
+  auto fnv1a_uint32 = [](uint32_t val) -> uint64_t {
+    uint64_t h = FNV1aHash::OFFSET_BASIS;
+    for (int i = 0; i < 4; ++i) {
+      h ^= static_cast<uint8_t>(val & 0xFF);
+      h *= FNV1aHash::PRIME;
+      val >>= 8;
+    }
+    return h;
+  };
+
+  uint64_t hash = FNV1aHash::hash(shader_source);
+  hash ^= fnv1a_uint32(CACHE_VERSION);
+  return hash;
 }
 
 bool ShaderCache::write_cache(uint64_t hash, const std::vector<uint32_t>& spirv_binary) {
