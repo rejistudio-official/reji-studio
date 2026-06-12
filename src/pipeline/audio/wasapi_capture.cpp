@@ -392,6 +392,8 @@ bool WasapiCapture::capture_loop() {
                 return false;
             }
 
+            const UINT32 available = frames; // GetBuffer'dan gelen orijinal değer — ReleaseBuffer için
+
             int64_t pts_us = (qpc_100ns != 0)
                 ? static_cast<int64_t>(qpc_100ns / 10)
                 : now_us();
@@ -402,7 +404,7 @@ bool WasapiCapture::capture_loop() {
                 frames = kMaxFrames;
             }
             if (actual_channels_ == 0 || actual_channels_ > kMaxChannels) {
-                (void)seh_release_buffer(capture_client_.Get(), frames);
+                (void)seh_release_buffer(capture_client_.Get(), available);
                 return false;
             }
 
@@ -414,7 +416,7 @@ bool WasapiCapture::capture_loop() {
                              actual_sample_rate_, pts_us, callback_ud_);
             }
 
-            if (FAILED(seh_release_buffer(capture_client_.Get(), frames))) return false;
+            if (FAILED(seh_release_buffer(capture_client_.Get(), available))) return false;
             hr = seh_next_packet_size(capture_client_.Get(), &pkt);
         }
 
