@@ -468,13 +468,14 @@ void PreviewWidget::paintGL() {
         fprintf(stderr, "[PreviewWidget] render: CPU fallback texture (%u)\n", tex_to_use);
     }
 
-    // B5: GPU-side sync — wait for Vulkan blit to complete before GL reads the texture
-    if (use_gl_interop && pfn_WaitSemaphore_ && gl_sync_semaphores_[current_pool_idx_]) {
+    // B5/E3: GPU-side sync — sadece Vulkan bu slotu sinyallediyse bekle (double-wait önlemi)
+    if (use_gl_interop && pfn_WaitSemaphore_ && gl_sync_semaphores_[current_pool_idx_]
+        && copy_optimizer_ && copy_optimizer_->is_slot_signaled(current_pool_idx_)) {
         GLenum layout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
         pfn_WaitSemaphore_(gl_sync_semaphores_[current_pool_idx_], 0, nullptr,
                            1, &tex_to_use, &layout);
         // D12: semaphore tüketildi — execute_copy bu slotu yeniden signal edebilir
-        if (copy_optimizer_) copy_optimizer_->clear_gl_signal(current_pool_idx_);
+        copy_optimizer_->clear_gl_signal(current_pool_idx_);
     }
 
     d_->shader.bind();

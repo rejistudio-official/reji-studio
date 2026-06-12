@@ -35,6 +35,8 @@ fn check_abi_sizes() {
     // Rust adi -> C++ adi eslesmeleri
     let name_map: &[(&str, &str)] = &[
         ("MetricSample", "RjMetricSample"),
+        ("RjAction",     "RjAction"),      // E1: ABI boyut kontrolü
+        ("RjCommand",    "RjCommand"),     // E1: ABI boyut kontrolü
     ];
 
     for (rust_name, cpp_name) in name_map {

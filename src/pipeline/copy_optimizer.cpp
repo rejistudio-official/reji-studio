@@ -38,6 +38,7 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         device_ = device;
         queue_ = queue;
         phys_device_ = phys_device;
+        graphics_queue_family_ = queue_family_index;  // E4
 
         // Create command pool
         VkCommandPoolCreateInfo pool_info = {};
@@ -167,21 +168,24 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;  // Buffer reused/pending
         CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
 
-        // ========== LAYOUT TRANSITION 1: Staging → TRANSFER_SRC ==========
+        // ========== LAYOUT TRANSITION 1: Staging → TRANSFER_SRC (external acquire) ==========
         // D2: staging oldLayout always UNDEFINED — D3D11 externally writes this image each frame
         //     via keyed mutex, so Vulkan cannot track its layout between frames.
-        // C4: srcStageMask=TRANSFER_BIT (ALL_GRAPHICS + TRANSFER_WRITE was spec-invalid)
+        // E4: srcAccessMask=0 (keyed mutex handles D3D11→Vulkan sync, no prior Vulkan write)
+        //     srcQueueFamilyIndex=EXTERNAL: acquire ownership from D3D11 per VK_KHR_external_memory
         VkImageMemoryBarrier barrier_staging = {};
         barrier_staging.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier_staging.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;  // D3D11 externally written
         barrier_staging.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier_staging.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier_staging.srcAccessMask = 0;  // E4: D3D11 yazdı, keyed mutex sahipliği aktardı
         barrier_staging.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier_staging.srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;  // E4: external acquire
+        barrier_staging.dstQueueFamilyIndex = graphics_queue_family_;
         barrier_staging.image = d3d11_staging_vk;
         barrier_staging.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         vkCmdPipelineBarrier(command_buffer_,
-                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  // E4: Vulkan'da önceki iş yok
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
         // staging_layouts_[slot] stays UNDEFINED — D3D11 retakes image after keyed mutex release
@@ -236,6 +240,25 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_final);
         target_layouts_[slot] = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // D2: per-slot tracking
+
+        // ========== LAYOUT TRANSITION 4: Staging release → D3D11 (VK_QUEUE_FAMILY_EXTERNAL) ==========
+        // E4: Release staging image ownership back to D3D11 after blit.
+        //     dstAccessMask=0, dstStageMask=BOTTOM_OF_PIPE: Vulkan makes no further use of this image.
+        VkImageMemoryBarrier barrier_staging_release = {};
+        barrier_staging_release.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier_staging_release.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier_staging_release.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier_staging_release.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier_staging_release.dstAccessMask = 0;
+        barrier_staging_release.srcQueueFamilyIndex = graphics_queue_family_;
+        barrier_staging_release.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+        barrier_staging_release.image = d3d11_staging_vk;
+        barrier_staging_release.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        vkCmdPipelineBarrier(command_buffer_,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                              0, 0, nullptr, 0, nullptr, 1, &barrier_staging_release);
 
         // End command buffer
         CHECK_VK(vkEndCommandBuffer(command_buffer_));

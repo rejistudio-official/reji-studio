@@ -39,7 +39,7 @@ const RJ_CMD_BITRATE_SET:  u32 = 1;
 const RJ_CMD_PREVIEW_FPS:  u32 = 2;
 
 /// v0.4+: Adaptation action — `ffi_bridge.h`'daki RjAction ile #[repr(C)] eşleşmeli.
-#[repr(C)]
+#[repr(u32)]  // E1: kesin u32 discriminant — repr(C) ABI implementation-defined
 #[derive(Copy, Clone, Debug)]
 pub enum RjActionType {
     BitrateReduce = 0,
@@ -60,6 +60,10 @@ pub struct RjAction {
     pub param2: i32,
     pub canary: u32,
 }
+
+// E1: ABI boyut garantisi — C++ static_assert ile eşleşmeli
+const _: () = assert!(core::mem::size_of::<RjAction>() == 20);
+const _: () = assert!(core::mem::size_of::<RjCommand>() == 24);
 
 struct FfiState {
     metric_ring:    Arc<ArrayQueue<MetricSample>>,

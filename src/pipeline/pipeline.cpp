@@ -256,8 +256,9 @@ struct Pipeline::Impl {
     Pipeline::D3D11FrameCallback     d3d11_frame_cb;
 
     // v0.5.1: Cache last frame images for get_last_frame_images() getter
-    VkImage last_staging_vk = nullptr;
-    VkImage last_target_vk = nullptr;
+    // E2: atomic — frame thread writes, GL thread reads via get_last_frame_images()
+    std::atomic<VkImage> last_staging_vk{nullptr};
+    std::atomic<VkImage> last_target_vk{nullptr};
 
     void apply_command(const RjCommand& c) noexcept {
         switch (c.cmd_type) {
@@ -634,8 +635,8 @@ bool Pipeline::run_frame() {
                             staging_vk, target_vk);
                     fflush(stderr);
                     // v0.5.1: Cache for get_last_frame_images() getter
-                    s.last_staging_vk = staging_vk;
-                    s.last_target_vk = target_vk;
+                    s.last_staging_vk.store(staging_vk, std::memory_order_release);
+                    s.last_target_vk.store(target_vk, std::memory_order_release);
                 }
 
                 s.d3d11_frame_cb(static_cast<void*>(tex),
@@ -765,9 +766,9 @@ bool Pipeline::shutdown() {
 bool Pipeline::get_last_frame_images(VkImage* out_staging, VkImage* out_target) {
     if (!impl_ || !out_staging || !out_target) return false;
     // v0.5.1: Return cached frame images from last run_frame()
-    *out_staging = impl_->last_staging_vk;
-    *out_target = impl_->last_target_vk;
-    return impl_->last_staging_vk != nullptr && impl_->last_target_vk != nullptr;
+    *out_staging = impl_->last_staging_vk.load(std::memory_order_acquire);
+    *out_target  = impl_->last_target_vk.load(std::memory_order_acquire);
+    return *out_staging != nullptr && *out_target != nullptr;
 }
 
 uint32_t Pipeline::display_vendor_id() const {

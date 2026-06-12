@@ -56,6 +56,11 @@ public:
         if (slot < 3) slot_gl_signaled_[slot] = false;
     }
 
+    // E3: true ise bu slot'ta Vulkan sinyal attı, GL henüz tüketmedi — wait güvenli
+    bool is_slot_signaled(uint32_t slot) const {
+        return slot < 3 && slot_gl_signaled_[slot];
+    }
+
     // Shutdown and cleanup
     void shutdown();
 
@@ -104,6 +109,7 @@ private:
 
     uint32_t dispatch_x_ = 1;
     uint32_t dispatch_y_ = 1;
+    uint32_t graphics_queue_family_ = 0;  // E4: external acquire/release barrier için
 
     void cleanup_pipeline();
 };
