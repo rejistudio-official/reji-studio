@@ -451,15 +451,20 @@ bool ExternalMemoryBridge::get_frame_images(
     fprintf(stderr, "[ExternalMemoryBridge] Texture pointer changed — pool invalidated\n");
     fflush(stderr);
 
-    // Destroy existing pool slots (image önce, memory sonra — Vulkan spec)
-    for (int i = 0; i < static_cast<int>(image_pool_.size()); ++i) {
-      if (image_pool_[i] && device_) {
-        vkDestroyImage(device_, image_pool_[i], nullptr);
-        image_pool_[i] = nullptr;
+    // GPU idle bekle — in-flight command'lar bu image'lari kullanıyor olabilir (F4)
+    if (device_ != VK_NULL_HANDLE) {
+      vkDeviceWaitIdle(device_);
+    }
+    for (auto& img : image_pool_) {
+      if (img) {
+        vkDestroyImage(device_, img, nullptr);
+        img = VK_NULL_HANDLE;
       }
-      if (i < static_cast<int>(pool_memory_.size()) && pool_memory_[i] && device_) {
-        vkFreeMemory(device_, pool_memory_[i], nullptr);
-        pool_memory_[i] = nullptr;
+    }
+    for (auto& mem : pool_memory_) {
+      if (mem) {
+        vkFreeMemory(device_, mem, nullptr);
+        mem = VK_NULL_HANDLE;
       }
     }
     if (cached_d3d11_handle_) {
