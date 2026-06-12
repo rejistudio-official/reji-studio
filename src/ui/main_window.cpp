@@ -135,6 +135,7 @@ MainWindow::~MainWindow() {
 void MainWindow::stopFrameThread() {
     if (frame_thread_ && frame_thread_->isRunning()) {
         frame_thread_->requestInterruption();
+        frame_thread_->quit();  // event loop'u durdur
         if (!frame_thread_->wait(5000)) {
             fprintf(stderr, "[MainWindow] Frame thread 5s timeout\n");
             fflush(stderr);
