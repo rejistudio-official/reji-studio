@@ -117,27 +117,28 @@ uint32_t MetricsCollector::query_cpu_load_pct() {
 }
 
 void MetricsCollector::calculate_frame_drop_pct() {
-  // Maintain 30s rolling window @ 60fps = 1800 frames
-  static const size_t MAX_WINDOW_FRAMES = 1800;
+  static constexpr size_t MAX_WINDOW = 30; // 30s @ 1Hz
 
-  // Calculate delta drops since last measurement
-  uint32_t delta = total_drops_ - prev_total_drops_;
+  uint32_t delta_drops = total_drops_ - prev_total_drops_;
+  uint32_t delta_frames = total_frames_ - prev_total_frames_;
   prev_total_drops_ = total_drops_;
+  prev_total_frames_ = total_frames_;
 
-  // Add delta to window
-  frame_drop_window_.push_back(delta);
+  frame_drop_window_.push_back(delta_drops);
+  frame_window_.push_back(delta_frames);
 
-  // Keep window size bounded
-  while (frame_drop_window_.size() > MAX_WINDOW_FRAMES) {
+  while (frame_drop_window_.size() > MAX_WINDOW) {
     frame_drop_window_.pop_front();
+    frame_window_.pop_front();
   }
 
-  // Calculate drop percentage over window
-  if (!frame_drop_window_.empty()) {
-    uint32_t total_window_drops =
-        std::accumulate(frame_drop_window_.begin(), frame_drop_window_.end(), 0u);
-    float drop_rate =
-        (total_window_drops / static_cast<float>(frame_drop_window_.size())) * 100.0f;
+  uint32_t window_drops =
+      std::accumulate(frame_drop_window_.begin(), frame_drop_window_.end(), 0u);
+  uint32_t window_frames =
+      std::accumulate(frame_window_.begin(), frame_window_.end(), 0u);
+
+  if (window_frames > 0) {
+    float drop_rate = (window_drops / static_cast<float>(window_frames)) * 100.0f;
     metrics_.frame_drop_pct = static_cast<uint32_t>(std::clamp(drop_rate, 0.0f, 100.0f));
   } else {
     metrics_.frame_drop_pct = 0;

@@ -61,7 +61,7 @@ private:
   uint32_t query_memory_usage_pct();
   uint32_t query_cpu_load_pct();
 
-  // Frame drop calculation (30s rolling window @ 60fps = 1800 frames)
+  // Frame drop calculation (30s rolling window @ 1Hz = 30 polls)
   void calculate_frame_drop_pct();
 
   // State
@@ -69,9 +69,11 @@ private:
   mutable std::mutex metrics_lock_;
 
   // Frame tracking
-  std::deque<uint32_t> frame_drop_window_;  // 30s worth of drops
+  std::deque<uint32_t> frame_drop_window_;  // drops per poll slot (30 slots)
+  std::deque<uint32_t> frame_window_;       // frames per poll slot (30 slots)
   uint32_t total_frames_ = 0;
   uint32_t total_drops_ = 0;
+  uint32_t prev_total_frames_ = 0;
   uint32_t prev_total_drops_ = 0;
 
   // Polling throttle
