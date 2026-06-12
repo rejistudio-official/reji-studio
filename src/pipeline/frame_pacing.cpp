@@ -21,6 +21,12 @@ bool DxgiFramePacing::init(IDXGISwapChain1* swap_chain) {
     }
     last_qpc_time_ns_ = qpc.QuadPart;
 
+    if (!QueryPerformanceFrequency(&qpc_freq_)) {
+        fprintf(stderr, "[DxgiFramePacing] QueryPerformanceFrequency failed\n");
+        fflush(stderr);
+        return false;
+    }
+
     std::memset(frame_times_, 0, sizeof(frame_times_));
 
     fprintf(stderr, "[DxgiFramePacing] Initialized with swap chain\n");
@@ -80,7 +86,7 @@ bool DxgiFramePacing::poll_frame_stats(FrameStats* out_stats) {
     out_stats->frame_time_ms         = frame_time_ms;
     out_stats->gpu_busy_ms           = frame_time_ms;  // Placeholder: GpuQueryTiming dolduracak
     out_stats->gpu_stall             = gpu_stall;
-    out_stats->timestamp_us          = current_qpc / 1000;  // ham QPC, 1kHz'e bölündü
+    out_stats->timestamp_us          = current_qpc * 1'000'000ULL / qpc_freq_.QuadPart;
 
     // State güncelle
     last_present_count_ = frame_stats.PresentCount;
