@@ -424,8 +424,9 @@ bool Pipeline::init(const Config& cfg_in) {
     s.cfg.width  = s.capture->width();
     s.cfg.height = s.capture->height();
 
-    //  ExternalMemoryBridge (v0.5.1 zero-copy D3D11↔Vulkan) 
+    //  ExternalMemoryBridge (v0.5.1 zero-copy D3D11↔Vulkan)
     auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
+    s.capture->set_use_keyed_mutex(vk && vk->use_keyed_mutex());
     fprintf(stderr, "[Pipeline] VulkanInit: device=%p phys=%p\n",
             (void*)(vk ? vk->device() : nullptr),
             (void*)(vk ? vk->physical_device() : nullptr));

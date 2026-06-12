@@ -179,6 +179,9 @@ public:
     /// v0.5.1: GPU-side shared texture for Vulkan external memory export
     ID3D11Texture2D* shared_texture() const { return shared_texture_.Get(); }
 
+    /// AMD fallback: disable keyed-mutex sync when VK_KHR_win32_keyed_mutex unavailable.
+    void set_use_keyed_mutex(bool v) { use_keyed_mutex_ = v; }
+
     /// Set the FrameProfiler for timing DXGI acquire operations.
     /// Profiler is borrowed; caller must manage lifetime.
     void setProfiler(rj::FrameProfiler* profiler);
@@ -210,7 +213,8 @@ private:
 
     GpuScan gpu_scan_{};
     Config  config_;
-    bool    initialized_ = false;
+    bool    initialized_    = false;
+    bool    use_keyed_mutex_ = false;
 };
 
 } // namespace reji

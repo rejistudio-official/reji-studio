@@ -365,8 +365,9 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
 
     // v0.5.1: Copy to dual textures (GPU-side shared + CPU-side staging)
     // B6: Keyed mutex guarantees D3D11 write completes before Vulkan reads (key=0→write→key=1)
+    // 1.1: AMD fallback — use_keyed_mutex_=false skips AcquireSync to avoid deadlock
     if (shared_texture_) {
-        if (keyed_mutex_shared_) {
+        if (use_keyed_mutex_) {
             HRESULT hr = keyed_mutex_shared_->AcquireSync(0, 16);  // 16ms timeout
             if (FAILED(hr)) {
                 fprintf(stderr, "[DxgiCapture] KeyedMutex AcquireSync failed: 0x%08lX\n", hr);
@@ -374,10 +375,14 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
                 capture_->release_frame();
                 return nullptr;
             }
-        }
-        display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
-        if (keyed_mutex_shared_) {
+            display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
             keyed_mutex_shared_->ReleaseSync(1);  // hand off to Vulkan (key=1)
+        } else {
+            // AMD: keyed mutex unavailable — reset state with self-cycle then copy directly
+            if (keyed_mutex_shared_) {
+                keyed_mutex_shared_->ReleaseSync(0);
+            }
+            display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
         }
     }
     if (staging_texture_) {
