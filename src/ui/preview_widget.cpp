@@ -405,16 +405,17 @@ void PreviewWidget::paintGL() {
         if (bridge_ && gl_target_image_ != VK_NULL_HANDLE && pfn_ImportMemoryWin32Handle_) {
             HANDLE nt_handle = bridge_->get_gl_target_handle(pool_idx);
             if (nt_handle) {
-                // Create GL memory object from Win32 handle if not yet created for this slot
+                // Create GL memory object and import NT handle — only once per pool slot
                 if (!gl_memory_objects_[pool_idx] && pfn_CreateMemoryObjects_) {
                     pfn_CreateMemoryObjects_(1, &gl_memory_objects_[pool_idx]);
+                    if (gl_memory_objects_[pool_idx]) {
+                        pfn_ImportMemoryWin32Handle_(gl_memory_objects_[pool_idx],
+                                                     w * h * 4,  // approximate size (RGBA8)
+                                                     GL_HANDLE_TYPE_OPAQUE_WIN32_EXT,
+                                                     nt_handle);
+                    }
                 }
                 if (gl_memory_objects_[pool_idx]) {
-                    pfn_ImportMemoryWin32Handle_(gl_memory_objects_[pool_idx],
-                                                 w * h * 4,  // approximate size (RGBA8)
-                                                 GL_HANDLE_TYPE_OPAQUE_WIN32_EXT,
-                                                 nt_handle);
-
                     // Delete old texture if size changed
                     if ((w != gl_target_w_ || h != gl_target_h_) && gl_interop_textures_[pool_idx]) {
                         glDeleteTextures(1, &gl_interop_textures_[pool_idx]);
