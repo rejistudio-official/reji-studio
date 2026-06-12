@@ -278,6 +278,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             : gl_sync_sem_pool_[slot];
 
         // D12: binary semaphore re-signal koruması — GL henüz tüketmediyse signal atla
+        bool will_signal_gl = false;
         if (slot_gl_signaled_[slot]) {
 #ifdef RJ_DEBUG_VERBOSE
             fprintf(stderr, "[CopyOptimizer] slot %u: GL wait bekleniyor, signal atlandı\n", slot);
@@ -285,10 +286,8 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 #endif
             active_gl_sem = VK_NULL_HANDLE;
         } else if (active_gl_sem != VK_NULL_HANDLE) {
-            slot_gl_signaled_[slot] = true;
+            will_signal_gl = true;
         }
-
-        ++frame_counter_;
 
         bool has_gl_sync = (active_gl_sem != VK_NULL_HANDLE);
         uint32_t sem_count = has_gl_sync ? 2u : 1u;
@@ -335,7 +334,16 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         submit_info_.signalSemaphoreCount = sem_count;
         submit_info_.pSignalSemaphores    = signal_semaphores_;
 
-        CHECK_VK(vkQueueSubmit(queue_, 1, &submit_info_, VK_NULL_HANDLE));
+        VkResult submit_result = vkQueueSubmit(queue_, 1, &submit_info_, VK_NULL_HANDLE);
+        if (submit_result != VK_SUCCESS) {
+            fprintf(stderr, "[CopyOptimizer] submit failed: %d\n", submit_result);
+            return false;
+        }
+        // Submit başarılı — şimdi state güncelle
+        if (will_signal_gl) {
+            slot_gl_signaled_[slot] = true;
+        }
+        ++frame_counter_;
 
         // Return outputs
         *out_timeline_semaphore = timeline_semaphore_;
