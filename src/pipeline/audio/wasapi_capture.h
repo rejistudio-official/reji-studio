@@ -202,6 +202,8 @@ public:
     ULONG  STDMETHODCALLTYPE Release() noexcept override {
         ULONG r = --ref_; if (r == 0) delete this; return r;
     }
+    // D16: Called from WasapiCapture::shutdown() before unregister
+    void clear_owner() noexcept { owner_.store(nullptr, std::memory_order_seq_cst); }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** ppv) noexcept override {
         if (!ppv) return E_POINTER;
         if (iid == __uuidof(IUnknown) ||
@@ -213,18 +215,24 @@ public:
     HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(
         EDataFlow f, ERole r, LPCWSTR) noexcept override {
         (void)f;
-        if (r == eConsole && owner_) owner_->on_device_change("default-device-changed");
+        auto* owner = owner_.load(std::memory_order_acquire);
+        if (!owner) return S_OK;
+        if (r == eConsole) owner->on_device_change("default-device-changed");
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR) noexcept override {
-        if (owner_) owner_->on_device_change("device-removed");
+        auto* owner = owner_.load(std::memory_order_acquire);
+        if (!owner) return S_OK;
+        owner->on_device_change("device-removed");
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR, DWORD st) noexcept override {
-        if (owner_ && (st == DEVICE_STATE_DISABLED  ||
-                       st == DEVICE_STATE_NOTPRESENT ||
-                       st == DEVICE_STATE_UNPLUGGED))
-            owner_->on_device_change("device-state-changed");
+        auto* owner = owner_.load(std::memory_order_acquire);
+        if (!owner) return S_OK;
+        if (st == DEVICE_STATE_DISABLED  ||
+            st == DEVICE_STATE_NOTPRESENT ||
+            st == DEVICE_STATE_UNPLUGGED)
+            owner->on_device_change("device-state-changed");
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) noexcept override { return S_OK; }
@@ -232,8 +240,8 @@ public:
         LPCWSTR, const PROPERTYKEY) noexcept override { return S_OK; }
 
 private:
-    std::atomic<ULONG> ref_{1};
-    WasapiCapture*     owner_;
+    std::atomic<ULONG>           ref_{1};
+    std::atomic<WasapiCapture*>  owner_{nullptr};
 };
 
 } // namespace reji::pipeline::audio

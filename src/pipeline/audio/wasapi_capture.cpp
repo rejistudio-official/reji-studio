@@ -160,6 +160,9 @@ bool WasapiCapture::shutdown() {
     // joinable() kontrolü sonrası join() fırlatmaz; try/catch gereksiz.
     if (supervisor_.joinable()) supervisor_.join();
 
+    // D16: Null owner_ before unregister — callback artık UAF'a yol açamaz
+    if (notify_client_)
+        static_cast<DeviceNotifyClient*>(notify_client_.Get())->clear_owner();
     // Notification client unregister + handle sinyalleme — SEH leaf'inde
     seh_shutdown_leaf(enumerator_.Get(), notify_client_.Get(),
                       wake_event_.get(), audio_event_.get());
