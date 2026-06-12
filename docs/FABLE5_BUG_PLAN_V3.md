@@ -221,6 +221,8 @@ type err.log | findstr "ERROR|FAILED|VUID|assert|timeout"
 
 - [x] Sprint 1 tamamlandı (D1, D2, D3, D4)
 - [x] Sprint 2 tamamlandı (D5, D6, D7, D8)
+- [x] Sprint 3 tamamlandı (D9, D10, D11, D12, D13, D14, D15, D16)
+- [x] Sprint 4 tamamlandı (D17, D18)
 - [ ] Fable 5 dördüncü tarama yapıldı
 
 ---
