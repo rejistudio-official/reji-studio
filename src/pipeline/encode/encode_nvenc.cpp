@@ -445,8 +445,10 @@ bool NvencEncoder::set_resolution(float scale_factor) {
         return false;
     }
 
-    impl_->saved_cfg.encodeWidth  = new_width;
-    impl_->saved_cfg.encodeHeight = new_height;
+    impl_->saved_init.encodeWidth     = new_width;
+    impl_->saved_init.encodeHeight    = new_height;
+    impl_->saved_init.maxEncodeWidth  = new_width;
+    impl_->saved_init.maxEncodeHeight = new_height;
 
     NV_ENC_RECONFIGURE_PARAMS rp = {};
     rp.version                         = NV_ENC_RECONFIGURE_PARAMS_VER;
@@ -469,8 +471,8 @@ bool NvencEncoder::set_fps_limit(uint32_t fps) {
     if (!impl_->initialized || fps < 1 || fps > 120) { return false; }
 
     impl_->config.fps_num = fps;
-    impl_->saved_cfg.frameRateNum   = fps;
-    impl_->saved_cfg.frameRateDen   = 1;
+    impl_->saved_init.frameRateNum = fps;
+    impl_->saved_init.frameRateDen = 1;
 
     NV_ENC_RECONFIGURE_PARAMS rp = {};
     rp.version                         = NV_ENC_RECONFIGURE_PARAMS_VER;
