@@ -50,6 +50,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     buildStatusBar();
     loadWindowState();
 
+    metrics_timer_ = new QTimer(this);
+    connect(metrics_timer_, &QTimer::timeout,
+            this, &MainWindow::pollMetrics);
+    metrics_timer_->start(1000);
+
     // v0.2: Pipeline init + preview callback
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
     if (!pipeline_.init(pcfg)) {
@@ -445,7 +450,17 @@ void MainWindow::onSettingsClicked() {
 // rj_command_drain is lock-free (crossbeam ArrayQueue) and non-blocking.
 // ---------------------------------------------------------------------------
 void MainWindow::pollMetrics() {
-    (void)pipeline_.is_running();
+    RjMetricSample sample{};
+    if (rj_metrics_poll(&sample) == 0) return;
+
+    lbl_fps_->setText(QString("%1 fps").arg(
+        static_cast<double>(sample.fps_actual), 0, 'f', 1));
+    lbl_bitrate_->setText(QString("%1 kbps").arg(sample.bitrate_kbps));
+
+    if (sample.frame_drop_pct > 0) {
+        lbl_status_->setText(
+            QString("Drop: %1%").arg(sample.frame_drop_pct));
+    }
 }
 
 void MainWindow::onMetricsUpdate(uint32_t bitrate_kbps, float fps_actual, bool connected) {
