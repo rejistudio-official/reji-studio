@@ -547,7 +547,7 @@ void WasapiCapture::publish_metrics(int64_t now) {
                    ? static_cast<float>(actual_sample_rate_) / buffer_frames_
                    : 0.0f;
     s.cpu_percent  = compute_cpu_percent();
-    s.frame_drops  = frame_drops_.load(std::memory_order_relaxed);
+    s.frame_drops  = frame_drops_.exchange(0, std::memory_order_relaxed);
     ::rj_metrics_push(&s);
 }
 
