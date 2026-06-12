@@ -61,6 +61,9 @@ public:
         return slot < 3 && slot_gl_signaled_[slot];
     }
 
+    // F8: execute_copy'nin başarıyla kullandığı son slot
+    uint32_t last_used_slot() const { return last_used_slot_; }
+
     // Shutdown and cleanup
     void shutdown();
 
@@ -106,6 +109,8 @@ private:
     // Both resolved via vkGetDeviceProcAddr rather than called directly.
     PFN_vkGetSemaphoreCounterValueKHR pfn_get_semaphore_counter_value_ = nullptr;
     PFN_vkWaitSemaphores              pfn_wait_semaphores_             = nullptr;
+
+    uint32_t last_used_slot_ = 0;
 
     uint32_t dispatch_x_ = 1;
     uint32_t dispatch_y_ = 1;

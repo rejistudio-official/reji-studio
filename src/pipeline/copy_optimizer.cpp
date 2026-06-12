@@ -343,6 +343,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         if (will_signal_gl) {
             slot_gl_signaled_[slot] = true;
         }
+        last_used_slot_ = slot;
         ++frame_counter_;
 
         // Return outputs

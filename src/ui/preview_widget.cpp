@@ -381,10 +381,9 @@ void PreviewWidget::paintGL() {
         VkSemaphore sem   = VK_NULL_HANDLE;
         uint64_t    value = 0;
         VkImage result_target_image = VK_NULL_HANDLE;
-        // C7: commit the pool slot here so execute_copy signal and glWaitSemaphoreEXT use the same slot
-        uint32_t pool_idx = frame_counter_ % 3;
+        // F8: execute_copy'nin kullandığı slot ile senkronize et — widget kendi sayacı yerine
+        uint32_t pool_idx = copy_optimizer_->last_used_slot();
         current_pool_idx_ = pool_idx;
-        frame_counter_++;
         VkSemaphore gl_sync_sem = bridge_
             ? bridge_->get_gl_sync_semaphore(pool_idx)
             : VK_NULL_HANDLE;
