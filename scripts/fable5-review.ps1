@@ -148,6 +148,7 @@ try {
     } else {
         "Yanit bos geldi - content: $($msg | ConvertTo-Json)"
     }
+    $reviewContent = $reviewContent -replace '[^\x00-\x7F]', ''
     $usedTokens    = $response.usage.total_tokens
     $cost          = $response.usage.cost
 
@@ -158,8 +159,12 @@ try {
     $timestamp  = Get-Date -Format "yyyy-MM-dd_HH-mm"
     $outputFile = "$OutputDir\fable5-review-$Module-$timestamp.md"
 
-    $header = "# Fable 5 Code Review Report`n**Date:** $(Get-Date -Format 'dd.MM.yyyy HH:mm')`n**Module:** $Module`n**Files:** $($allFiles.Count)`n**Tokens:** $usedTokens | **Cost:** `$$cost`n`n---`n`n"
-    ($header + $reviewContent) | Set-Content $outputFile -Encoding UTF8
+    $header = "# Fable 5 Code Review Report`n**Date:** $(Get-Date -Format 'dd.MM.yyyy HH:mm')`n**Module:** $Module`n**Files:** $($allFiles.Count)`n**Tokens:** $usedTokens | **Cost:** `$$cost`n**Encoding:** UTF-8 (ASCII safe)`n`n---`n`n"
+    [System.IO.File]::WriteAllText(
+        $outputFile,
+        ($header + $reviewContent),
+        [System.Text.Encoding]::UTF8
+    )
 
     Write-OK "Tarama tamamlandi!"
     Write-Info "Rapor: $outputFile"
