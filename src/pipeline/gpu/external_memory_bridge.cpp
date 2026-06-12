@@ -522,28 +522,20 @@ void ExternalMemoryBridge::shutdown() {
   // D4: Drain all in-flight GPU work before releasing Vulkan resources
   vkDeviceWaitIdle(device_);
 
-  // Staging pool memory
-  for (auto mem : pool_memory_) {
-    if (mem) {
-      vkFreeMemory(device_, mem, nullptr);
-    }
-  }
-
-  // Staging pool images
+  // Staging pool: image önce, memory sonra (Vulkan spec — E14)
   for (auto img : image_pool_) {
-    if (img) {
-      vkDestroyImage(device_, img, nullptr);
-    }
+    if (img) vkDestroyImage(device_, img, nullptr);
   }
-
-  // GL target pool memory
-  for (auto mem : gl_target_memory_) {
+  for (auto mem : pool_memory_) {
     if (mem) vkFreeMemory(device_, mem, nullptr);
   }
 
-  // GL target pool images
+  // GL target pool: image önce, memory sonra (Vulkan spec — E14)
   for (auto img : gl_target_pool_) {
     if (img) vkDestroyImage(device_, img, nullptr);
+  }
+  for (auto mem : gl_target_memory_) {
+    if (mem) vkFreeMemory(device_, mem, nullptr);
   }
 
   // B16: Delete GL memory objects BEFORE closing NT handles —
