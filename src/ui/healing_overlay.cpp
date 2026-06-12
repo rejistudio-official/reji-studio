@@ -187,6 +187,8 @@ void HealingOverlay::onActionEvent(const ActionEvent& event) {
 
                 d_->current_action_id = event.id;
 
+                disconnect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
+                           this, nullptr);
                 connect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
                         this, [this, id = event.id](const QModelIndex&, const QModelIndex&) {
                     auto item = d_->action_list->item(0);
