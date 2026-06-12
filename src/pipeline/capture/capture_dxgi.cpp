@@ -418,6 +418,7 @@ void DxgiCapturePipeline::ensure_preview_staging() {
 }
 
 bool DxgiCapturePipeline::init_preview_staging() {
+    if (shared_texture_) return true; // zaten oluşturuldu
     if (!initialized_ || !capture_) { return false; }
 
     // v0.5.1: Create two textures for GPU/CPU paths
