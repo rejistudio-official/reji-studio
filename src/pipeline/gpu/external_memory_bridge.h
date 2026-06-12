@@ -112,8 +112,9 @@ class ExternalMemoryBridge {
   uint32_t height_;
 
   // Task 6: Cached state for hot-path optimization
-  uint32_t pool_index_;         // Round-robin index (0..POOL_SIZE-1)
-  HANDLE cached_d3d11_handle_;  // NT handle (reused, no per-frame alloc)
+  uint32_t pool_index_;              // Round-robin index (0..POOL_SIZE-1)
+  HANDLE cached_d3d11_handle_;       // NT handle (reused, no per-frame alloc)
+  ID3D11Texture2D* cached_texture_ptr_ = nullptr;  // E5: texture identity — stale-handle guard
 };
 
 }

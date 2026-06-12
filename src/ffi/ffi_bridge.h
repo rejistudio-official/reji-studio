@@ -2,17 +2,20 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* ── Auto-generated types and declarations (cbindgen C++ mode) ──────────── */
+/* ffi_auto.h, C++ standard başlıkları içerdiğinden extern "C" dışında     */
+/* include edilmeli. cbindgen C++ modunda fonksiyonlar kendi extern "C"     */
+/* annotation'larıyla üretilir.                                             */
+/* Provides: MetricSample, RjCommand, RjAction, RjActionType,              */
+/*           rj_start_monitor, rj_metrics_push, rj_command_drain,          */
+/*           rj_pipeline_status, rj_connection_lost, rj_action_dequeue,    */
+/*           rj_action_approve, rj_set_healing_mode, rj_get_healing_mode,  */
+/*           rj_reload_rules                                                */
+#include "ffi_auto.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* ── Auto-generated types and declarations (cbindgen) ───────────────────── */
-/* Provides: MetricSample, RjCommand, RjAction, RjActionType,            */
-/*           rj_start_monitor, rj_metrics_push, rj_command_drain,        */
-/*           rj_pipeline_status, rj_connection_lost, rj_action_dequeue,  */
-/*           rj_action_approve, rj_set_healing_mode, rj_get_healing_mode,*/
-/*           rj_reload_rules                                              */
-#include "ffi_auto.h"
 
 /* ── RjMetricSample: canonical C++ alias for MetricSample ──────────────── */
 /* Layout identical (56 bytes); field 'reserved' is '_reserved' in MetricSample */

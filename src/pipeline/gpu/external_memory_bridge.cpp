@@ -8,7 +8,8 @@ namespace rj::pipeline::gpu {
 
 ExternalMemoryBridge::ExternalMemoryBridge(VkDevice device, VkPhysicalDevice physical_device)
     : device_(device), physical_device_(physical_device), format_(VK_FORMAT_UNDEFINED),
-      width_(0), height_(0), pool_index_(0), cached_d3d11_handle_(nullptr) {}
+      width_(0), height_(0), pool_index_(0), cached_d3d11_handle_(nullptr),
+      cached_texture_ptr_(nullptr) {}
 
 void ExternalMemoryBridge::set_device(VkDevice device, VkPhysicalDevice phys_device) {
   device_ = device;
@@ -442,6 +443,30 @@ bool ExternalMemoryBridge::get_frame_images(
     fprintf(stderr, "[ExternalMemoryBridge] Image pool not initialized\n");
     fflush(stderr);
     return false;
+  }
+
+  // E5: texture identity check — resolution change / ACCESS_LOST sonrası texture değişirse
+  //     stale NT handle ve pool slot'larını temizle, yeniden export et.
+  if (tex != cached_texture_ptr_) {
+    fprintf(stderr, "[ExternalMemoryBridge] Texture pointer changed — pool invalidated\n");
+    fflush(stderr);
+
+    // Destroy existing pool slots (image önce, memory sonra — Vulkan spec)
+    for (int i = 0; i < static_cast<int>(image_pool_.size()); ++i) {
+      if (image_pool_[i] && device_) {
+        vkDestroyImage(device_, image_pool_[i], nullptr);
+        image_pool_[i] = nullptr;
+      }
+      if (i < static_cast<int>(pool_memory_.size()) && pool_memory_[i] && device_) {
+        vkFreeMemory(device_, pool_memory_[i], nullptr);
+        pool_memory_[i] = nullptr;
+      }
+    }
+    if (cached_d3d11_handle_) {
+      CloseHandle(cached_d3d11_handle_);
+      cached_d3d11_handle_ = nullptr;
+    }
+    cached_texture_ptr_ = tex;
   }
 
   // Hot-path optimization: cached NT handle reuse (no per-frame alloc)
