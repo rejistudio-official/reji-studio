@@ -858,7 +858,7 @@ just abi-check
 
 \- \[x] Sprint 1 tamamlandi (F1-F4)
 
-\- \[ ] Sprint 2 tamamlandi (F5-F8)
+\- \[x] Sprint 2 tamamlandi (F5-F8)
 
 \- \[ ] Sprint 3 tamamlandi (F9-F12)
 
