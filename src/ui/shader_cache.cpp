@@ -27,7 +27,8 @@ std::string ShaderCache::get_cache_dir() {
 
   int size = WideCharToMultiByte(CP_UTF8, 0, appdata_path, -1, nullptr, 0, nullptr, nullptr);
   std::string appdata_str(size - 1, 0);
-  WideCharToMultiByte(CP_UTF8, 0, appdata_path, -1, &appdata_str[0], size, nullptr, nullptr);
+  WideCharToMultiByte(CP_UTF8, 0, appdata_path, -1, &appdata_str[0], size - 1, nullptr, nullptr);
+  appdata_str[size - 1] = '\0';
 
   return appdata_str + "\\Reji\\shader_cache\\";
 }
