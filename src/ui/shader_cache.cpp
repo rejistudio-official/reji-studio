@@ -2,6 +2,7 @@
 #include <fstream>
 #include <filesystem>
 #include <cstdio>
+#include <cstring>
 #include <shlobj.h>
 #include <iomanip>
 #include <sstream>
@@ -96,9 +97,25 @@ std::vector<uint32_t> ShaderCache::read_cache(uint64_t hash) {
     size_t file_size = file.tellg();
     file.seekg(0, std::ios::beg);
 
+    constexpr uint32_t SPIRV_MAGIC = 0x07230203;
+
+    if (file_size < 4 || file_size % 4 != 0) {
+      fprintf(stderr, "[ShaderCache] Geçersiz SPIR-V boyutu\n");
+      fflush(stderr);
+      return {};
+    }
+
     size_t spirv_size = file_size / sizeof(uint32_t);
     std::vector<uint32_t> spirv_binary(spirv_size);
     file.read(reinterpret_cast<char*>(spirv_binary.data()), file_size);
+
+    uint32_t magic = 0;
+    memcpy(&magic, spirv_binary.data(), sizeof(magic));
+    if (magic != SPIRV_MAGIC) {
+      fprintf(stderr, "[ShaderCache] SPIR-V magic uyuşmuyor\n");
+      fflush(stderr);
+      return {};
+    }
 
     fprintf(stderr, "[ShaderCache] Cache hit (hash: %016llx)\n", hash);
     fflush(stderr);
