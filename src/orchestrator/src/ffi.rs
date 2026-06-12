@@ -76,7 +76,7 @@ struct FfiState {
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
-static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
+pub(crate) static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
 
 fn now_us() -> u64 {
     SystemTime::now()
@@ -372,6 +372,7 @@ pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
 /// v0.4+: Set healing mode (0=AutoPilot, 1=CoPilot, 2=Manual)
 #[no_mangle]
 pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
+    if mode > 3 { return false; }
     HEALING_MODE.store(mode, Ordering::SeqCst);
     true
 }
@@ -547,6 +548,16 @@ mod tests {
 
         // Sıfırlamayı doğrula
         assert!(rj_set_healing_mode(0));
+        assert_eq!(rj_get_healing_mode(), 0);
+    }
+
+    #[test]
+    fn test_healing_mode_invalid_rejected() {
+        // mode > 3 reddedilmeli, mevcut değer değişmemeli
+        assert!(rj_set_healing_mode(0));
+        assert!(!rj_set_healing_mode(4));
+        assert_eq!(rj_get_healing_mode(), 0, "geçersiz mod önceki değeri ezememeli");
+        assert!(!rj_set_healing_mode(u32::MAX));
         assert_eq!(rj_get_healing_mode(), 0);
     }
 

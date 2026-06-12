@@ -4,9 +4,11 @@
 //! 2. Katman: Prediktif trend algılama.
 //! 3. Katman: Adaptif eşik kalibrasyonu.
 
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use crossbeam::atomic::AtomicCell;
+
 use tokio::sync::broadcast::{error::RecvError, Receiver, Sender};
 use tokio::time::{interval, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
@@ -228,6 +230,8 @@ impl HealingMonitor {
                     }
                 }
                 _ = ticker.tick() => {
+                    let mode = crate::ffi::HEALING_MODE.load(Ordering::Relaxed);
+                    if mode == 1 { continue; } // Manual mode — komut üretme
                     self.on_periodic();
                 }
             }
