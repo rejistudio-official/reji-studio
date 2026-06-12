@@ -487,8 +487,8 @@ just abi-check
 
 ## Takip
 
-- [ ] Sprint 1 tamamlandı (E1-E4)
-- [ ] Sprint 2 tamamlandı (E5-E9)
+- [x] Sprint 1 tamamlandı (E1-E4)
+- [x] Sprint 2 tamamlandı (E5-E9)
 - [ ] Sprint 3 tamamlandı (E10-E14)
 - [ ] Sprint 4 tamamlandı (E15-E18)
 - [ ] Fable 5 beşinci tarama yapıldı
