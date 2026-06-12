@@ -631,9 +631,11 @@ bool Pipeline::run_frame() {
                 if (s.ext_bridge && s.capture->shared_texture()) {
                     s.ext_bridge->get_frame_images(s.capture->shared_texture(),
                                                     &staging_vk, &target_vk);
+#ifdef RJ_DEBUG_VERBOSE
                     fprintf(stderr, "[Pipeline] get_frame_images: staging=%p target=%p\n",
                             staging_vk, target_vk);
                     fflush(stderr);
+#endif
                     // v0.5.1: Cache for get_last_frame_images() getter
                     s.last_staging_vk.store(staging_vk, std::memory_order_release);
                     s.last_target_vk.store(target_vk, std::memory_order_release);

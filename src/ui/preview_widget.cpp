@@ -274,8 +274,10 @@ void PreviewWidget::resizeGL(int w, int h) {
 }
 
 void PreviewWidget::paintGL() {
+#ifdef RJ_DEBUG_VERBOSE
     fprintf(stderr, "[PreviewWidget] paintGL called, bridge_=%p\n", bridge_);
     fflush(stderr);
+#endif
 
     if (profiler_) profiler_->markPaintGLStart();
 
@@ -289,9 +291,11 @@ void PreviewWidget::paintGL() {
             has_pending = d_->has_pending_copy;
             frame_dirty = d_->frame_dirty;
         }
+#ifdef RJ_DEBUG_VERBOSE
         fprintf(stderr, "[PreviewWidget] paintGL #%d: has_pending=%d frame_dirty=%d copy_opt=%p\n",
                 paint_count, has_pending, frame_dirty, copy_optimizer_);
         fflush(stderr);
+#endif
     }
     // ---- Snapshot state under lock (no heap, no blocking) ----
     bool     was_pending    = false;
@@ -318,8 +322,10 @@ void PreviewWidget::paintGL() {
                 // After several frames, assume it's stalled/not critical and move on
                 poll_frames_++;
                 if (poll_frames_ > 50) {  // 50 frames = ~830ms at 60fps, plenty of time
+#ifdef RJ_DEBUG_VERBOSE
                     fprintf(stderr, "[PreviewWidget] Timeout waiting for GPU copy, clearing pending\n");
                     fflush(stderr);
+#endif
                     d_->has_pending_copy = false;  // Force clear
                     poll_frames_ = 0;
                 }
@@ -394,7 +400,9 @@ void PreviewWidget::paintGL() {
         if (!copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
                                            &sem, &value, &result_target_image,
                                            gl_sync_sem, staging_mem)) {
+#ifdef RJ_DEBUG_VERBOSE
             fprintf(stderr, "[PreviewWidget] execute_copy failed, skipping frame\n");
+#endif
             if (profiler_) profiler_->markPaintGLEnd();
             return;
         }
@@ -433,8 +441,10 @@ void PreviewWidget::paintGL() {
                         glBindTexture(GL_TEXTURE_2D, 0);
                         gl_target_w_ = w;
                         gl_target_h_ = h;
+#ifdef RJ_DEBUG_VERBOSE
                         fprintf(stderr, "[PreviewWidget] GL interop texture [%u] created: %ux%u\n", pool_idx, w, h);
                         fflush(stderr);
+#endif
                     }
                 }
             }
@@ -456,18 +466,22 @@ void PreviewWidget::paintGL() {
     // Use GL interop texture if available (from current pool slot), otherwise CPU fallback
     GLuint tex_to_use = gl_interop_textures_[current_pool_idx_] ? gl_interop_textures_[current_pool_idx_] : d_->tex_id;
     if (!tex_to_use) {
+#ifdef RJ_DEBUG_VERBOSE
         fprintf(stderr, "[PreviewWidget] render skipped: no texture (pool_idx=%u, interop=%u, fallback=%u)\n",
                 current_pool_idx_, gl_interop_textures_[current_pool_idx_], d_->tex_id);
+#endif
         if (profiler_) profiler_->markPaintGLEnd();
         return;
     }
 
     bool use_gl_interop = (tex_to_use == gl_interop_textures_[current_pool_idx_]);
+#ifdef RJ_DEBUG_VERBOSE
     if (use_gl_interop) {
         fprintf(stderr, "[PreviewWidget] render: GL interop texture[%u] (%u)\n", current_pool_idx_, tex_to_use);
     } else {
         fprintf(stderr, "[PreviewWidget] render: CPU fallback texture (%u)\n", tex_to_use);
     }
+#endif
 
     // B5/E3: GPU-side sync — sadece Vulkan bu slotu sinyallediyse bekle (double-wait önlemi)
     if (use_gl_interop && pfn_WaitSemaphore_ && gl_sync_semaphores_[current_pool_idx_]

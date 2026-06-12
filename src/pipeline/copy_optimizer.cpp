@@ -115,9 +115,11 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      VkImage* out_target_image,
                                      VkSemaphore gl_sync_sem,
                                      VkDeviceMemory d3d11_staging_memory) {
+#ifdef RJ_DEBUG_VERBOSE
     fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu\n",
             (void*)device_, (void*)command_buffer_, (void*)queue_,
             (void*)timeline_semaphore_, (unsigned long long)timeline_counter_);
+#endif
 
     if (!device_ || !command_buffer_ || !queue_) {
         fprintf(stderr, "[GpuCopyOptimizer] ABORT: null handle\n");
@@ -216,8 +218,10 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         blit_region.dstOffsets[0] = {0, 0, 0};
         blit_region.dstOffsets[1] = {(int32_t)width, (int32_t)height, 1};
 
+#ifdef RJ_DEBUG_VERBOSE
         fprintf(stderr, "[GpuCopyOptimizer] About to blit: src=%p (TRANSFER_SRC) -> dst=%p (TRANSFER_DST), %u x %u\n",
                 (void*)d3d11_staging_vk, (void*)vulkan_target, width, height);
+#endif
 
         vkCmdBlitImage(command_buffer_,
                        d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -275,8 +279,10 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 
         // D12: binary semaphore re-signal koruması — GL henüz tüketmediyse signal atla
         if (slot_gl_signaled_[slot]) {
+#ifdef RJ_DEBUG_VERBOSE
             fprintf(stderr, "[CopyOptimizer] slot %u: GL wait bekleniyor, signal atlandı\n", slot);
             fflush(stderr);
+#endif
             active_gl_sem = VK_NULL_HANDLE;
         } else if (active_gl_sem != VK_NULL_HANDLE) {
             slot_gl_signaled_[slot] = true;
@@ -336,8 +342,10 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         *out_timeline_value = signal_value_for_submit_;
         *out_target_image = vulkan_target;
 
+#ifdef RJ_DEBUG_VERBOSE
         fprintf(stderr, "[GpuCopyOptimizer] execute_copy: blit submitted, timeline=%llu\n",
                 signal_value_for_submit_);
+#endif
 
         return true;
     } catch (...) {
