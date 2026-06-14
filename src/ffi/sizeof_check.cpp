@@ -11,6 +11,7 @@ int main() {
     printf("=== RjMetricSample ABI Check ===\n");
     printf("sizeof(RjMetricSample) = %zu bytes\n", sizeof(RjMetricSample));
     printf("sizeof(RjAction) = %zu bytes\n", sizeof(RjAction));
+    printf("sizeof(RjCommand) = %zu bytes\n", sizeof(RjCommand));
     printf("sizeof(RjHealingMode) = %zu bytes\n", sizeof(RjHealingMode));
     printf("\n=== Offsets ===\n");
 

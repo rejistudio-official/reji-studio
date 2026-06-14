@@ -53,14 +53,38 @@ $srcFile = "$ProjectRoot\src\ffi\sizeof_check.cpp"
 $incDir  = "$ProjectRoot\src\ffi"
 $exeFile = "$tmpDir\sizeof_check.exe"
 
+# Dinamik MSVC + Windows SDK yolu kesfet
+$vsBase    = $vcvars -replace '\\VC\\Auxiliary\\Build\\vcvars64\.bat$', ''
+$msvcBase  = "$vsBase\VC\Tools\MSVC"
+$msvcVer   = (Get-ChildItem $msvcBase -ErrorAction SilentlyContinue |
+              Sort-Object Name -Descending | Select-Object -First 1).Name
+$sdkBase   = 'C:\Program Files (x86)\Windows Kits\10'
+$sdkVer    = (Get-ChildItem "$sdkBase\Include" -ErrorAction SilentlyContinue |
+              Sort-Object Name -Descending | Select-Object -First 1).Name
+
+$msvcInc   = "$msvcBase\$msvcVer\include"
+$msvcLib   = "$msvcBase\$msvcVer\lib\x64"
+$ucrtInc   = "$sdkBase\Include\$sdkVer\ucrt"
+$umInc     = "$sdkBase\Include\$sdkVer\um"
+$sharedInc = "$sdkBase\Include\$sdkVer\shared"
+$ucrtLib   = "$sdkBase\Lib\$sdkVer\ucrt\x64"
+$umLib     = "$sdkBase\Lib\$sdkVer\um\x64"
+
+Write-Info "MSVC $msvcVer  SDK $sdkVer"
 Write-Info "sizeof_check.cpp derleniyor..."
 
-$tmpBat = "$tmpDir\compile.bat"
+$tmpBat   = "$tmpDir\compile.bat"
 $batLine1 = '@echo off'
 $batLine2 = 'call "' + $vcvars + '" x64 > nul 2>&1'
-$batLine3 = 'if errorlevel 1 exit /b 1'
-$batLine4 = 'cl.exe /nologo /EHsc /std:c++17 /I"' + $incDir + '" "' + $srcFile + '" /Fe:"' + $exeFile + '" /Fo:"' + $tmpDir + '\\" 2>&1'
-$batContent = ($batLine1, $batLine2, $batLine3, $batLine4) -join "`r`n"
+$clFlags  = '/nologo /EHsc /std:c++17' +
+            ' /I"' + $incDir    + '"' +
+            ' /I"' + $msvcInc   + '"' +
+            ' /I"' + $ucrtInc   + '"' +
+            ' /I"' + $umInc     + '"' +
+            ' /I"' + $sharedInc + '"'
+$clLink   = '/link /LIBPATH:"' + $msvcLib + '" /LIBPATH:"' + $ucrtLib + '" /LIBPATH:"' + $umLib + '"'
+$batLine3 = 'cl.exe ' + $clFlags + ' "' + $srcFile + '" /Fe:"' + $exeFile + '" /Fo:"' + $tmpDir + '\\" ' + $clLink + ' 2>&1'
+$batContent = ($batLine1, $batLine2, $batLine3) -join "`r`n"
 [System.IO.File]::WriteAllText($tmpBat, $batContent, [System.Text.Encoding]::ASCII)
 $compileOut = cmd /c $tmpBat
 if ($LASTEXITCODE -ne 0) {
