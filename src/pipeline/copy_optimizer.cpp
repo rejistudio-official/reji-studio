@@ -45,7 +45,11 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         pool_info.queueFamilyIndex = queue_family_index;
-        CHECK_VK(vkCreateCommandPool(device_, &pool_info, nullptr, &command_pool_));
+        if (vkCreateCommandPool(device_, &pool_info, nullptr, &command_pool_) != VK_SUCCESS) {
+            fprintf(stderr, "[GpuCopyOptimizer] vkCreateCommandPool failed\n");
+            fflush(stderr);
+            shutdown(); return false;
+        }
 
         // Allocate command buffer
         VkCommandBufferAllocateInfo alloc_info = {};
@@ -53,7 +57,11 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         alloc_info.commandPool = command_pool_;
         alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         alloc_info.commandBufferCount = 1;
-        CHECK_VK(vkAllocateCommandBuffers(device_, &alloc_info, &command_buffer_));
+        if (vkAllocateCommandBuffers(device_, &alloc_info, &command_buffer_) != VK_SUCCESS) {
+            fprintf(stderr, "[GpuCopyOptimizer] vkAllocateCommandBuffers failed\n");
+            fflush(stderr);
+            shutdown(); return false;
+        }
 
         // Create timeline semaphore (non-blocking sync)
         VkSemaphoreTypeCreateInfoKHR timeline_info = {};
@@ -64,7 +72,11 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         VkSemaphoreCreateInfo sem_info = {};
         sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         sem_info.pNext = &timeline_info;
-        CHECK_VK(vkCreateSemaphore(device_, &sem_info, nullptr, &timeline_semaphore_));
+        if (vkCreateSemaphore(device_, &sem_info, nullptr, &timeline_semaphore_) != VK_SUCCESS) {
+            fprintf(stderr, "[GpuCopyOptimizer] vkCreateSemaphore (timeline) failed\n");
+            fflush(stderr);
+            shutdown(); return false;
+        }
         fprintf(stderr, "[GpuCopyOptimizer] vkCreateSemaphore: timeline_semaphore_=%p\n",
                 (void*)timeline_semaphore_);
 
@@ -72,7 +84,11 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         VkSemaphoreCreateInfo bin_sem_info{};
         bin_sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         for (int i = 0; i < 3; ++i) {
-            CHECK_VK(vkCreateSemaphore(device_, &bin_sem_info, nullptr, &gl_sync_sem_pool_[i]));
+            if (vkCreateSemaphore(device_, &bin_sem_info, nullptr, &gl_sync_sem_pool_[i]) != VK_SUCCESS) {
+                fprintf(stderr, "[GpuCopyOptimizer] vkCreateSemaphore (gl_sync_sem_pool[%d]) failed\n", i);
+                fflush(stderr);
+                shutdown(); return false;
+            }
         }
         fprintf(stderr, "[GpuCopyOptimizer] gl_sync_sem_pool: 3 binary semaphores created\n");
 
@@ -87,7 +103,8 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
             fprintf(stderr,
                     "[GpuCopyOptimizer] vkGetDeviceProcAddr failed for "
                     "vkGetSemaphoreCounterValueKHR (VK_KHR_timeline_semaphore missing?)\n");
-            return false;
+            fflush(stderr);
+            shutdown(); return false;
         }
 
         pfn_wait_semaphores_ =
@@ -95,14 +112,16 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
                 vkGetDeviceProcAddr(device_, "vkWaitSemaphores"));
         if (!pfn_wait_semaphores_) {
             fprintf(stderr, "[GpuCopyOptimizer] vkGetDeviceProcAddr failed for vkWaitSemaphores\n");
-            return false;
+            fflush(stderr);
+            shutdown(); return false;
         }
 
         fprintf(stderr, "[GpuCopyOptimizer] Initialized (command pool, buffer, timeline semaphore)\n");
         return true;
     } catch (...) {
         fprintf(stderr, "[GpuCopyOptimizer] Exception during init\n");
-        return false;
+        fflush(stderr);
+        shutdown(); return false;
     }
 }
 
