@@ -168,7 +168,8 @@ static void seh_safe_global_cleanup(int do_srt_cleanup) noexcept {
 // Impl
 // ============================================================================
 struct SrtOutput::Impl {
-    SRTSOCKET             sock     = SRT_INVALID_SOCK;
+    SRTSOCKET             sock        = SRT_INVALID_SOCK;  // listen (listener) or connect (caller)
+    SRTSOCKET             client_sock_ = SRT_INVALID_SOCK; // accepted client — listener mode only
     int                   epoll_id = -1;
     Config                cfg{};
 
@@ -181,8 +182,8 @@ struct SrtOutput::Impl {
     ComGuard    com_guard;
     std::thread worker_thread;
 
-    bool configure_socket() noexcept {
-        if (sock == SRT_INVALID_SOCK) return false;
+    bool configure_socket(SRTSOCKET s) noexcept {
+        if (s == SRT_INVALID_SOCK) return false;
 
         int     no    = 0;
         int     yes   = 1;
@@ -194,15 +195,15 @@ struct SrtOutput::Impl {
             ? static_cast<int64_t>(cfg.bandwidth_kbps) * 1000
             : 0;
 
-        if (seh_safe_setsockopt(sock, SRTO_SNDSYN,    &no,    sizeof no)    < 0) return false;
-        if (seh_safe_setsockopt(sock, SRTO_RCVSYN,    &no,    sizeof no)    < 0) return false;
-        if (seh_safe_setsockopt(sock, SRTO_TSBPDMODE, &yes,   sizeof yes)   < 0) return false;
-        if (seh_safe_setsockopt(sock, SRTO_LATENCY,   &lat,   sizeof lat)   < 0) return false;
-        if (seh_safe_setsockopt(sock, SRTO_TRANSTYPE, &ttype, sizeof ttype) < 0) return false;
+        if (seh_safe_setsockopt(s, SRTO_SNDSYN,    &no,    sizeof no)    < 0) return false;
+        if (seh_safe_setsockopt(s, SRTO_RCVSYN,    &no,    sizeof no)    < 0) return false;
+        if (seh_safe_setsockopt(s, SRTO_TSBPDMODE, &yes,   sizeof yes)   < 0) return false;
+        if (seh_safe_setsockopt(s, SRTO_LATENCY,   &lat,   sizeof lat)   < 0) return false;
+        if (seh_safe_setsockopt(s, SRTO_TRANSTYPE, &ttype, sizeof ttype) < 0) return false;
 
-        seh_safe_setsockopt(sock, SRTO_PAYLOADSIZE, &pload, sizeof pload);
-        seh_safe_setsockopt(sock, SRTO_SNDTIMEO,   &stout, sizeof stout);
-        seh_safe_setsockopt(sock, SRTO_MAXBW,      &maxbw, sizeof maxbw);
+        seh_safe_setsockopt(s, SRTO_PAYLOADSIZE, &pload, sizeof pload);
+        seh_safe_setsockopt(s, SRTO_SNDTIMEO,   &stout, sizeof stout);
+        seh_safe_setsockopt(s, SRTO_MAXBW,      &maxbw, sizeof maxbw);
         return true;
     }
 
@@ -218,7 +219,7 @@ struct SrtOutput::Impl {
         sock = srt_create_socket();
         if (sock == SRT_INVALID_SOCK) return false;
 
-        if (!configure_socket()) {
+        if (!configure_socket(sock)) {
             seh_safe_close(sock);
             sock = SRT_INVALID_SOCK;
             return false;
@@ -288,11 +289,12 @@ struct SrtOutput::Impl {
     }
 
     void update_state_from_socket() noexcept {
-        if (sock == SRT_INVALID_SOCK) {
+        SRTSOCKET check = cfg.caller_mode ? sock : client_sock_;
+        if (check == SRT_INVALID_SOCK) {
             connected.store(false, std::memory_order_release);
             return;
         }
-        SRT_SOCKSTATUS st    = srt_getsockstate(sock);
+        SRT_SOCKSTATUS st    = srt_getsockstate(check);
         bool           now_c = (st == SRTS_CONNECTED);
         bool           was   = connected.exchange(now_c, std::memory_order_acq_rel);
 
@@ -312,21 +314,34 @@ struct SrtOutput::Impl {
             if (n > 0) {
                 int e = ev[0].events;
                 if (e & SRT_EPOLL_ERR) {
-                    connected.store(false, std::memory_order_release);
-                    notify_connection_lost("srt_epoll_error");
+                    if (!cfg.caller_mode && ev[0].fd == client_sock_) {
+                        // Client koptu — sadece client soketi kapat, listen soket korunur.
+                        srt_epoll_remove_usock(epoll_id, client_sock_);
+                        seh_safe_close(client_sock_);
+                        client_sock_ = SRT_INVALID_SOCK;
+                        connected.store(false, std::memory_order_release);
+                        if (!shutting_down.load(std::memory_order_acquire))
+                            notify_connection_lost("srt_client_disconnected");
+                    } else {
+                        connected.store(false, std::memory_order_release);
+                        notify_connection_lost("srt_epoll_error");
+                    }
                 } else if ((e & SRT_EPOLL_IN) && !cfg.caller_mode) {
+                    // Yeni bağlantı: listen soketi (sock) üzerinden accept et.
                     SRTSOCKET client = srt_accept(sock, nullptr, nullptr);
                     if (client != SRT_INVALID_SOCK) {
-                        SRTSOCKET old = sock;
-                        sock = client;
-                        seh_safe_close(old);
-                        configure_socket();
+                        // Önceki client varsa temizle (yeni bağlantı öncelikli).
+                        if (client_sock_ != SRT_INVALID_SOCK) {
+                            srt_epoll_remove_usock(epoll_id, client_sock_);
+                            seh_safe_close(client_sock_);
+                        }
+                        client_sock_ = client;
+                        configure_socket(client_sock_);
                         int oev = SRT_EPOLL_OUT | SRT_EPOLL_ERR;
-                        srt_epoll_add_usock(epoll_id, sock, &oev);
+                        srt_epoll_add_usock(epoll_id, client_sock_, &oev);
                         connected.store(true, std::memory_order_release);
                         notified_lost.store(false, std::memory_order_release);
                     } else {
-                        // accept failed — listen socket stays intact, no close
                         OutputDebugStringA("[rj_srt] srt_accept failed, retaining listen socket\n");
                     }
                 } else if (e & (SRT_EPOLL_OUT | SRT_EPOLL_CONNECT)) {
@@ -343,10 +358,12 @@ struct SrtOutput::Impl {
         if (!initialized.load(std::memory_order_acquire))  return false;
         if (shutting_down.load(std::memory_order_acquire)) return false;
         if (!data || size == 0 || size > kMaxPayloadBytes) return false;
-        if (sock == SRT_INVALID_SOCK)                      return false;
         if (!connected.load(std::memory_order_acquire))    return false;
 
-        int rv = seh_safe_sendmsg(sock,
+        SRTSOCKET send_sock = cfg.caller_mode ? sock : client_sock_;
+        if (send_sock == SRT_INVALID_SOCK) return false;
+
+        int rv = seh_safe_sendmsg(send_sock,
                                   reinterpret_cast<const char*>(data),
                                   static_cast<int>(size),
                                   kMsgTtlMs, /*inorder*/ 1);
@@ -387,10 +404,11 @@ struct SrtOutput::Impl {
     }
 
     bool apply_bitrate(uint32_t kbps) noexcept {
-        if (sock == SRT_INVALID_SOCK) return false;
+        SRTSOCKET s = cfg.caller_mode ? sock : client_sock_;
+        if (s == SRT_INVALID_SOCK) return false;
         bitrate_kbps.store(kbps, std::memory_order_release);
         int64_t maxbw = static_cast<int64_t>(kbps) * 1000;
-        return seh_safe_setsockopt(sock, SRTO_MAXBW, &maxbw, sizeof maxbw) >= 0;
+        return seh_safe_setsockopt(s, SRTO_MAXBW, &maxbw, sizeof maxbw) >= 0;
     }
 
     // C++ kaynakları temizle (thread join). SEH bloğunun dışında çalışır.
@@ -416,13 +434,16 @@ struct SrtOutput::Impl {
 
     // SEH-korumalı, leaf-only C kaynak temizliği.
     void do_seh_cleanup() noexcept {
-        int local_sock = sock;
-        int local_eid  = epoll_id;
-        sock     = SRT_INVALID_SOCK;
-        epoll_id = -1;
+        SRTSOCKET local_sock        = sock;
+        SRTSOCKET local_client_sock = client_sock_;
+        int       local_eid         = epoll_id;
+        sock         = SRT_INVALID_SOCK;
+        client_sock_ = SRT_INVALID_SOCK;
+        epoll_id     = -1;
 
-        if (local_eid >= 0)                seh_safe_epoll_release(local_eid);
-        if (local_sock != SRT_INVALID_SOCK) seh_safe_close(local_sock);
+        if (local_eid >= 0)                        seh_safe_epoll_release(local_eid);
+        if (local_client_sock != SRT_INVALID_SOCK)  seh_safe_close(local_client_sock);
+        if (local_sock != SRT_INVALID_SOCK)         seh_safe_close(local_sock);
 
         SrtGlobalRegistry::instance().release();
         if (SrtGlobalRegistry::instance().refcount() == 0) {
