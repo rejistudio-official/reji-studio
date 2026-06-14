@@ -693,6 +693,7 @@ bool Pipeline::run_frame() {
             m.network_loss_pct   = latest.network_loss_pct;
         }
 
+        m._reserved = 0;  // source_id: 0 = video
         seh_metrics_push(&m);
     }
     s.last_frame_ticks = frame_start;

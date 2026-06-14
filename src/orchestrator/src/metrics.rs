@@ -58,33 +58,44 @@ impl MetricSample {
 /// Paylaşımlı metrik durumu — atomic, lock-free
 #[derive(Debug)]
 pub struct MetricState {
-    pub bitrate_kbps: AtomicU32,
-    pub fps_actual:   AtomicU32,   // f32 * 100 olarak saklanır
-    pub cpu_percent:  AtomicU32,   // f32 * 100 olarak saklanır
-    pub frame_drops:  AtomicU64,   // toplam kare kaybı
+    pub bitrate_kbps:       AtomicU32,  // video bitrate
+    pub audio_bitrate_kbps: AtomicU32,  // audio bitrate
+    pub fps_actual:         AtomicU32,  // f32 * 100 olarak saklanır
+    pub cpu_percent:        AtomicU32,  // f32 * 100 olarak saklanır
+    pub frame_drops:        AtomicU64,  // toplam kare kaybı
 }
 
 impl MetricState {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            bitrate_kbps: AtomicU32::new(0),
-            fps_actual:   AtomicU32::new(0),
-            cpu_percent:  AtomicU32::new(0),
-            frame_drops:  AtomicU64::new(0),
+            bitrate_kbps:       AtomicU32::new(0),
+            audio_bitrate_kbps: AtomicU32::new(0),
+            fps_actual:         AtomicU32::new(0),
+            cpu_percent:        AtomicU32::new(0),
+            frame_drops:        AtomicU64::new(0),
         })
     }
 
-    /// Yeni sample ile güncelle
+    /// Yeni sample ile güncelle — _reserved: 0 = video, 1 = audio
     pub fn update(&self, sample: &MetricSample) {
-        self.bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
-        self.fps_actual.store((sample.fps_actual * 100.0) as u32, Ordering::Relaxed);
-        self.cpu_percent.store((sample.cpu_percent * 100.0) as u32, Ordering::Relaxed);
-        self.frame_drops.fetch_add(sample.frame_drops as u64, Ordering::Relaxed);
+        if sample._reserved == 0 {
+            self.bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
+            self.fps_actual.store((sample.fps_actual * 100.0) as u32, Ordering::Relaxed);
+            self.cpu_percent.store((sample.cpu_percent * 100.0) as u32, Ordering::Relaxed);
+            self.frame_drops.fetch_add(sample.frame_drops as u64, Ordering::Relaxed);
+        } else if sample._reserved == 1 {
+            self.audio_bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
+        }
     }
 
-    /// Bitrate oku
+    /// Video bitrate oku
     pub fn bitrate(&self) -> u32 {
         self.bitrate_kbps.load(Ordering::Relaxed)
+    }
+
+    /// Audio bitrate oku
+    pub fn audio_bitrate(&self) -> u32 {
+        self.audio_bitrate_kbps.load(Ordering::Relaxed)
     }
 
     /// FPS oku
@@ -106,10 +117,11 @@ impl MetricState {
 impl Default for MetricState {
     fn default() -> Self {
         Self {
-            bitrate_kbps: AtomicU32::new(0),
-            fps_actual:   AtomicU32::new(0),
-            cpu_percent:  AtomicU32::new(0),
-            frame_drops:  AtomicU64::new(0),
+            bitrate_kbps:       AtomicU32::new(0),
+            audio_bitrate_kbps: AtomicU32::new(0),
+            fps_actual:         AtomicU32::new(0),
+            cpu_percent:        AtomicU32::new(0),
+            frame_drops:        AtomicU64::new(0),
         }
     }
 }
@@ -153,6 +165,24 @@ mod tests {
         assert_eq!(state.bitrate(), 6000);
         assert!((state.fps() - 59.97).abs() < 0.01);
         assert!((state.cpu() - 32.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_source_id_routing() {
+        let state = MetricState::new();
+
+        let mut video = valid_sample();
+        video._reserved = 0;
+        video.bitrate_kbps = 8000;
+        state.update(&video);
+
+        let mut audio = valid_sample();
+        audio._reserved = 1;
+        audio.bitrate_kbps = 192;
+        state.update(&audio);
+
+        assert_eq!(state.bitrate(), 8000);
+        assert_eq!(state.audio_bitrate(), 192);
     }
 
     #[test]
