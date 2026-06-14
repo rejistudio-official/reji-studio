@@ -172,25 +172,29 @@ bool VulkanInitializer::create_instance() {
   }
 
 #ifndef REJI_VULKAN_MOCK
-  // v0.5.2: Enable debug messenger for ALL builds
-  auto create_debug_utils = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-      instance_, "vkCreateDebugUtilsMessengerEXT");
-  if (create_debug_utils) {
-    VkDebugUtilsMessengerCreateInfoEXT debug_info{};
-    debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
-    debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    debug_info.pfnUserCallback = debug_callback;
-    create_debug_utils(instance_, &debug_info, nullptr, &debug_messenger_);
-    fprintf(stderr, "[Vulkan] Debug messenger created\n");
-    fflush(stderr);
-  } else {
-    fprintf(stderr, "[Vulkan] Warning: vkCreateDebugUtilsMessengerEXT not available\n");
-    fflush(stderr);
+  // Debug messenger yalnızca VK_EXT_debug_utils extension aktifse oluşturulur.
+  bool has_debug_utils = std::any_of(req_extensions.begin(), req_extensions.end(),
+      [](const char* ext) {
+          return std::strcmp(ext, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
+      });
+
+  if (has_debug_utils) {
+    auto create_debug_utils = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
+        instance_, "vkCreateDebugUtilsMessengerEXT");
+    if (create_debug_utils) {
+      VkDebugUtilsMessengerCreateInfoEXT debug_info{};
+      debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+      debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
+      debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+      debug_info.pfnUserCallback = debug_callback;
+      create_debug_utils(instance_, &debug_info, nullptr, &debug_messenger_);
+      fprintf(stderr, "[Vulkan] Debug messenger created\n");
+      fflush(stderr);
+    }
   }
 #endif
 
