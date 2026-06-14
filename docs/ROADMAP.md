@@ -36,23 +36,31 @@ Dil Dağılımı:
 
 Tamamlanan:
 
-&#x20; ✅ B1-B18 — İlk Fable 5 tarama düzeltmeleri
+&#x20; ✅ B1-B18 — İlk Fable 5 tarama düzeltmeleri (18 bug)
 
-&#x20; ✅ cbindgen (T1) — Rust → C header otomatik üretim
+&#x20; ✅ C1-C9  — Komut + NVENC + Semaphore + GPU seçimi (9 bug)
+
+&#x20; ✅ D1-D18 — Üçüncü Fable 5 tarama (18 bug)
+
+&#x20; ✅ E1-E18 — Dördüncü Fable 5 tarama (18 bug)
+
+&#x20; ✅ F1-F18 — Beşinci Fable 5 tarama (18 bug)
+
+&#x20; Toplam: 81 bug | Fable 5 tarama sayısı: 5
+
+&#x20; ✅ cbindgen (T1) — Rust → C header otomatik üretim, ABI otomatik kontrol
 
 &#x20; ✅ AgentShield B (85/100)
 
 &#x20; ✅ ECC kurulumu
 
+&#x20; ✅ Validation layer CI entegrasyonu aktif
+
+&#x20; ✅ build.zig pilot tamamlandı
 
 
-Devam Eden:
 
-&#x20; 🔜 C1-C9 — İkinci Fable 5 tarama düzeltmeleri (Sprint 2-3)
-
-&#x20; 🔜 T2 — scripts/build.py sadeleştirme
-
-&#x20; 🔜 T3 — justfile
+Sonraki Hedef: v0.6 Zig Faz 0+1
 
 ```
 

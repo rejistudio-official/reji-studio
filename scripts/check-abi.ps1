@@ -38,7 +38,7 @@ function Find-Vcvars {
 
 $vcvars = Find-Vcvars
 if (-not $vcvars) {
-    Write-Fail "vcvars64.bat bulunamadi — MSVC kurulu degil veya yolu taninamadi."
+    Write-Fail "vcvars64.bat bulunamadi -MSVC kurulu degil veya yolu taninamadi."
     exit 1
 }
 Write-Info "MSVC: $vcvars"
@@ -55,8 +55,14 @@ $exeFile = "$tmpDir\sizeof_check.exe"
 
 Write-Info "sizeof_check.cpp derleniyor..."
 
-$compileCmd = "call `"$vcvars`" x64 > nul 2>&1 && cl.exe /nologo /EHsc /std:c++17 /I`"$incDir`" `"$srcFile`" /Fe:`"$exeFile`" /Fo:`"$tmpDir\\`" 2>&1"
-$compileOut = cmd /c $compileCmd
+$tmpBat = "$tmpDir\compile.bat"
+$batLine1 = '@echo off'
+$batLine2 = 'call "' + $vcvars + '" x64 > nul 2>&1'
+$batLine3 = 'if errorlevel 1 exit /b 1'
+$batLine4 = 'cl.exe /nologo /EHsc /std:c++17 /I"' + $incDir + '" "' + $srcFile + '" /Fe:"' + $exeFile + '" /Fo:"' + $tmpDir + '\\" 2>&1'
+$batContent = ($batLine1, $batLine2, $batLine3, $batLine4) -join "`r`n"
+[System.IO.File]::WriteAllText($tmpBat, $batContent, [System.Text.Encoding]::ASCII)
+$compileOut = cmd /c $tmpBat
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "Derleme basarisiz:"
     $compileOut | ForEach-Object { Write-Host "    $_" }
@@ -125,7 +131,7 @@ foreach ($chk in $checks) {
         if ($a -eq $e) {
             Write-OK "sizeof($t) = $a"
         } else {
-            Write-Fail "sizeof($t): beklenen $e, gelen $a — ABI uyumsuz!"
+            Write-Fail "sizeof($t): beklenen $e, gelen $a -ABI uyumsuz!"
             $allOk = $false
         }
     } else {
@@ -141,7 +147,7 @@ foreach ($chk in $offsetChecks) {
         if ($a -eq $e) {
             Write-OK "offsetof(magic_tail) = $a"
         } else {
-            Write-Fail "offsetof($f): beklenen $e, gelen $a — ABI uyumsuz!"
+            Write-Fail "offsetof($f): beklenen $e, gelen $a -ABI uyumsuz!"
             $allOk = $false
         }
     } else {
@@ -152,7 +158,7 @@ foreach ($chk in $offsetChecks) {
 
 Write-Host ""
 if (-not $allOk) {
-    Write-Fail "ABI kontrolu BASARISIZ — sizeof_check.cpp veya metrics.rs guncellenmeli."
+    Write-Fail "ABI kontrolu BASARISIZ -sizeof_check.cpp veya metrics.rs guncellenmeli."
     exit 1
 }
 Write-OK "Tum ABI kontrolleri gecti (C++ <-> Rust uyumlu)"

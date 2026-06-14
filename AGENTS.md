@@ -334,8 +334,12 @@ Uzun baÄŸlam model performansÄ±nÄ± dÃ¼ÅŸÃ¼rÃ¼r. Yeni pencerede:
 
 Her oturum başında şu dosyaları oku:
 - docs/ROADMAP.md
+- docs/FABLE5_BUG_PLAN_V5.md (aktif — tamamlandı)
+- docs/FABLE5_BUG_PLAN_V4.md (tamamlandı)
 - docs/FABLE5_BUG_PLAN_V2.md
 - docs/FABLE5_BUG_PLAN.md
+
+**Son sprint notu:** V5 F1-F18 tamamlandı — 12.06.2026
 
 ---
 
