@@ -862,7 +862,7 @@ just abi-check
 
 \- \[x] Sprint 3 tamamlandi (F9-F12)
 
-\- \[ ] Sprint 4 tamamlandi (F13-F18)
+\- \[x] Sprint 4 tamamlandi (F13-F18)
 
 \- \[ ] Fable 5 altinci tarama yapildi
 
