@@ -1,9 +1,10 @@
 ﻿param(
-    [string]$Module     = "all",
-    [switch]$DryRun     = $false,
-    [switch]$Schedule   = $false,
-    [string]$OutputDir  = "C:\reji-studio\docs\reviews",
-    [string]$ProjectRoot = "C:\reji-studio\src"
+    [string]$Module      = "all",
+    [switch]$DryRun      = $false,
+    [switch]$Schedule    = $false,
+    [string]$OutputDir   = "C:\reji-studio\docs\reviews",
+    [string]$ProjectRoot = "C:\reji-studio\src",
+    [string]$Model       = "anthropic/claude-5-fable-20260609"
 )
 
 function Write-Info  { param($msg) Write-Host "  $msg" -ForegroundColor Cyan }
@@ -123,7 +124,7 @@ $moduleContext = switch ($Module) {
 $prompt = "You are an expert code reviewer for Reji Studio.`n`nPROJECT: Reji Studio - Windows live streaming software`nSTACK: C++17/MSVC + Rust/Tokio + Qt6 6.8.0 + Vulkan 1.4 + DXGI`nHARDWARE: AMD Radeon 780M (iGPU) + NVIDIA RTX 4070 Laptop (dGPU)`nMODULE: $moduleContext`n`nWrite a report in English covering the following categories:`n1. CRITICAL BUGS (UB, null ptr, race condition, Vulkan spec violation)`n2. MEMORY MANAGEMENT (RAII violation, hot-path allocation, Vulkan object lifetime)`n3. VULKAN/GL INTEROP (missing sync, image layout, external memory)`n4. PERFORMANCE (hot-path copy, suboptimal sync, dual-GPU issues)`n5. ARCHITECTURE (layer violation, refactor opportunity)`n6. SECURITY (SEH scope, COM lifetime, input validation)`n`nFor each finding include: file, line, description, suggested fix.`n`nCODEBASE ($($allFiles.Count) files):`n$codeBase"
 
 $requestBody = @{
-    model    = "anthropic/claude-5-fable-20260609"
+    model    = $Model
     messages = @(@{ role = "user"; content = $prompt })
     max_tokens = 16000
 } | ConvertTo-Json -Depth 5 -Compress
@@ -156,8 +157,9 @@ try {
         New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     }
 
-    $timestamp  = Get-Date -Format "yyyy-MM-dd_HH-mm"
-    $outputFile = "$OutputDir\fable5-review-$Module-$timestamp.md"
+    $timestamp   = Get-Date -Format "yyyy-MM-dd_HH-mm"
+    $modelShort  = $Model.Split("/")[-1]
+    $outputFile  = "$OutputDir\fable5-review-$Module-$modelShort-$timestamp.md"
 
     $header = "# Fable 5 Code Review Report`n**Date:** $(Get-Date -Format 'dd.MM.yyyy HH:mm')`n**Module:** $Module`n**Files:** $($allFiles.Count)`n**Tokens:** $usedTokens | **Cost:** `$$cost`n**Encoding:** UTF-8 (ASCII safe)`n`n---`n`n"
     [System.IO.File]::WriteAllText(
