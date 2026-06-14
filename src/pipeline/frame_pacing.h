@@ -36,6 +36,7 @@ private:
     IDXGISwapChain1* swap_chain_ = nullptr;
     uint32_t last_present_count_ = 0;
     uint64_t last_qpc_time_ns_ = 0;
+    uint64_t start_qpc_ = 0;
     LARGE_INTEGER qpc_freq_{};
 
     // Cache for rolling average

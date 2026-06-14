@@ -19,7 +19,8 @@ bool DxgiFramePacing::init(IDXGISwapChain1* swap_chain) {
         fflush(stderr);
         return false;
     }
-    last_qpc_time_ns_ = qpc.QuadPart;
+    start_qpc_        = static_cast<uint64_t>(qpc.QuadPart);
+    last_qpc_time_ns_ = static_cast<uint64_t>(qpc.QuadPart);
 
     if (!QueryPerformanceFrequency(&qpc_freq_)) {
         fprintf(stderr, "[DxgiFramePacing] QueryPerformanceFrequency failed\n");
@@ -86,7 +87,8 @@ bool DxgiFramePacing::poll_frame_stats(FrameStats* out_stats) {
     out_stats->frame_time_ms         = frame_time_ms;
     out_stats->gpu_busy_ms           = frame_time_ms;  // Placeholder: GpuQueryTiming dolduracak
     out_stats->gpu_stall             = gpu_stall;
-    out_stats->timestamp_us          = current_qpc * 1'000'000ULL / qpc_freq_.QuadPart;
+    const uint64_t elapsed_ticks     = current_qpc - start_qpc_;
+    out_stats->timestamp_us          = elapsed_ticks * 1'000'000ULL / static_cast<uint64_t>(qpc_freq_.QuadPart);
 
     // State güncelle
     last_present_count_ = frame_stats.PresentCount;
