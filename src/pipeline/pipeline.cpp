@@ -712,6 +712,8 @@ bool Pipeline::run_frame() {
             YieldProcessor();
     }
 
+    if (s.metrics) s.metrics->poll();
+
     return true;
 }
 
