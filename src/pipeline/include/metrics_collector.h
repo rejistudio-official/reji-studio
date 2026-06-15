@@ -1,10 +1,10 @@
 #ifndef REJI_PIPELINE_METRICS_COLLECTOR_H
 #define REJI_PIPELINE_METRICS_COLLECTOR_H
 
-#include <cstdint>
-#include <deque>
-#include <mutex>
+#include <array>
 #include <chrono>
+#include <cstdint>
+#include <mutex>
 
 namespace rj {
 
@@ -68,9 +68,12 @@ private:
   Metrics metrics_;
   mutable std::mutex metrics_lock_;
 
-  // Frame tracking
-  std::deque<uint32_t> frame_drop_window_;  // drops per poll slot (30 slots)
-  std::deque<uint32_t> frame_window_;       // frames per poll slot (30 slots)
+  // Frame tracking — sabit ring buffer (heap allocation yok)
+  static constexpr size_t WINDOW = 30;
+  std::array<uint32_t, WINDOW> drop_ring_{};
+  std::array<uint32_t, WINDOW> frame_ring_{};
+  size_t ring_head_ = 0;
+  size_t ring_count_ = 0;
   uint32_t total_frames_ = 0;
   uint32_t total_drops_ = 0;
   uint32_t prev_total_frames_ = 0;

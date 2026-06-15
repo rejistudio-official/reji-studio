@@ -1,6 +1,5 @@
 #include "include/metrics_collector.h"
 #include <algorithm>
-#include <numeric>
 #include <cmath>
 
 // TODO: WMI implementation (v0.4.1+)
@@ -117,32 +116,25 @@ uint32_t MetricsCollector::query_cpu_load_pct() {
 }
 
 void MetricsCollector::calculate_frame_drop_pct() {
-  static constexpr size_t MAX_WINDOW = 30; // 30s @ 1Hz
-
   uint32_t delta_drops = total_drops_ - prev_total_drops_;
   uint32_t delta_frames = total_frames_ - prev_total_frames_;
   prev_total_drops_ = total_drops_;
   prev_total_frames_ = total_frames_;
 
-  frame_drop_window_.push_back(delta_drops);
-  frame_window_.push_back(delta_frames);
+  drop_ring_[ring_head_ % WINDOW] = delta_drops;
+  frame_ring_[ring_head_ % WINDOW] = delta_frames;
+  ++ring_head_;
+  ring_count_ = std::min(ring_count_ + 1, WINDOW);
 
-  while (frame_drop_window_.size() > MAX_WINDOW) {
-    frame_drop_window_.pop_front();
-    frame_window_.pop_front();
+  uint32_t total_drops = 0, total_frames = 0;
+  for (size_t i = 0; i < ring_count_; ++i) {
+    total_drops  += drop_ring_[i];
+    total_frames += frame_ring_[i];
   }
 
-  uint32_t window_drops =
-      std::accumulate(frame_drop_window_.begin(), frame_drop_window_.end(), 0u);
-  uint32_t window_frames =
-      std::accumulate(frame_window_.begin(), frame_window_.end(), 0u);
-
-  if (window_frames > 0) {
-    float drop_rate = (window_drops / static_cast<float>(window_frames)) * 100.0f;
-    metrics_.frame_drop_pct = static_cast<uint32_t>(std::clamp(drop_rate, 0.0f, 100.0f));
-  } else {
-    metrics_.frame_drop_pct = 0;
-  }
+  metrics_.frame_drop_pct = total_frames > 0
+      ? (total_drops * 100u / total_frames)
+      : 0u;
 
   metrics_.total_frames = total_frames_;
   metrics_.dropped_frames = total_drops_;
