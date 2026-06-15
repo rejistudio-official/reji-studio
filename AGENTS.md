@@ -164,7 +164,7 @@ cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
 ```
 # DeÄŸiÅŸtirme â€” kararlÄ± ABI
 src/ffi/ffi_bridge.h
-src/ffi/ffi_bridge.c
+src/ffi/ffi_bridge.zig           # ffi_bridge.c kaldırıldı (Faz 1) — Zig tek kaynak
 src/orchestrator/src/metrics.rs  # RjMetricSample layout â€” Rust/C++ ABI
 
 # Build sistemi â€” sadece gerekirse deÄŸiÅŸtir
@@ -340,6 +340,10 @@ Her oturum başında şu dosyaları oku:
 - docs/FABLE5_BUG_PLAN.md
 
 **Son sprint notu:** V5 F1-F18 tamamlandı — 12.06.2026
+
+**Zig Faz 0+1 tamamlandı — 15.06.2026**
+- zig build ffi → zig-out/lib/reji_ffi.lib (tek Zig kaynağı)
+- python scripts/build.py (CMake, IMPORTED lib kullanır)
 
 ---
 

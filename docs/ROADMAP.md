@@ -58,9 +58,15 @@ Tamamlanan:
 
 &#x20; ✅ build.zig pilot tamamlandı
 
+&#x20; ✅ Faz 0 — build.zig pilot (Zig 0.16 uyumlu)
+
+&#x20; ✅ Faz 1 — src/ffi/ Zig'e taşındı, C kaldırıldı
+
+&#x20; ✅ sizeof_check.zig comptime ABI assert
 
 
-Sonraki Hedef: v0.6 Zig Faz 0+1
+
+Sonraki Hedef: v0.7 Zig Faz 2 — src/pipeline/gpu/
 
 ```
 
@@ -296,7 +302,7 @@ AGENTS.md dil politikası bölümü
 
 
 
-\### v0.6 — Zig Faz 0+1: Pilot ve FFI (2026 Q4)
+\### v0.6 — Zig Faz 0+1: Pilot ve FFI ✅ TAMAMLANDI (15.06.2026)
 
 
 
@@ -309,61 +315,45 @@ tamamlanmadan etkinleştirilemez. same\_adapter\_ = true korunuyor — güvenli 
 
 
 
-\*\*Faz 0 — Pilot (\~1 hafta)\*\*
-
-
-
-Hedef: Sıfır risk, toolchain test
-
-
+\*\*✅ Faz 0 — Pilot (Zig 0.16 uyumlu)\*\*
 
 ```
 
-1\. Zig kur: winget install zig.zig
+✅ build.zig Zig 0.16 API'sine güncellendi (addLibrary, root\_module)
 
-2\. build.zig oluştur — mevcut C++ dosyalarını Zig ile derle
+✅ zig build ffi → zig-out/lib/reji\_ffi.lib
 
-3\. src/ffi/ffi\_bridge.zig pilot — 6 fonksiyon
-
-4\. comptime ABI assert ekle
-
-5\. Başarılıysa devam, değilse C++ kalır
+✅ ffi\_bridge.zig addObject ile derlemeye entegre edildi
 
 ```
 
-
-
-\*\*Faz 1 — FFI Katmanı (\~2-3 hafta)\*\*
-
-
-
-Hedef: C katmanını sıfırla
-
-
+\*\*✅ Faz 1 — FFI Katmanı\*\*
 
 ```
 
-src/ffi/ffi\_bridge.c     → src/ffi/ffi\_bridge.zig
+✅ src/ffi/ffi\_bridge.c → src/ffi/ffi\_bridge.zig (C kaldırıldı)
 
-src/ffi/ffi\_bridge.h     → cbindgen üretir (zaten kurulu)
+✅ src/ffi/ffi\_bridge.h — cbindgen üretir (zaten kurulu)
 
-src/ffi/sizeof\_check.cpp → comptime assert'e taşı
+✅ src/ffi/sizeof\_check.zig comptime ABI assert aktif
+
+✅ CMake: IMPORTED STATIC lib → zig-out/lib/reji\_ffi.lib
 
 ```
-
-
 
 Kazanım:
 
 ```
 
-C oranı: %1.3 → %0
+✅ C oranı: %1.3 → %0
 
-comptime ABI doğrulama aktif
+✅ comptime ABI doğrulama aktif (zig build abi-check)
 
-build.zig entegrasyonu test edilmiş
+✅ build.zig entegrasyonu test edilmiş
 
 ```
+
+Sonraki: Faz 2 — src/pipeline/gpu/ (v0.7)
 
 
 
