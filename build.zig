@@ -2,6 +2,7 @@
 //
 // Kullanım:
 //   zig build                                      → zig-out/bin/reji_app.exe
+//   zig build ffi                                  → zig-out/lib/reji_ffi.lib (sadece FFI)
 //   zig build -Dvulkan-sdk=C:/VulkanSDK/1.3.290.0 → Vulkan ile tam derleme
 //   zig build run -- --headless --frames 10        → headless CI testi
 //
@@ -54,6 +55,10 @@ pub fn build(b: *std.Build) void {
         .root_module = ffi_mod,
         .linkage = .static,
     });
+
+    const ffi_step = b.step("ffi", "Sadece FFI katmanini derle");
+    const install_ffi = b.addInstallArtifact(ffi_lib, .{});
+    ffi_step.dependOn(&install_ffi.step);
 
     // ── reji_pipeline ─────────────────────────────────────────────────────────
     const pipeline_mod = b.createModule(.{
