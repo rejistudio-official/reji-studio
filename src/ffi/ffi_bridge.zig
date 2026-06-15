@@ -7,7 +7,7 @@ comptime {
 }
 
 export fn rj_ffi_version() u32 {
-    return 0x0005_0002; // v0.5.2
+    return 0x0001_0000; // v1.0.0 — ffi_bridge.h RJ_FFI_VERSION ile eşleşmeli
 }
 
 export fn rj_metrics_poll(out: ?*anyopaque) i32 {

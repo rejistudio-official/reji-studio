@@ -45,10 +45,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    ffi_mod.addCSourceFile(.{
-        .file = b.path("src/ffi/ffi_bridge.c"),
-        .flags = &.{},
-    });
     ffi_mod.addIncludePath(b.path("src/ffi"));
     const ffi_zig_obj = b.addObject(.{
         .name = "ffi_bridge_zig",
