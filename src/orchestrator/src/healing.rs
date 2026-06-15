@@ -240,6 +240,8 @@ impl HealingMonitor {
     }
 
     fn handle_system(&mut self, event: SystemEvent) {
+        let mode = crate::ffi::HEALING_MODE.load(Ordering::Relaxed);
+        if mode == 3 { return; } // Manual — reactive kanal bastırılıyor
         let thresholds = self.thresholds.load();
 
         match event {
@@ -283,6 +285,8 @@ impl HealingMonitor {
     }
 
     fn handle_media(&mut self, event: MediaEvent) {
+        let mode = crate::ffi::HEALING_MODE.load(Ordering::Relaxed);
+        if mode == 3 { return; } // Manual — reactive kanal bastırılıyor
         let thresholds = self.thresholds.load();
 
         match event {
