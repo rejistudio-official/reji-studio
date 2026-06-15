@@ -270,7 +270,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         VkImageMemoryBarrier barrier_staging_release = {};
         barrier_staging_release.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier_staging_release.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier_staging_release.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier_staging_release.newLayout = VK_IMAGE_LAYOUT_UNDEFINED;  // G8: D3D11 tamamen yeniden yazacak
         barrier_staging_release.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         barrier_staging_release.dstAccessMask = 0;
         barrier_staging_release.srcQueueFamilyIndex = graphics_queue_family_;
@@ -282,6 +282,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging_release);
+        staging_layouts_[slot] = VK_IMAGE_LAYOUT_UNDEFINED;
 
         // End command buffer
         CHECK_VK(vkEndCommandBuffer(command_buffer_));
