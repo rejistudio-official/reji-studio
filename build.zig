@@ -180,10 +180,18 @@ pub fn build(b: *std.Build) void {
     abi_step.dependOn(&abi_obj.step);
 
     // ── gpu-check ─────────────────────────────────────────────────────────────
+    // MinGW hedefi: Zig kendi Windows başlıklarını (windows.h dahil) getiriyor.
+    // MSVC hedefi ile ABI farkı yok — pointer boyutları x86_64'te aynı.
+    const gpu_check_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag   = .windows,
+        .abi      = .gnu,
+    });
     const gpu_abi_mod = b.createModule(.{
         .root_source_file = b.path("src/pipeline/gpu/vulkan_initializer.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target     = gpu_check_target,
+        .optimize   = optimize,
+        .link_libc  = true,
     });
     if (vulkan_sdk.len > 0) {
         gpu_abi_mod.addIncludePath(.{
@@ -191,7 +199,7 @@ pub fn build(b: *std.Build) void {
         });
     }
     const gpu_abi = b.addObject(.{
-        .name = "vulkan_init_zig",
+        .name        = "vulkan_init_zig",
         .root_module = gpu_abi_mod,
     });
     const gpu_step = b.step("gpu-check", "GPU katmani Zig compile testi");

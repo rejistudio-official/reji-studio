@@ -1,14 +1,18 @@
 // src/pipeline/gpu/vulkan_initializer.zig
 //
-// Faz 2 Pilot — VulkanInitializer Zig iskeleti
+// Faz 2 Pilot — VulkanInitializer Zig implementasyonu
 // C++ singleton (vulkan_initializer.cpp) için Zig karşılığı.
-// Bu dosya yalnızca yapıyı kurar; implementasyon Faz 2'de gelecek.
 //
 // Derleme:
-//   zig build gpu-check -Dvulkan-sdk=C:/VulkanSDK/1.3.290.0
+//   zig build gpu-check -Dvulkan-sdk=C:/VulkanSDK/1.4.350.0
 
-const std = @import("std");
-const vk = @cImport(@cInclude("vulkan/vulkan.h"));
+const std     = @import("std");
+const builtin = @import("builtin");
+
+const vk = @cImport({
+    @cDefine("VK_USE_PLATFORM_WIN32_KHR", "1");
+    @cInclude("vulkan/vulkan.h");
+});
 
 // ── Singleton state ───────────────────────────────────────────────────────────
 
@@ -25,7 +29,53 @@ const State = struct {
 
 var state: State = .{};
 
-// ── C++ singleton API karşılığı export'lar ────────────────────────────────────
+// ── create_instance ───────────────────────────────────────────────────────────
+
+fn create_instance() bool {
+    const app_info = vk.VkApplicationInfo{
+        .sType              = vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pNext              = null,
+        .pApplicationName   = "Reji Studio",
+        .applicationVersion = vk.VK_MAKE_VERSION(0, 5, 2),
+        .pEngineName        = "RejiEngine",
+        .engineVersion      = vk.VK_MAKE_VERSION(0, 5, 2),
+        .apiVersion         = vk.VK_API_VERSION_1_3,
+    };
+
+    // Validation layer — yalnızca Debug build'de etkin
+    const layers = [_][*:0]const u8{
+        "VK_LAYER_KHRONOS_validation",
+    };
+    const layer_count: u32 = if (builtin.mode == .Debug) 1 else 0;
+
+    const extensions = [_][*:0]const u8{
+        vk.VK_KHR_SURFACE_EXTENSION_NAME,
+        vk.VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+        vk.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+        vk.VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+    };
+
+    const create_info = vk.VkInstanceCreateInfo{
+        .sType                   = vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pNext                   = null,
+        .flags                   = 0,
+        .pApplicationInfo        = &app_info,
+        .enabledLayerCount       = layer_count,
+        .ppEnabledLayerNames     = if (layer_count > 0) @ptrCast(&layers) else null,
+        .enabledExtensionCount   = @intCast(extensions.len),
+        .ppEnabledExtensionNames = @ptrCast(&extensions),
+    };
+
+    const result = vk.vkCreateInstance(&create_info, null, &state.instance);
+    if (result != vk.VK_SUCCESS) {
+        std.debug.print("[VulkanZig] vkCreateInstance failed: {}\n", .{result});
+        return false;
+    }
+    std.debug.print("[VulkanZig] Instance created\n", .{});
+    return true;
+}
+
+// ── Export'lar ────────────────────────────────────────────────────────────────
 
 pub export fn vulkan_init_get() *State {
     return &state;
@@ -33,13 +83,18 @@ pub export fn vulkan_init_get() *State {
 
 pub export fn vulkan_init_initialize() bool {
     if (state.initialized) return true;
-    // TODO: Faz 2 — create_instance, select_device, create_device
-    return false;
+    if (!create_instance()) return false;
+    // TODO: Faz 2 devamı — select_device, create_device
+    state.initialized = true;
+    return true;
 }
 
 pub export fn vulkan_init_shutdown() void {
-    // TODO: Faz 2 — vkDestroyDevice, vkDestroyInstance, debug_messenger
-    _ = state;
+    if (state.instance != null) {
+        vk.vkDestroyInstance(state.instance, null);
+        state.instance = null;
+    }
+    state.initialized = false;
 }
 
 pub export fn vulkan_init_use_keyed_mutex() bool {
@@ -63,7 +118,6 @@ pub export fn vulkan_init_graphics_queue_family() u32 {
 }
 
 // ── ABI doğrulama ─────────────────────────────────────────────────────────────
-// Vulkan dispatchable handle'ları opaque pointer — 64-bit'te *anyopaque boyutunda olmalı.
 
 comptime {
     std.debug.assert(@sizeOf(vk.VkInstance)       == @sizeOf(*anyopaque));
