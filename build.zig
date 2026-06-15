@@ -50,6 +50,15 @@ pub fn build(b: *std.Build) void {
         .flags = &.{},
     });
     ffi_mod.addIncludePath(b.path("src/ffi"));
+    const ffi_zig_obj = b.addObject(.{
+        .name = "ffi_bridge_zig",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/ffi/ffi_bridge.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ffi_mod.addObject(ffi_zig_obj);
     const ffi_lib = b.addLibrary(.{
         .name = "reji_ffi",
         .root_module = ffi_mod,
