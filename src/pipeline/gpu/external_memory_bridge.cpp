@@ -240,6 +240,7 @@ bool ExternalMemoryBridge::initialize_gl_target_pool(
 
     VkMemoryRequirements mem_reqs;
     vkGetImageMemoryRequirements(device_, vk_img, &mem_reqs);
+    gl_target_sizes_[i] = mem_reqs.size;  // G6: exact size for GL import
 
     VkExportMemoryAllocateInfo export_info{};
     export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;

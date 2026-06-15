@@ -417,8 +417,9 @@ void PreviewWidget::paintGL() {
                 if (!gl_memory_objects_[pool_idx] && pfn_CreateMemoryObjects_) {
                     pfn_CreateMemoryObjects_(1, &gl_memory_objects_[pool_idx]);
                     if (gl_memory_objects_[pool_idx]) {
+                        VkDeviceSize exact_size = bridge_->gl_target_size(pool_idx);
                         pfn_ImportMemoryWin32Handle_(gl_memory_objects_[pool_idx],
-                                                     w * h * 4,  // approximate size (RGBA8)
+                                                     exact_size,  // G6: exact VkMemoryRequirements::size
                                                      GL_HANDLE_TYPE_OPAQUE_WIN32_EXT,
                                                      nt_handle);
                     }

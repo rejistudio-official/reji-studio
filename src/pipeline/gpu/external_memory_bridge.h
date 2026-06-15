@@ -14,6 +14,7 @@ using VkDeviceMemory = void*;
 using VkSemaphore = void*;
 using VkFormat = int;
 using VkResult = int;
+using VkDeviceSize = uint64_t;
 const int VK_FORMAT_UNDEFINED = 0;
 const int VK_SUCCESS = 0;
 #ifndef VK_NULL_HANDLE
@@ -23,6 +24,7 @@ const int VK_SUCCESS = 0;
 
 #include <d3d11_1.h>
 #include <wrl/client.h>
+#include <array>
 #include <vector>
 
 namespace rj::pipeline::gpu {
@@ -56,6 +58,11 @@ class ExternalMemoryBridge {
   // GL interop için export edilebilir target image pool
   bool initialize_gl_target_pool(VkFormat format, uint32_t width, uint32_t height);
   HANDLE get_gl_target_handle(uint32_t idx) const;
+
+  // G6: GL memory import için exact VkMemoryRequirements::size (w*h*4 yaklaşımı spec ihlali)
+  VkDeviceSize gl_target_size(uint32_t slot) const {
+    return slot < 3 ? gl_target_sizes_[slot] : 0;
+  }
 
   // Task 6: Zero-copy frame acquisition with cached handle reuse
   // Returns staging and target VkImages for GPU-side operations
@@ -95,9 +102,10 @@ class ExternalMemoryBridge {
   std::vector<VkDeviceMemory> pool_memory_;
 
   // GL interop için export edilebilir target image pool
-  std::vector<VkImage>        gl_target_pool_;
-  std::vector<VkDeviceMemory> gl_target_memory_;
-  HANDLE                      gl_target_handles_[POOL_SIZE]{};
+  std::vector<VkImage>           gl_target_pool_;
+  std::vector<VkDeviceMemory>    gl_target_memory_;
+  HANDLE                         gl_target_handles_[POOL_SIZE]{};
+  std::array<VkDeviceSize, 3>    gl_target_sizes_{};
 
   // B5/C7: GL/Vulkan semaphore sync — 3-slot pool (round-robin, no re-signal)
   VkSemaphore gl_sync_sem_pool_[3]    = {};
