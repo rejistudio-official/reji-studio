@@ -369,8 +369,8 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
     if (shared_texture_) {
         if (use_keyed_mutex_ && keyed_mutex_shared_) {
             HRESULT hr = keyed_mutex_shared_->AcquireSync(0, 16);  // 16ms timeout
-            if (FAILED(hr)) {
-                fprintf(stderr, "[DxgiCapture] KeyedMutex AcquireSync failed: 0x%08lX\n", hr);
+            if (hr != S_OK) {
+                fprintf(stderr, "[Capture] KeyedMutex timeout/fail: 0x%08X\n", hr);
                 fflush(stderr);
                 capture_->release_frame();
                 return nullptr;
