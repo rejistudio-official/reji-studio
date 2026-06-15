@@ -379,8 +379,9 @@ bool Pipeline::init(const Config& cfg_in) {
     // Initialize metrics collector (v0.4+ Runtime Adaptation)
     s.metrics = std::make_unique<rj::MetricsCollector>();
 
-    s.cfg          = cfg_in;
-    s.bitrate_kbps = cfg_in.bitrate_kbps;
+    s.cfg                          = cfg_in;
+    s.cfg.original_bitrate_kbps    = cfg_in.bitrate_kbps;
+    s.bitrate_kbps                 = cfg_in.bitrate_kbps;
 
     //  COM 
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -827,12 +828,14 @@ bool Pipeline::apply_action(const RjAction& action) {
             return true;
         }
         case RJ_ACTION_BITRATE_RECOVER: {
-            uint32_t target_rate = impl_->cfg.bitrate_kbps;
-            uint32_t current_rate = impl_->bitrate_kbps;
-            if (current_rate < target_rate) {
-                uint32_t new_rate = static_cast<uint32_t>(current_rate * 1.05f);
-                new_rate = new_rate > target_rate ? target_rate : new_rate;
-                impl_->push_frame_cmd({RJ_ACTION_BITRATE_RECOVER, static_cast<int32_t>(new_rate)});
+            uint32_t target  = impl_->cfg.original_bitrate_kbps;
+            uint32_t current = impl_->bitrate_kbps;
+            if (current < target) {
+                uint32_t new_bitrate = (std::min)(
+                    static_cast<uint32_t>(current * 1.15f),
+                    target
+                );
+                impl_->push_frame_cmd({RJ_ACTION_BITRATE_RECOVER, static_cast<int32_t>(new_bitrate)});
                 return true;
             }
             break;

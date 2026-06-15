@@ -37,8 +37,9 @@ public:
         uint32_t width             = 1920;
         uint32_t height            = 1080;
         uint32_t fps               = 60;
-        uint32_t bitrate_kbps      = 6000;
-        uint32_t min_bitrate_kbps  = 1000;
+        uint32_t bitrate_kbps          = 6000;
+        uint32_t min_bitrate_kbps      = 1000;
+        uint32_t original_bitrate_kbps = 0;    // init() tarafından set edilir, recovery ceiling
         bool     audio_enabled     = false;
         bool     loopback          = true;
         char     srt_host[256]     = {};
