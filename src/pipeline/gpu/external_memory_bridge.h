@@ -88,8 +88,8 @@ class ExternalMemoryBridge {
   void shutdown();
 
  private:
-  VkDevice device_;
-  VkPhysicalDevice physical_device_;
+  VkDevice         device_          = VK_NULL_HANDLE;
+  VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
 
   std::vector<VkImage> image_pool_;
   std::vector<VkDeviceMemory> pool_memory_;
@@ -107,14 +107,14 @@ class ExternalMemoryBridge {
   PFN_glDeleteMemoryObjects pfn_delete_memory_objects_ = nullptr;
   std::vector<unsigned int> gl_memory_objects_;
 
-  VkFormat format_;
-  uint32_t width_;
-  uint32_t height_;
+  VkFormat format_  = VK_FORMAT_UNDEFINED;
+  uint32_t width_   = 0;
+  uint32_t height_  = 0;
 
   // Task 6: Cached state for hot-path optimization
-  uint32_t pool_index_;              // Round-robin index (0..POOL_SIZE-1)
-  HANDLE cached_d3d11_handle_;       // NT handle (reused, no per-frame alloc)
-  ID3D11Texture2D* cached_texture_ptr_ = nullptr;  // E5: texture identity — stale-handle guard
+  uint32_t         pool_index_            = 0;       // Round-robin index (0..POOL_SIZE-1)
+  HANDLE           cached_d3d11_handle_   = nullptr; // NT handle (reused, no per-frame alloc)
+  ID3D11Texture2D* cached_texture_ptr_    = nullptr; // E5: texture identity — stale-handle guard
 };
 
 }
