@@ -2,6 +2,7 @@
 #ifdef RJ_PLATFORM_WINDOWS
 
 #include "../include/frame_profiler.h"
+#include <cassert>
 #include <cstdio>
 
 namespace reji {
@@ -92,6 +93,8 @@ void DxgiCaptureSession::shutdown() {
 }
 
 bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
+    assert(!frame_held_ && "acquire() called while frame held");
+
     if (!initialized_ || needs_reinit_) {
         printf("[DxgiCapture] acquire: early-out initialized_=%d needs_reinit_=%d\n",
                (int)initialized_, (int)needs_reinit_);
@@ -136,23 +139,6 @@ bool DxgiCaptureSession::acquire(CaptureFrame& out_frame) {
     }
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
-
-    // Cursor-only update: still a valid frame for preview
-    // return false;  // removed: preview needs these frames too
-    if (info.AccumulatedFrames == 0 && info.LastPresentTime.QuadPart == 0) {
-        // No new desktop content � reuse last texture if we have one, else skip.
-        if (!frame_tex_) {
-            duplication_->ReleaseFrame();
-            return false;
-        }
-        out_frame.texture     = frame_tex_.Get();
-        out_frame.width       = width_;
-        out_frame.height      = height_;
-        out_frame.format      = surface_format_;
-        out_frame.present_time = info.LastPresentTime.QuadPart;
-        frame_held_           = true;
-        return true;
-    }
 
     hr = resource.As(&tex);
     if (FAILED(hr)) {
