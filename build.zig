@@ -178,4 +178,22 @@ pub fn build(b: *std.Build) void {
         }),
     });
     abi_step.dependOn(&abi_obj.step);
+
+    // ── gpu-check ─────────────────────────────────────────────────────────────
+    const gpu_abi_mod = b.createModule(.{
+        .root_source_file = b.path("src/pipeline/gpu/vulkan_initializer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    if (vulkan_sdk.len > 0) {
+        gpu_abi_mod.addIncludePath(.{
+            .cwd_relative = b.fmt("{s}/Include", .{vulkan_sdk}),
+        });
+    }
+    const gpu_abi = b.addObject(.{
+        .name = "vulkan_init_zig",
+        .root_module = gpu_abi_mod,
+    });
+    const gpu_step = b.step("gpu-check", "GPU katmani Zig compile testi");
+    gpu_step.dependOn(&gpu_abi.step);
 }
