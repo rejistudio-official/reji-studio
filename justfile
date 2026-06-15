@@ -39,6 +39,10 @@ shield:
 abi-check:
     powershell -NoLogo -File scripts\check-abi.ps1
 
+# Zig comptime ABI boyut doğrulama
+zig-abi:
+    zig build abi-check
+
 # Show last 50 lines of run log
 log:
     powershell -NoLogo -Command "Get-Content run.log -Tail 50 -ErrorAction SilentlyContinue"

@@ -166,4 +166,16 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_cmd.addArgs(args);
     const run_step = b.step("run", "reji_app çalıştır (örn: zig build run -- --headless)");
     run_step.dependOn(&run_cmd.step);
+
+    // ── abi-check ─────────────────────────────────────────────────────────────
+    const abi_step = b.step("abi-check", "ABI boyut doğrulama (comptime assert)");
+    const abi_obj = b.addObject(.{
+        .name = "sizeof_check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/ffi/sizeof_check.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    abi_step.dependOn(&abi_obj.step);
 }
