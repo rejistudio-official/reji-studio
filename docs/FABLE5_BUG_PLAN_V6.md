@@ -760,7 +760,7 @@ just abi-check
 
 \- \[x] Sprint 1 tamamlandi (G1-G5)
 
-\- \[ ] Sprint 2 tamamlandi (G6-G9)
+\- \[x] Sprint 2 tamamlandi (G6-G9)
 
 \- \[ ] Sprint 3 tamamlandi (G10-G12)
 
