@@ -523,6 +523,12 @@ VkDeviceMemory ExternalMemoryBridge::get_staging_memory_for_image(VkImage img) c
 }
 
 void ExternalMemoryBridge::shutdown() {
+  bool expected = false;
+  if (!shutdown_called_.compare_exchange_strong(
+          expected, true,
+          std::memory_order_acq_rel)) {
+      return;  // G9: zaten çalıştırıldı
+  }
   if (!device_) return;  // B10: guard against double-shutdown or null device
 
   // D4: Drain all in-flight GPU work before releasing Vulkan resources

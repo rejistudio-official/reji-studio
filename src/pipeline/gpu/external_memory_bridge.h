@@ -25,6 +25,7 @@ const int VK_SUCCESS = 0;
 #include <d3d11_1.h>
 #include <wrl/client.h>
 #include <array>
+#include <atomic>
 #include <vector>
 
 namespace rj::pipeline::gpu {
@@ -123,6 +124,9 @@ class ExternalMemoryBridge {
   uint32_t         pool_index_            = 0;       // Round-robin index (0..POOL_SIZE-1)
   HANDLE           cached_d3d11_handle_   = nullptr; // NT handle (reused, no per-frame alloc)
   ID3D11Texture2D* cached_texture_ptr_    = nullptr; // E5: texture identity — stale-handle guard
+
+  // G9: double-shutdown race guard
+  std::atomic<bool> shutdown_called_{false};
 };
 
 }
