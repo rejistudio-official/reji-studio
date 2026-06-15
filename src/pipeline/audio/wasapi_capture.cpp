@@ -550,7 +550,7 @@ void WasapiCapture::publish_metrics(int64_t now) {
                    : 0.0f;
     s.cpu_percent  = compute_cpu_percent();
     s.frame_drops  = frame_drops_.exchange(0, std::memory_order_relaxed);
-    s._reserved    = 1;  // source_id: 1 = audio
+    s.source_id    = 1;  // audio
     ::rj_metrics_push(&s);
 }
 

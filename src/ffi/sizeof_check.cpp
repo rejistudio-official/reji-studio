@@ -30,7 +30,7 @@ int main() {
     printf("cpu_load_pct offset: %zu\n", offsetof(RjMetricSample, cpu_load_pct));
     printf("network_rtt_ms offset: %zu\n", offsetof(RjMetricSample, network_rtt_ms));
     printf("network_loss_pct offset: %zu\n", offsetof(RjMetricSample, network_loss_pct));
-    printf("_reserved offset: %zu\n", offsetof(RjMetricSample, _reserved));
+    printf("source_id offset: %zu\n", offsetof(RjMetricSample, source_id));
     printf("magic_tail offset: %zu\n", offsetof(RjMetricSample, magic_tail));
 
     return 0;

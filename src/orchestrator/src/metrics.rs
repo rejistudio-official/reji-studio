@@ -20,7 +20,7 @@ use std::sync::Arc;
 ///   +44  cpu_load_pct:     u32   [0, 100]
 ///   +48  network_rtt_ms:   u16
 ///   +50  network_loss_pct: u8    [0, 100]
-///   +51  _reserved:        u8
+///   +51  source_id:        u8    (0=video, 1=audio)
 ///   +52  magic_tail:       u32
 ///   = 56 bytes
 #[repr(C)]
@@ -39,7 +39,7 @@ pub struct MetricSample {
     pub cpu_load_pct:     u32,
     pub network_rtt_ms:   u16,
     pub network_loss_pct: u8,
-    pub _reserved:        u8,
+    pub source_id:        u8,
     pub magic_tail:       u32,
 }
 
@@ -76,14 +76,14 @@ impl MetricState {
         })
     }
 
-    /// Yeni sample ile güncelle — _reserved: 0 = video, 1 = audio
+    /// Yeni sample ile güncelle — source_id: 0 = video, 1 = audio
     pub fn update(&self, sample: &MetricSample) {
-        if sample._reserved == 0 {
+        if sample.source_id == 0 {
             self.bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
             self.fps_actual.store((sample.fps_actual * 100.0) as u32, Ordering::Relaxed);
             self.cpu_percent.store((sample.cpu_percent * 100.0) as u32, Ordering::Relaxed);
             self.frame_drops.fetch_add(sample.frame_drops as u64, Ordering::Relaxed);
-        } else if sample._reserved == 1 {
+        } else if sample.source_id == 1 {
             self.audio_bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
         }
     }
@@ -145,7 +145,7 @@ mod tests {
             cpu_load_pct:     32,
             network_rtt_ms:   15,
             network_loss_pct: 0,
-            _reserved:        0,
+            source_id:        0,
             magic_tail:       MetricSample::MAGIC,
         }
     }
@@ -172,12 +172,12 @@ mod tests {
         let state = MetricState::new();
 
         let mut video = valid_sample();
-        video._reserved = 0;
+        video.source_id = 0;
         video.bitrate_kbps = 8000;
         state.update(&video);
 
         let mut audio = valid_sample();
-        audio._reserved = 1;
+        audio.source_id = 1;
         audio.bitrate_kbps = 192;
         state.update(&audio);
 
