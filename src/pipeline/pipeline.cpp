@@ -820,13 +820,11 @@ bool Pipeline::apply_action(const RjAction& action) {
 
     switch (action.action_type) {
         case RJ_ACTION_BITRATE_REDUCE: {
-            uint32_t new_rate = impl_->cfg.bitrate_kbps;
-            if (new_rate > 1000) {
-                new_rate = static_cast<uint32_t>(new_rate * 0.85f);
-                impl_->push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_rate)});
-                return true;
-            }
-            break;
+            uint32_t current    = impl_->bitrate_kbps;
+            uint32_t new_bitrate = static_cast<uint32_t>(current * 0.85f);
+            new_bitrate = (std::max)(new_bitrate, impl_->cfg.min_bitrate_kbps);
+            impl_->push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_bitrate)});
+            return true;
         }
         case RJ_ACTION_BITRATE_RECOVER: {
             uint32_t target_rate = impl_->cfg.bitrate_kbps;

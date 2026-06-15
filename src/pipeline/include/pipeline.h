@@ -34,14 +34,15 @@ namespace rj {
 class Pipeline {
 public:
     struct Config {
-        uint32_t width         = 1920;
-        uint32_t height        = 1080;
-        uint32_t fps           = 60;
-        uint32_t bitrate_kbps  = 6000;
-        bool     audio_enabled = false;
-        bool     loopback      = true;
-        char     srt_host[256] = {};
-        uint16_t srt_port      = 4200;
+        uint32_t width             = 1920;
+        uint32_t height            = 1080;
+        uint32_t fps               = 60;
+        uint32_t bitrate_kbps      = 6000;
+        uint32_t min_bitrate_kbps  = 1000;
+        bool     audio_enabled     = false;
+        bool     loopback          = true;
+        char     srt_host[256]     = {};
+        uint16_t srt_port          = 4200;
     };
 
     Pipeline();
