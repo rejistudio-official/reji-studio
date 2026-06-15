@@ -54,6 +54,8 @@
 
 | G12 | Qwen3.7-Max   | Unreachable dead code acquire() ikinci sifir blok | capture\_dxgi.cpp               | Dusuk   | Sprint 3 |
 
+| G13 | DeepSeek      | Bitrate recovery original\_bitrate\_kbps ile       | pipeline.cpp                   | Kritik  | Tamamlandi |
+
 
 
 \---
@@ -763,6 +765,8 @@ just abi-check
 \- \[x] Sprint 2 tamamlandi (G6-G9)
 
 \- \[x] Sprint 3 tamamlandi (G10-G12)
+
+\- \[x] G13 tamamlandi — bitrate recovery original\_bitrate\_kbps ile
 
 \- \[ ] Fable 5 altinci tarama yapildi
 
