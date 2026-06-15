@@ -1,4 +1,4 @@
-// build.zig — Reji Studio Zig build pilot (Zig 0.13.0+)
+// build.zig — Reji Studio Zig build pilot (Zig 0.16.0)
 //
 // Kullanım:
 //   zig build                                      → zig-out/bin/reji_app.exe
@@ -39,26 +39,31 @@ pub fn build(b: *std.Build) void {
     };
 
     // ── reji_ffi ─────────────────────────────────────────────────────────────
-    const ffi_lib = b.addStaticLibrary(.{
-        .name = "reji_ffi",
+    const ffi_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
-    ffi_lib.addCSourceFile(.{
+    ffi_mod.addCSourceFile(.{
         .file = b.path("src/ffi/ffi_bridge.c"),
         .flags = &.{},
     });
-    ffi_lib.addIncludePath(b.path("src/ffi"));
-    ffi_lib.linkLibC();
+    ffi_mod.addIncludePath(b.path("src/ffi"));
+    const ffi_lib = b.addLibrary(.{
+        .name = "reji_ffi",
+        .root_module = ffi_mod,
+        .linkage = .static,
+    });
 
     // ── reji_pipeline ─────────────────────────────────────────────────────────
-    const pipeline_lib = b.addStaticLibrary(.{
-        .name = "reji_pipeline",
+    const pipeline_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
+        .link_libcpp = true,
     });
     // CMakeLists.txt: PIPELINE_SOURCES + WIN32 block ile bire bir eslesme
-    pipeline_lib.addCSourceFiles(.{
+    pipeline_mod.addCSourceFiles(.{
         .root = b.path("src/pipeline"),
         .files = &.{
             "pipeline.cpp",
@@ -80,63 +85,68 @@ pub fn build(b: *std.Build) void {
         },
         .flags = cpp_flags,
     });
-    pipeline_lib.addIncludePath(b.path("src/pipeline/include"));
-    pipeline_lib.addIncludePath(b.path("src/pipeline/capture"));
-    pipeline_lib.addIncludePath(b.path("src/pipeline/encode"));
-    pipeline_lib.addIncludePath(b.path("src/pipeline/output"));
-    pipeline_lib.addIncludePath(b.path("src/pipeline/audio"));
-    pipeline_lib.addIncludePath(b.path("src/ffi"));
+    pipeline_mod.addIncludePath(b.path("src/pipeline/include"));
+    pipeline_mod.addIncludePath(b.path("src/pipeline/capture"));
+    pipeline_mod.addIncludePath(b.path("src/pipeline/encode"));
+    pipeline_mod.addIncludePath(b.path("src/pipeline/output"));
+    pipeline_mod.addIncludePath(b.path("src/pipeline/audio"));
+    pipeline_mod.addIncludePath(b.path("src/ffi"));
     if (vulkan_sdk.len > 0) {
-        pipeline_lib.addIncludePath(.{
+        pipeline_mod.addIncludePath(.{
             .cwd_relative = b.fmt("{s}/Include", .{vulkan_sdk}),
         });
     }
-    pipeline_lib.linkLibC();
-    pipeline_lib.linkLibCpp();
     // CMakeLists.txt: target_link_libraries(reji_pipeline PUBLIC ...)
-    pipeline_lib.linkSystemLibrary("d3d11");
-    pipeline_lib.linkSystemLibrary("dxgi");
-    pipeline_lib.linkSystemLibrary("ole32");
-    pipeline_lib.linkSystemLibrary("oleaut32");
-    pipeline_lib.linkSystemLibrary("wbemuuid");
-    pipeline_lib.linkSystemLibrary("avrt");
-    pipeline_lib.linkSystemLibrary("winmm");
+    pipeline_mod.linkSystemLibrary("d3d11", .{});
+    pipeline_mod.linkSystemLibrary("dxgi", .{});
+    pipeline_mod.linkSystemLibrary("ole32", .{});
+    pipeline_mod.linkSystemLibrary("oleaut32", .{});
+    pipeline_mod.linkSystemLibrary("wbemuuid", .{});
+    pipeline_mod.linkSystemLibrary("avrt", .{});
+    pipeline_mod.linkSystemLibrary("winmm", .{});
+    const pipeline_lib = b.addLibrary(.{
+        .name = "reji_pipeline",
+        .root_module = pipeline_mod,
+        .linkage = .static,
+    });
 
     // ── reji_app ──────────────────────────────────────────────────────────────
-    const exe = b.addExecutable(.{
-        .name = "reji_app",
+    const app_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
+        .link_libcpp = true,
     });
-    exe.addCSourceFile(.{
+    app_mod.addCSourceFile(.{
         .file = b.path("src/ui/main.cpp"),
         .flags = cpp_flags,
     });
-    exe.addIncludePath(b.path("src/ui"));
-    exe.addIncludePath(b.path("src/pipeline/include"));
-    exe.addIncludePath(b.path("src/ffi"));
+    app_mod.addIncludePath(b.path("src/ui"));
+    app_mod.addIncludePath(b.path("src/pipeline/include"));
+    app_mod.addIncludePath(b.path("src/ffi"));
     if (vulkan_sdk.len > 0) {
-        exe.addIncludePath(.{
+        app_mod.addIncludePath(.{
             .cwd_relative = b.fmt("{s}/Include", .{vulkan_sdk}),
         });
-        exe.addLibraryPath(.{
+        app_mod.addLibraryPath(.{
             .cwd_relative = b.fmt("{s}/Lib", .{vulkan_sdk}),
         });
-        exe.linkSystemLibrary("vulkan-1");
+        app_mod.linkSystemLibrary("vulkan-1", .{});
     }
-    exe.linkLibrary(ffi_lib);
-    exe.linkLibrary(pipeline_lib);
-    exe.linkLibC();
-    exe.linkLibCpp();
-
+    app_mod.linkLibrary(ffi_lib);
+    app_mod.linkLibrary(pipeline_lib);
     // Rust orchestrator: önce `cargo build --release` çalıştırılmalı
-    exe.addLibraryPath(b.path("target/release"));
-    exe.linkSystemLibrary("reji_orchestrator");
-    // Rust Windows runtime bagımlılıkları (src/ui/CMakeLists.txt ile eslesme)
-    exe.linkSystemLibrary("ws2_32");
-    exe.linkSystemLibrary("bcrypt");
-    exe.linkSystemLibrary("userenv");
-    exe.linkSystemLibrary("ntdll");
+    app_mod.addLibraryPath(b.path("target/release"));
+    app_mod.linkSystemLibrary("reji_orchestrator", .{});
+    // Rust Windows runtime bağımlılıkları (src/ui/CMakeLists.txt ile eslesme)
+    app_mod.linkSystemLibrary("ws2_32", .{});
+    app_mod.linkSystemLibrary("bcrypt", .{});
+    app_mod.linkSystemLibrary("userenv", .{});
+    app_mod.linkSystemLibrary("ntdll", .{});
+    const exe = b.addExecutable(.{
+        .name = "reji_app",
+        .root_module = app_mod,
+    });
 
     b.installArtifact(exe);
 
