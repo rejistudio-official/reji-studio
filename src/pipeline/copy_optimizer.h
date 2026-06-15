@@ -64,6 +64,9 @@ public:
     // F8: execute_copy'nin başarıyla kullandığı son slot
     uint32_t last_used_slot() const { return last_used_slot_; }
 
+    // G2: execute_copy'nin kullanacağı bir sonraki slot (fence wait için)
+    uint32_t next_slot() const { return (frame_counter_ + 1) % POOL_SIZE; }
+
     // Shutdown and cleanup
     void shutdown();
 

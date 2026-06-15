@@ -391,10 +391,11 @@ void PreviewWidget::paintGL() {
         VkDeviceMemory staging_mem = bridge_
             ? bridge_->get_staging_memory_for_image(staging_vk)
             : VK_NULL_HANDLE;
-        // D5: GL draw fence — wait for GL to finish reading this slot before Vulkan overwrites it
-        if (gl_draw_fences_[pool_idx] && pfn_ClientWaitSync_) {
-            pfn_ClientWaitSync_(gl_draw_fences_[pool_idx],
-                                GL_SYNC_FLUSH_COMMANDS_BIT, 1000000);
+        // D5/G2: execute_copy'nin kullanacağı next_slot'un fence'ini bekle (pool_idx değil)
+        uint32_t next = copy_optimizer_->next_slot();
+        if (gl_draw_fences_[next] && pfn_ClientWaitSync_) {
+            pfn_ClientWaitSync_(gl_draw_fences_[next],
+                                GL_SYNC_FLUSH_COMMANDS_BIT, 1'000'000);
         }
         if (!copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
                                            &sem, &value, &result_target_image,
