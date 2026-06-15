@@ -332,7 +332,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         if (has_keyed_mutex) {
             keyed_mutex_info_ = {};
             keyed_mutex_info_.sType            = VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR;
-            keyed_mutex_info_.pNext            = nullptr;
+            keyed_mutex_info_.pNext            = &timeline_submit_info_;  // flat: keyed → timeline
             keyed_mutex_info_.acquireCount     = 1;
             keyed_mutex_info_.pAcquireSyncs    = &km_memory_;
             keyed_mutex_info_.pAcquireKeys     = &km_acquire_key_;
@@ -340,14 +340,17 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             keyed_mutex_info_.releaseCount     = 1;
             keyed_mutex_info_.pReleaseSyncs    = &km_memory_;
             keyed_mutex_info_.pReleaseKeys     = &km_release_key_;
-            timeline_submit_info_.pNext        = &keyed_mutex_info_;
+            timeline_submit_info_.pNext        = nullptr;                  // timeline zincir sonu
         } else {
             timeline_submit_info_.pNext = nullptr;
         }
 
         submit_info_ = {};
         submit_info_.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit_info_.pNext = &timeline_submit_info_;
+        // G4: flat chain — keyed_mutex aktifse submit→keyed→timeline, aksi halde submit→timeline
+        submit_info_.pNext = has_keyed_mutex
+            ? static_cast<const void*>(&keyed_mutex_info_)
+            : static_cast<const void*>(&timeline_submit_info_);
         submit_info_.commandBufferCount   = 1;
         submit_info_.pCommandBuffers      = &command_buffer_;
         submit_info_.signalSemaphoreCount = sem_count;
