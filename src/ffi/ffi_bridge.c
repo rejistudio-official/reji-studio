@@ -32,7 +32,7 @@ typedef struct {
     uint32_t cpu_load_pct;
     uint16_t network_rtt_ms;
     uint8_t  network_loss_pct;
-    uint8_t  _reserved;
+    uint8_t  source_id;
     uint32_t magic_tail;
 } RjMetricSampleC;
 

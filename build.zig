@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
 
     const cpp_flags: []const []const u8 = &.{
         "-std=c++17",
-        "-DRIJ_PLATFORM_WINDOWS",
+        "-DRJ_PLATFORM_WINDOWS",
         "-DWIN32_LEAN_AND_MEAN",
         "-DNOMINMAX",
         "-D_CRT_SECURE_NO_WARNINGS",
