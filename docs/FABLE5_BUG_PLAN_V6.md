@@ -56,6 +56,8 @@
 
 | G13 | DeepSeek      | Bitrate recovery original\_bitrate\_kbps ile       | pipeline.cpp                   | Kritik  | Tamamlandi |
 
+| G14 | G13 dogrulamasi | healing.rs Manual mode'da reactive kanallar aktif — tam bastırma eksik | healing.rs | Orta    | Sprint 4 |
+
 
 
 \---
@@ -730,6 +732,88 @@ D7 ile ilk blok eklendi ama ikinci blok kalmalic.
 
 
 
+\## Sprint 4 — Yeni Bulgular
+
+
+
+\---
+
+
+
+\### G14 — healing.rs Manual Mode'da Reactive Kanallar Hâlâ Aktif
+
+
+
+\*\*Kaynak:\*\* G13 dogrulamasi (cargo test sirasinda tespit edildi)
+
+
+
+\*\*Sorun:\*\*
+
+```rust
+
+// healing.rs run() — ticker.tick() kolu:
+
+let mode = crate::ffi::HEALING\_MODE.load(Ordering::Relaxed);
+
+if mode == 3 { continue; } // sadece on\_periodic() atlanir
+
+self.on\_periodic();
+
+```
+
+`continue` yalnızca `ticker.tick()` kolunu etkiler.
+
+`system\_rx.recv()` ve `media\_rx.recv()` kollarında mode kontrolü yoktur.
+
+Manual modda (mode==3) bile `handle\_system()` ve `handle\_media()` reactive
+
+olaylarına yanıt vermeye devam eder — tam bastırma saglanmıyor.
+
+
+
+\*\*Cozum:\*\*
+
+```rust
+
+fn handle\_system(\&mut self, event: SystemEvent) \{
+
+&#x20;   if crate::ffi::HEALING\_MODE.load(Ordering::Relaxed) == 3 \{
+
+&#x20;       return; // Manual — reaktif komut uretme
+
+&#x20;   \}
+
+&#x20;   // ... mevcut kod
+
+\}
+
+
+
+fn handle\_media(\&mut self, event: MediaEvent) \{
+
+&#x20;   if crate::ffi::HEALING\_MODE.load(Ordering::Relaxed) == 3 \{
+
+&#x20;       return; // Manual — reaktif komut uretme
+
+&#x20;   \}
+
+&#x20;   // ... mevcut kod
+
+\}
+
+```
+
+\*\*Oncelik:\*\* Orta
+
+\*\*Sprint:\*\* Sprint 4
+
+
+
+\---
+
+
+
 \## Dogrulama
 
 
@@ -767,6 +851,8 @@ just abi-check
 \- \[x] Sprint 3 tamamlandi (G10-G12)
 
 \- \[x] G13 tamamlandi — bitrate recovery original\_bitrate\_kbps ile
+
+\- \[ ] Sprint 4 tamamlandi (G14)
 
 \- \[ ] Fable 5 altinci tarama yapildi
 

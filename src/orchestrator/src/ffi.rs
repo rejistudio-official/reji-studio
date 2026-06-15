@@ -473,7 +473,7 @@ mod tests {
             cpu_load_pct:     40,
             network_rtt_ms:   0,
             network_loss_pct: 0,
-            _reserved:        0,
+            source_id:        0,
             magic_tail:       MetricSample::MAGIC,
         };
         rj_metrics_push(&sample as *const _);
