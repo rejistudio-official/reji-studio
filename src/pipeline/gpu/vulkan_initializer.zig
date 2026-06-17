@@ -75,6 +75,58 @@ fn create_instance() bool {
     return true;
 }
 
+// ── select_device ─────────────────────────────────────────────────────────────
+
+fn select_device() bool {
+    var device_count: u32 = 0;
+    _ = vk.vkEnumeratePhysicalDevices(state.instance, &device_count, null);
+    if (device_count == 0) {
+        std.debug.print("[VulkanZig] No GPU found\n", .{});
+        return false;
+    }
+
+    var devices: [8]vk.VkPhysicalDevice = undefined;
+    var actual: u32 = @min(device_count, 8);
+    _ = vk.vkEnumeratePhysicalDevices(state.instance, &actual, &devices);
+
+    var best: vk.VkPhysicalDevice = null;
+    var best_score: u32 = 0;
+
+    for (devices[0..actual]) |dev| {
+        var props: vk.VkPhysicalDeviceProperties = undefined;
+        vk.vkGetPhysicalDeviceProperties(dev, &props);
+
+        var score: u32 = 1;
+        if (props.vendorID == 0x1002) score = 100; // AMD iGPU öncelikli
+        if (props.deviceType == vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) score += 10;
+
+        if (score > best_score) {
+            best_score = score;
+            best = dev;
+            state.vendor_id = props.vendorID;
+        }
+    }
+
+    state.physical_device = best;
+
+    var qf_count: u32 = 0;
+    vk.vkGetPhysicalDeviceQueueFamilyProperties(best, &qf_count, null);
+
+    var qf_props: [16]vk.VkQueueFamilyProperties = undefined;
+    var qf_actual: u32 = @min(qf_count, 16);
+    vk.vkGetPhysicalDeviceQueueFamilyProperties(best, &qf_actual, &qf_props);
+
+    for (qf_props[0..qf_actual], 0..) |qf, i| {
+        if (qf.queueFlags & vk.VK_QUEUE_GRAPHICS_BIT != 0) {
+            state.graphics_queue_family = @intCast(i);
+            break;
+        }
+    }
+
+    std.debug.print("[VulkanZig] Selected: vendorID=0x{X:0>4}\n", .{state.vendor_id});
+    return true;
+}
+
 // ── Export'lar ────────────────────────────────────────────────────────────────
 
 pub export fn vulkan_init_get() *State {
@@ -84,7 +136,7 @@ pub export fn vulkan_init_get() *State {
 pub export fn vulkan_init_initialize() bool {
     if (state.initialized) return true;
     if (!create_instance()) return false;
-    // TODO: Faz 2 devamı — select_device, create_device
+    if (!select_device()) return false;
     state.initialized = true;
     return true;
 }
