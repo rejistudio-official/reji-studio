@@ -49,60 +49,23 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
 #endif
 
 bool VulkanInitializer::initialize() {
-  if (initialized_) {
-      fprintf(stderr, "[Vulkan] Zaten baslatildi, atlaniyor\n");
-      return true;
-  }
+  if (initialized_) return true;
 
-  // Debug: List available instance layers
-  uint32_t layer_count = 0;
-  vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
-  fprintf(stderr, "[Vulkan] Available instance layers: %u\n", layer_count);
-  fflush(stderr);
-  if (layer_count > 0) {
-    std::vector<VkLayerProperties> layers(layer_count);
-    vkEnumerateInstanceLayerProperties(&layer_count, layers.data());
-    for (const auto& layer : layers) {
-      fprintf(stderr, "[Vulkan] Layer: %s (spec ver: %u, impl ver: %u)\n",
-              layer.layerName, layer.specVersion, layer.implementationVersion);
-      fflush(stderr);
-    }
-  }
-
-  if (!create_instance()) {
-    fprintf(stderr, "[Vulkan] Failed to create instance\n");
-    fflush(stderr);
+  if (!vulkan_init_initialize()) {
+    fprintf(stderr, "[Vulkan] Zig init failed\n");
     return false;
   }
 
-  if (!select_device()) {
-    fprintf(stderr, "[Vulkan] Failed to select device\n");
-    fflush(stderr);
-    vkDestroyInstance(instance_, nullptr);
-    instance_ = nullptr;
-    return false;
-  }
+  instance_              = vulkan_init_instance();
+  physical_device_       = vulkan_init_physical_device();
+  device_                = vulkan_init_device();
+  graphics_queue_        = vulkan_init_graphics_queue();
+  graphics_queue_family_ = vulkan_init_graphics_queue_family();
+  vendor_id_             = vulkan_init_vendor_id();
+  use_keyed_mutex_       = vulkan_init_use_keyed_mutex();
+  initialized_           = true;
 
-  if (!create_device()) {
-    fprintf(stderr, "[Vulkan] Failed to create device\n");
-    fflush(stderr);
-    vkDestroyInstance(instance_, nullptr);
-    instance_ = nullptr;
-    return false;
-  }
-
-  detect_vendor();
-
-  if (!check_required_extensions()) {
-    fprintf(stderr, "[Vulkan] Required extensions not supported\n");
-    fflush(stderr);
-    shutdown();
-    return false;
-  }
-
-  fprintf(stderr, "[Vulkan] Initialized (vendor: 0x%04x)\n", vendor_id_);
-  fflush(stderr);
-  initialized_ = true;
+  fprintf(stderr, "[Vulkan] Zig init OK, vendor=0x%04X\n", vendor_id_);
   return true;
 }
 
@@ -417,24 +380,9 @@ VulkanVendor VulkanInitializer::vendor() const {
 }
 
 void VulkanInitializer::shutdown() {
-  if (device_) {
-    vkDestroyDevice(device_, nullptr);
-    device_ = nullptr;
-  }
-#ifndef REJI_VULKAN_MOCK
-  if (debug_messenger_ && instance_) {
-    auto destroy_debug_utils = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-        instance_, "vkDestroyDebugUtilsMessengerEXT");
-    if (destroy_debug_utils) {
-      destroy_debug_utils(instance_, debug_messenger_, nullptr);
-    }
-    debug_messenger_ = nullptr;
-  }
-#endif
-  if (instance_) {
-    vkDestroyInstance(instance_, nullptr);
-    instance_ = nullptr;
-  }
+  if (!initialized_) return;
+  vulkan_init_shutdown();
+  initialized_ = false;
 }
 
 VulkanInitializer::~VulkanInitializer() {

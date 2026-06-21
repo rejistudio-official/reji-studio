@@ -51,6 +51,14 @@ if(WIN32)
     if(Vulkan_FOUND)
         target_link_libraries(reji_pipeline PUBLIC Vulkan::Vulkan)
     endif()
+
+    # Zig FFI lib (zig build ffi ile üretilir)
+    target_link_libraries(reji_pipeline PRIVATE
+        ${CMAKE_SOURCE_DIR}/zig-out/lib/reji_ffi.lib
+    )
+
+    # Zig Vulkan lib (zig build gpu ile üretilecek)
+    # Şimdilik sadece extern "C" declare — link sonra
 endif()
 
 # ---------------------------------------------------------------------------
