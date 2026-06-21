@@ -69,6 +69,12 @@ const State = struct {
 
 var state: State = .{};
 
+const PFN_glDeleteMemoryObjects = ?*const fn(
+    u32, [*]const u32) callconv(.c) void;
+
+var gl_delete_memory_objects: PFN_glDeleteMemoryObjects = null;
+var gl_memory_objects: [POOL_SIZE]u32 = .{0} ** POOL_SIZE;
+
 // ── Format eşleme ─────────────────────────────────────────────────────────────
 
 fn dxgi_to_vk_format(dxgi: w32.DXGI_FORMAT) vk.VkFormat {
@@ -78,6 +84,25 @@ fn dxgi_to_vk_format(dxgi: w32.DXGI_FORMAT) vk.VkFormat {
         w32.DXGI_FORMAT_R10G10B10A2_UNORM => vk.VK_FORMAT_A2B10G10R10_UNORM_PACK32,
         else                               => vk.VK_FORMAT_UNDEFINED,
     };
+}
+
+// ── Yardımcı: Uygun memory type bul ──────────────────────────────────────────
+
+fn find_memory_type(
+    mem_reqs: vk.VkMemoryRequirements,
+    props: vk.VkMemoryPropertyFlags) u32 {
+    var mem_props: vk.VkPhysicalDeviceMemoryProperties = undefined;
+    vk.vkGetPhysicalDeviceMemoryProperties(
+        state.physical_device, &mem_props);
+
+    var i: u32 = 0;
+    while (i < mem_props.memoryTypeCount) : (i += 1) {
+        const type_bit = @as(u32, 1) << @intCast(i);
+        const type_ok = mem_reqs.memoryTypeBits & type_bit != 0;
+        const prop_ok = mem_props.memoryTypes[i].propertyFlags & props == props;
+        if (type_ok and prop_ok) return i;
+    }
+    return 0;
 }
 
 // ── Yardımcı: Vulkan image oluştur ────────────────────────────────────────────
@@ -146,7 +171,7 @@ fn create_vulkan_image(
         .sType           = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .pNext           = &dedicated,
         .allocationSize  = mem_reqs.size,
-        .memoryTypeIndex = 0, // import için 0 yeterli
+        .memoryTypeIndex = find_memory_type(mem_reqs, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
     };
 
     var memory: vk.VkDeviceMemory = null;
@@ -170,6 +195,14 @@ pub export fn ext_bridge_init(
     state.device          = device;
     state.physical_device = phys;
     return true;
+}
+
+pub export fn ext_bridge_set_device(
+    device: vk.VkDevice,
+    phys:   vk.VkPhysicalDevice,
+) void {
+    state.device          = device;
+    state.physical_device = phys;
 }
 
 fn create_vulkan_image_from_d3d11(
@@ -218,6 +251,12 @@ fn create_vulkan_image_from_d3d11(
 }
 
 fn invalidate_pool() void {
+    // B16: GL memory object'leri NT handle'lar kapanmadan önce sil
+    if (gl_delete_memory_objects) |pfn| {
+        pfn(@intCast(POOL_SIZE), &gl_memory_objects);
+        gl_memory_objects = .{0} ** POOL_SIZE;
+        gl_delete_memory_objects = null;
+    }
     // GPU idle bekle — F4 dersi
     if (state.device != null) {
         _ = vk.vkDeviceWaitIdle(state.device);
@@ -274,6 +313,18 @@ fn invalidate_pool() void {
         }
     }
     state.cached_texture_ptr = null;
+}
+
+pub export fn ext_bridge_set_gl_memory_objects(
+    pfn:     PFN_glDeleteMemoryObjects,
+    objects: [*]const u32,
+    count:   u32,
+) void {
+    gl_delete_memory_objects = pfn;
+    const n = @min(count, POOL_SIZE);
+    for (0..n) |i| {
+        gl_memory_objects[i] = objects[i];
+    }
 }
 
 pub export fn ext_bridge_shutdown() void {
@@ -462,7 +513,7 @@ pub export fn ext_bridge_init_gl_target_pool(
             .sType           = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .pNext           = &dedicated,
             .allocationSize  = mem_reqs.size,
-            .memoryTypeIndex = 0,
+            .memoryTypeIndex = find_memory_type(mem_reqs, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
         };
 
         var memory: vk.VkDeviceMemory = null;
