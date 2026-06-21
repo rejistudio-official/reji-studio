@@ -469,10 +469,25 @@ Tamamlanan (Faz 2 — vulkan_initializer):
 ✅ Runtime: exit 0, 3 headless frame
 \`\`\`
 
+Tamamlanan (Faz 2 — external_memory_bridge):
+
+\`\`\`
+✅ external_memory_bridge.zig — tam implementasyon
+   - create_vulkan_image (D3D11 NT handle import)
+   - initialize_gl_target_pool (B13 rollback dahil)
+   - GL sync semaphore export (per-slot Win32 handle)
+   - get_frame_images (texture cache + pool invalidation)
+   - get_staging_memory reverse lookup
+   - shutdown (double-shutdown guard, NT handle cleanup)
+   - 5 headless frame, exit 0, VUID yok
+\`\`\`
+
 Sonraki adım (Faz 2 devam):
 
 \`\`\`
-- external_memory_bridge.zig pilot
+- external_memory_bridge.cpp → Zig entegrasyon
+  (vulkan_initializer gibi delegate pattern)
+- ext_bridge_lib build hedefi
 \`\`\`
 
 
