@@ -67,3 +67,17 @@ class VulkanInitializer {
 };
 
 }
+
+// ── Zig export bildirimleri (C ABI köprüsü) ──────────────────────────────────
+extern "C" {
+    bool             vulkan_init_initialize();
+    void             vulkan_init_shutdown();
+    VkInstance       vulkan_init_instance();
+    VkPhysicalDevice vulkan_init_physical_device();
+    VkDevice         vulkan_init_device();
+    VkQueue          vulkan_init_graphics_queue();
+    uint32_t         vulkan_init_graphics_queue_family();
+    uint32_t         vulkan_init_vendor_id();
+    bool             vulkan_init_use_keyed_mutex();
+    bool             vulkan_init_has_extension(const char* name);
+}
