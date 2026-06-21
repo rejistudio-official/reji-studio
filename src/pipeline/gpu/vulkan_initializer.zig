@@ -127,6 +127,90 @@ fn select_device() bool {
     return true;
 }
 
+// ── check_extension_available ─────────────────────────────────────────────────
+
+fn check_extension_available(name: [*:0]const u8) bool {
+    var count: u32 = 0;
+    _ = vk.vkEnumerateDeviceExtensionProperties(
+        state.physical_device, null, &count, null);
+    var props: [256]vk.VkExtensionProperties = undefined;
+    var actual: u32 = @min(count, 256);
+    _ = vk.vkEnumerateDeviceExtensionProperties(
+        state.physical_device, null, &actual, &props);
+    for (props[0..actual]) |p| {
+        if (std.mem.eql(u8,
+            std.mem.sliceTo(&p.extensionName, 0),
+            std.mem.sliceTo(name, 0))) return true;
+    }
+    return false;
+}
+
+// ── create_device ─────────────────────────────────────────────────────────────
+
+fn create_device() bool {
+    const priority: f32 = 1.0;
+    const queue_create_info = vk.VkDeviceQueueCreateInfo{
+        .sType            = vk.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .pNext            = null,
+        .flags            = 0,
+        .queueFamilyIndex = state.graphics_queue_family,
+        .queueCount       = 1,
+        .pQueuePriorities = &priority,
+    };
+
+    var timeline_features = vk.VkPhysicalDeviceTimelineSemaphoreFeatures{
+        .sType             = vk.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES,
+        .pNext             = null,
+        .timelineSemaphore = vk.VK_TRUE,
+    };
+
+    const extensions = [_][*:0]const u8{
+        vk.VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+        vk.VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+        vk.VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+        vk.VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+        vk.VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+    };
+
+    const device_create_info = vk.VkDeviceCreateInfo{
+        .sType                   = vk.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext                   = &timeline_features,
+        .flags                   = 0,
+        .queueCreateInfoCount    = 1,
+        .pQueueCreateInfos       = &queue_create_info,
+        .enabledLayerCount       = 0,
+        .ppEnabledLayerNames     = null,
+        .enabledExtensionCount   = @intCast(extensions.len),
+        .ppEnabledExtensionNames = @ptrCast(&extensions),
+        .pEnabledFeatures        = null,
+    };
+
+    const result = vk.vkCreateDevice(
+        state.physical_device,
+        &device_create_info,
+        null,
+        &state.device,
+    );
+    if (result != vk.VK_SUCCESS) {
+        std.debug.print("[VulkanZig] vkCreateDevice failed: {}\n", .{result});
+        return false;
+    }
+
+    vk.vkGetDeviceQueue(
+        state.device,
+        state.graphics_queue_family,
+        0,
+        &state.graphics_queue,
+    );
+
+    state.use_keyed_mutex = check_extension_available(
+        vk.VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME);
+
+    std.debug.print("[VulkanZig] Device created, keyed_mutex={}\n",
+        .{state.use_keyed_mutex});
+    return true;
+}
+
 // ── Export'lar ────────────────────────────────────────────────────────────────
 
 pub export fn vulkan_init_get() *State {
@@ -137,11 +221,16 @@ pub export fn vulkan_init_initialize() bool {
     if (state.initialized) return true;
     if (!create_instance()) return false;
     if (!select_device()) return false;
+    if (!create_device()) return false;
     state.initialized = true;
     return true;
 }
 
 pub export fn vulkan_init_shutdown() void {
+    if (state.device != null) {
+        vk.vkDestroyDevice(state.device, null);
+        state.device = null;
+    }
     if (state.instance != null) {
         vk.vkDestroyInstance(state.instance, null);
         state.instance = null;
