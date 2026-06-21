@@ -197,8 +197,42 @@ pub export fn create_vulkan_image_from_d3d11(
     return true;
 }
 
+fn invalidate_pool() void {
+    // GPU idle bekle — F4 dersi
+    if (state.device != null) {
+        _ = vk.vkDeviceWaitIdle(state.device);
+    }
+    // Önce image'lar, sonra memory — E14 dersi
+    for (&state.image_pool) |*slot| {
+        if (slot.image != null) {
+            vk.vkDestroyImage(state.device, slot.image, null);
+            slot.image = null;
+        }
+        if (slot.memory != null) {
+            vk.vkFreeMemory(state.device, slot.memory, null);
+            slot.memory = null;
+        }
+    }
+    // NT handle'ları kapat
+    for (&state.image_pool) |*slot| {
+        if (slot.gl_handle) |h| {
+            _ = std.os.windows.CloseHandle(h);
+            slot.gl_handle = null;
+        }
+    }
+    state.cached_texture_ptr = null;
+}
+
 pub export fn ext_bridge_shutdown() void {
-    // TODO
+    // G9 dersi — atomic CAS ile double-shutdown önle
+    if (state.shutdown_called.cmpxchgStrong(
+            false, true,
+            .acq_rel, .acquire) != null) return;
+
+    invalidate_pool();
+
+    state.device          = null;
+    state.physical_device = null;
 }
 
 pub export fn ext_bridge_get_frame_images(
