@@ -130,3 +130,26 @@ class ExternalMemoryBridge {
 };
 
 }
+
+// ── Zig static lib C ABI ─────────────────────────────────────────────────────
+// ext_bridge_zig.lib içindeki fonksiyonlar — C++ tarafından doğrudan çağrılabilir.
+extern "C" {
+    bool ext_bridge_init(VkDevice, VkPhysicalDevice);
+    void ext_bridge_set_device(VkDevice, VkPhysicalDevice);
+    void ext_bridge_shutdown();
+    bool ext_bridge_get_frame_images(
+        void* tex, uint32_t slot,
+        VkImage* staging, VkImage* target);
+    VkImage ext_bridge_get_pooled_image(uint32_t frame_idx);
+    bool ext_bridge_init_gl_target_pool(
+        VkFormat, uint32_t w, uint32_t h);
+    void* ext_bridge_get_gl_target_handle(uint32_t slot);
+    VkImage ext_bridge_get_gl_target_image(uint32_t slot);
+    uint64_t ext_bridge_gl_target_size(uint32_t slot);
+    bool ext_bridge_create_gl_sync_semaphores();
+    void* ext_bridge_get_gl_sync_handle(uint32_t slot);
+    VkSemaphore ext_bridge_get_staging_semaphore(uint32_t slot);
+    VkDeviceMemory ext_bridge_get_staging_memory(VkImage img);
+    void ext_bridge_set_gl_memory_objects(
+        void* pfn, const uint32_t* objs, uint32_t count);
+}
