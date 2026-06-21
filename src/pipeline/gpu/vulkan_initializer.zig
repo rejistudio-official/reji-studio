@@ -42,11 +42,27 @@ fn create_instance() bool {
         .apiVersion         = vk.VK_API_VERSION_1_3,
     };
 
-    // Validation layer — yalnızca Debug build'de etkin
-    const layers = [_][*:0]const u8{
-        "VK_LAYER_KHRONOS_validation",
-    };
-    const layer_count: u32 = if (builtin.mode == .Debug) 1 else 0;
+    // Validation layer — Debug build'de etkin; runtime'da availability kontrol edilir
+    const layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
+    var layer_count: u32 = 0;
+    if (builtin.mode == .Debug) {
+        var avail_count: u32 = 0;
+        _ = vk.vkEnumerateInstanceLayerProperties(&avail_count, null);
+        var avail_layers: [64]vk.VkLayerProperties = undefined;
+        var actual_avail: u32 = @min(avail_count, 64);
+        _ = vk.vkEnumerateInstanceLayerProperties(&actual_avail, &avail_layers);
+        for (avail_layers[0..actual_avail]) |lp| {
+            if (std.mem.eql(u8,
+                std.mem.sliceTo(&lp.layerName, 0),
+                "VK_LAYER_KHRONOS_validation"))
+            {
+                layer_count = 1;
+                break;
+            }
+        }
+        if (layer_count == 0)
+            std.debug.print("[VulkanZig] VK_LAYER_KHRONOS_validation bulunamadi, atlanıyor\n", .{});
+    }
 
     const extensions = [_][*:0]const u8{
         vk.VK_KHR_SURFACE_EXTENSION_NAME,
@@ -164,13 +180,18 @@ fn create_device() bool {
         .timelineSemaphore = vk.VK_TRUE,
     };
 
-    const extensions = [_][*:0]const u8{
-        vk.VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
-        vk.VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
-        vk.VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
-        vk.VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
-        vk.VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
-    };
+    // 5 zorunlu + 1 opsiyonel (keyed mutex) — fixed buffer, allocator yok
+    var ext_buf: [6][*:0]const u8 = undefined;
+    var ext_n: u32 = 0;
+    ext_buf[ext_n] = vk.VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME;           ext_n += 1;
+    ext_buf[ext_n] = vk.VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME;     ext_n += 1;
+    ext_buf[ext_n] = vk.VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME;        ext_n += 1;
+    ext_buf[ext_n] = vk.VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME;  ext_n += 1;
+    ext_buf[ext_n] = vk.VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME;        ext_n += 1;
+    if (check_extension_available(vk.VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME)) {
+        ext_buf[ext_n] = vk.VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME;     ext_n += 1;
+        state.use_keyed_mutex = true;
+    }
 
     const device_create_info = vk.VkDeviceCreateInfo{
         .sType                   = vk.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -180,8 +201,8 @@ fn create_device() bool {
         .pQueueCreateInfos       = &queue_create_info,
         .enabledLayerCount       = 0,
         .ppEnabledLayerNames     = null,
-        .enabledExtensionCount   = @intCast(extensions.len),
-        .ppEnabledExtensionNames = @ptrCast(&extensions),
+        .enabledExtensionCount   = ext_n,
+        .ppEnabledExtensionNames = @ptrCast(&ext_buf),
         .pEnabledFeatures        = null,
     };
 
@@ -203,19 +224,12 @@ fn create_device() bool {
         &state.graphics_queue,
     );
 
-    state.use_keyed_mutex = check_extension_available(
-        vk.VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME);
-
     std.debug.print("[VulkanZig] Device created, keyed_mutex={}\n",
         .{state.use_keyed_mutex});
     return true;
 }
 
 // ── Export'lar ────────────────────────────────────────────────────────────────
-
-pub export fn vulkan_init_get() *State {
-    return &state;
-}
 
 pub export fn vulkan_init_initialize() bool {
     if (state.initialized) return true;
@@ -256,6 +270,18 @@ pub export fn vulkan_init_physical_device() vk.VkPhysicalDevice {
 
 pub export fn vulkan_init_graphics_queue_family() u32 {
     return state.graphics_queue_family;
+}
+
+pub export fn vulkan_init_instance() vk.VkInstance {
+    return state.instance;
+}
+
+pub export fn vulkan_init_graphics_queue() vk.VkQueue {
+    return state.graphics_queue;
+}
+
+pub export fn vulkan_init_has_extension(name: [*:0]const u8) bool {
+    return check_extension_available(name);
 }
 
 // ── ABI doğrulama ─────────────────────────────────────────────────────────────
