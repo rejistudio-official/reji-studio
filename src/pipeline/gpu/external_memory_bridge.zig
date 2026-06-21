@@ -33,6 +33,13 @@ const IID_IDXGIResource = w32.GUID{
     .Data3 = 0x4E50,
     .Data4 = .{ 0xAA, 0xAD, 0x7D, 0x84, 0x15, 0x86, 0x44, 0x1A },
 };
+// IDXGIResource1 IID: {30961379-4609-4A41-998E-54FE567EE0C1}
+const IID_IDXGIResource1 = w32.GUID{
+    .Data1 = 0x30961379,
+    .Data2 = 0x4609,
+    .Data3 = 0x4A41,
+    .Data4 = .{ 0x99, 0x8E, 0x54, 0xFE, 0x56, 0x7E, 0xE0, 0xC1 },
+};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -178,23 +185,30 @@ fn create_vulkan_image_from_d3d11(
     const vk_fmt = dxgi_to_vk_format(desc.Format);
     if (vk_fmt == vk.VK_FORMAT_UNDEFINED) return error.UnsupportedFormat;
 
-    // IDXGIResource üzerinden shared handle al
-    var dxgi_res: ?*w32.IDXGIResource = null;
-    const hr = d3d_tex.lpVtbl.*.QueryInterface.?(
+    // IDXGIResource1 üzerinden NT handle al (legacy GetSharedHandle yerine)
+    var resource1: ?*w32.IDXGIResource1 = null;
+    const hr_qi = d3d_tex.lpVtbl.*.QueryInterface.?(
         d3d_tex,
-        &IID_IDXGIResource,
-        @ptrCast(&dxgi_res),
+        &IID_IDXGIResource1,
+        @ptrCast(&resource1),
     );
-    if (hr != 0 or dxgi_res == null) return error.QueryInterfaceFailed;
-    defer _ = dxgi_res.?.lpVtbl.*.Release.?(dxgi_res.?);
+    if (hr_qi < 0) return error.QueryInterfaceFailed;
+    defer _ = resource1.?.lpVtbl.*.Release.?(resource1.?);
 
-    var shared_handle: w32.HANDLE = null;
-    if (dxgi_res.?.lpVtbl.*.GetSharedHandle.?(dxgi_res.?, &shared_handle) != 0)
-        return error.GetSharedHandleFailed;
-    if (shared_handle == null) return error.NullSharedHandle;
+    var nt_handle: ?*anyopaque = null;
+    const hr_sh = resource1.?.lpVtbl.*.CreateSharedHandle.?(
+        resource1.?,
+        null,
+        w32.DXGI_SHARED_RESOURCE_READ | w32.DXGI_SHARED_RESOURCE_WRITE,
+        null,
+        &nt_handle,
+    );
+    if (hr_sh < 0) return error.SharedHandleFailed;
+    if (nt_handle == null) return error.NullSharedHandle;
+    // NT handle — CloseHandle caller sorumlu
 
     // Vulkan image oluştur ve state'e yaz
-    const result = try create_vulkan_image(desc.Width, desc.Height, vk_fmt, shared_handle);
+    const result = try create_vulkan_image(desc.Width, desc.Height, vk_fmt, nt_handle);
 
     state.width  = desc.Width;
     state.height = desc.Height;
@@ -250,6 +264,13 @@ fn invalidate_pool() void {
         if (sem.* != null) {
             vk.vkDestroySemaphore(state.device, sem.*, null);
             sem.* = null;
+        }
+    }
+    // GL sync semaphore Win32 handle leak fix
+    for (&state.gl_sync_handles) |*h| {
+        if (h.*) |handle| {
+            _ = std.os.windows.CloseHandle(handle);
+            h.* = null;
         }
     }
     state.cached_texture_ptr = null;
@@ -479,6 +500,18 @@ pub export fn ext_bridge_get_gl_target_handle(slot: u32) ?*anyopaque {
 pub export fn ext_bridge_get_gl_target_image(slot: u32) vk.VkImage {
     if (slot >= POOL_SIZE) return null;
     return state.gl_target_images[slot];
+}
+
+pub export fn ext_bridge_get_pooled_image(frame_idx: u32) vk.VkImage {
+    const slot = frame_idx % POOL_SIZE;
+    return state.image_pool[slot].image;
+}
+
+pub export fn ext_bridge_get_staging_memory(image: vk.VkImage) vk.VkDeviceMemory {
+    for (&state.image_pool) |*slot| {
+        if (slot.image == image) return slot.memory;
+    }
+    return null;
 }
 
 // ── ABI doğrulama ─────────────────────────────────────────────────────────────
