@@ -482,12 +482,26 @@ Tamamlanan (Faz 2 — external_memory_bridge):
    - 5 headless frame, exit 0, VUID yok
 \`\`\`
 
-Sonraki adım (Faz 2 devam):
+\`\`\`
+✅ external_memory_bridge.cpp → Zig delegate
+   - 563 → 84 satır (%85 küçülme)
+   - ext_bridge_zig.lib CMake'e bağlandı
+   - Runtime: [ExtBridgeZig] GL target pool: 1920x1080
+   - Runtime: [ExtBridgeZig] GL sync semaphores created
+   - 5 headless frame, exit 0, VUID yok
+
+✅ Faz 2 TAMAMLANDI (15.06.2026)
+   Toplam küçülme:
+     vulkan_initializer.cpp:     392 → 54  satır
+     external_memory_bridge.cpp: 563 → 84  satır
+     ffi_bridge.c:               silindi
+\`\`\`
+
+Sonraki hedef: Faz 3 — copy_optimizer.zig (v0.8)
 
 \`\`\`
-- external_memory_bridge.cpp → Zig entegrasyon
-  (vulkan_initializer gibi delegate pattern)
-- ext_bridge_lib build hedefi
+  En karmaşık: Vulkan submit, keyed mutex, timeline semaphore,
+  GL fence, binary semaphore pool
 \`\`\`
 
 
