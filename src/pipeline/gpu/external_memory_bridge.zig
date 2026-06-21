@@ -21,6 +21,11 @@ const w32 = @cImport({
 
 const POOL_SIZE: u32 = 3;
 
+const ImageResult = struct {
+    image:  vk.VkImage,
+    memory: vk.VkDeviceMemory,
+};
+
 // IDXGIResource IID: {035F3AB4-482E-4E50-AAAD-7D841586441A}
 const IID_IDXGIResource = w32.GUID{
     .Data1 = 0x035F3AB4,
@@ -70,7 +75,7 @@ fn create_vulkan_image(
     height: u32,
     format: vk.VkFormat,
     handle: ?*anyopaque,
-) !struct { image: vk.VkImage, memory: vk.VkDeviceMemory } {
+) !ImageResult {
 
     // External memory import info
     var import_info = vk.VkImportMemoryWin32HandleInfoKHR{
@@ -155,20 +160,18 @@ pub export fn ext_bridge_init(
     return true;
 }
 
-pub export fn create_vulkan_image_from_d3d11(
-    tex:        ?*anyopaque,
-    image_out:  *vk.VkImage,
-    memory_out: *vk.VkDeviceMemory,
-) bool {
+fn create_vulkan_image_from_d3d11(
+    tex: ?*anyopaque,
+) !ImageResult {
     const d3d_tex: *w32.ID3D11Texture2D =
-        @ptrCast(@alignCast(tex orelse return false));
+        @ptrCast(@alignCast(tex orelse return error.NullTexture));
 
     // D3D11 texture boyut ve format bilgisi
     var desc: w32.D3D11_TEXTURE2D_DESC = undefined;
     d3d_tex.lpVtbl.*.GetDesc.?(d3d_tex, &desc);
 
     const vk_fmt = dxgi_to_vk_format(desc.Format);
-    if (vk_fmt == vk.VK_FORMAT_UNDEFINED) return false;
+    if (vk_fmt == vk.VK_FORMAT_UNDEFINED) return error.UnsupportedFormat;
 
     // IDXGIResource üzerinden shared handle al
     var dxgi_res: ?*w32.IDXGIResource = null;
@@ -177,24 +180,22 @@ pub export fn create_vulkan_image_from_d3d11(
         &IID_IDXGIResource,
         @ptrCast(&dxgi_res),
     );
-    if (hr != 0 or dxgi_res == null) return false;
+    if (hr != 0 or dxgi_res == null) return error.QueryInterfaceFailed;
     defer _ = dxgi_res.?.lpVtbl.*.Release.?(dxgi_res.?);
 
     var shared_handle: w32.HANDLE = null;
-    if (dxgi_res.?.lpVtbl.*.GetSharedHandle.?(dxgi_res.?, &shared_handle) != 0) return false;
-    if (shared_handle == null) return false;
+    if (dxgi_res.?.lpVtbl.*.GetSharedHandle.?(dxgi_res.?, &shared_handle) != 0)
+        return error.GetSharedHandleFailed;
+    if (shared_handle == null) return error.NullSharedHandle;
 
     // Vulkan image oluştur ve state'e yaz
-    const result = create_vulkan_image(desc.Width, desc.Height, vk_fmt, shared_handle)
-        catch return false;
+    const result = try create_vulkan_image(desc.Width, desc.Height, vk_fmt, shared_handle);
 
     state.width  = desc.Width;
     state.height = desc.Height;
     state.format = vk_fmt;
 
-    image_out.*  = result.image;
-    memory_out.* = result.memory;
-    return true;
+    return result;
 }
 
 fn invalidate_pool() void {
@@ -237,13 +238,43 @@ pub export fn ext_bridge_shutdown() void {
 
 pub export fn ext_bridge_get_frame_images(
     tex:         ?*anyopaque,
+    slot:        u32,
     staging_out: *vk.VkImage,
     target_out:  *vk.VkImage,
 ) bool {
-    _ = tex;
-    _ = staging_out;
-    _ = target_out;
-    return false; // TODO
+    if (state.device == null) return false;
+    if (slot >= POOL_SIZE) return false;
+
+    // E5 dersi — texture pointer değişti mi kontrol et
+    if (tex != state.cached_texture_ptr) {
+        // F4 dersi — invalidate öncesi GPU idle
+        invalidate_pool();
+        state.cached_texture_ptr = tex;
+
+        // Yeni texture'dan image oluştur
+        const result = create_vulkan_image_from_d3d11(
+            @ptrCast(tex)) catch {
+            std.debug.print(
+                "[ExtBridgeZig] image create failed\n", .{});
+            return false;
+        };
+        // Tüm slotlara aynı image — C++ versiyonuyla aynı davranış
+        for (&state.image_pool, 0..) |*s, i| {
+            s.image  = result.image;
+            s.memory = result.memory;
+            _ = i;
+        }
+    }
+
+    staging_out.* = state.image_pool[slot].image;
+    target_out.*  = state.image_pool[slot].image;
+    return state.image_pool[slot].image != null;
+}
+
+// GL target size getter — G6 dersi
+pub export fn ext_bridge_gl_target_size(slot: u32) u64 {
+    if (slot >= POOL_SIZE) return 0;
+    return state.gl_target_sizes[slot];
 }
 
 // ── ABI doğrulama ─────────────────────────────────────────────────────────────
