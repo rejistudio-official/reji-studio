@@ -8,10 +8,8 @@ using VkInstance = void*;
 using VkPhysicalDevice = void*;
 using VkDevice = void*;
 using VkQueue = void*;
-using VkDebugUtilsMessengerEXT = void*;
 #endif
 
-#include <optional>
 #include <string>
 
 namespace rj::pipeline::gpu {
@@ -49,19 +47,12 @@ class VulkanInitializer {
   void shutdown();
 
  private:
-  bool create_instance();
-  bool select_device();
-  bool create_device();
-  void detect_vendor();
-  bool check_required_extensions();
-
   VkInstance instance_ = nullptr;
   VkPhysicalDevice physical_device_ = nullptr;
   VkDevice device_ = nullptr;
   uint32_t vendor_id_ = 0x0000;
   uint32_t graphics_queue_family_ = 0;
   VkQueue graphics_queue_ = nullptr;
-  VkDebugUtilsMessengerEXT debug_messenger_ = nullptr;
   bool use_keyed_mutex_ = false;  ///< D11: true only when VK_KHR_win32_keyed_mutex is available
   bool initialized_ = false;
 };
