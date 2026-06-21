@@ -205,6 +205,25 @@ pub fn build(b: *std.Build) void {
     const gpu_step = b.step("gpu-check", "GPU katmani Zig compile testi");
     gpu_step.dependOn(&gpu_abi.step);
 
+    // ── ext-bridge-check ──────────────────────────────────────────────────────
+    const ext_bridge_mod = b.createModule(.{
+        .root_source_file = b.path("src/pipeline/gpu/external_memory_bridge.zig"),
+        .target    = gpu_check_target,
+        .optimize  = optimize,
+        .link_libc = true,
+    });
+    if (vulkan_sdk.len > 0) {
+        ext_bridge_mod.addIncludePath(.{
+            .cwd_relative = b.fmt("{s}/Include", .{vulkan_sdk}),
+        });
+    }
+    const ext_bridge_obj = b.addObject(.{
+        .name        = "ext_bridge_zig",
+        .root_module = ext_bridge_mod,
+    });
+    const ext_bridge_step = b.step("ext-bridge-check", "ExternalMemoryBridge Zig compile testi");
+    ext_bridge_step.dependOn(&ext_bridge_obj.step);
+
     // ── gpu (static lib — MinGW ABI, MSVC ile C ABI uyumlu) ──────────────────
     // MSVC target @cImport'ta translate-c'den geçemiyor (vulkan.h → windows.h).
     // MinGW target Zig kendi Windows başlıklarını getirir; x86-64 C ABI aynı.
