@@ -61,9 +61,7 @@ class ExternalMemoryBridge {
   HANDLE get_gl_target_handle(uint32_t idx) const;
 
   // G6: GL memory import için exact VkMemoryRequirements::size (w*h*4 yaklaşımı spec ihlali)
-  VkDeviceSize gl_target_size(uint32_t slot) const {
-    return slot < 3 ? gl_target_sizes_[slot] : 0;
-  }
+  VkDeviceSize gl_target_size(uint32_t slot) const;
 
   // Task 6: Zero-copy frame acquisition with cached handle reuse
   // Returns staging and target VkImages for GPU-side operations

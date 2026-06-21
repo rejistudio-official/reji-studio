@@ -72,6 +72,11 @@ if(WIN32)
     target_link_libraries(reji_pipeline PRIVATE
         ${CMAKE_SOURCE_DIR}/zig-out/lib/vulkan_init_zig.lib
     )
+
+    # Zig ExternalMemoryBridge lib (zig build ext-bridge -Dvulkan-sdk=... ile üretilir)
+    target_link_libraries(reji_pipeline PRIVATE
+        ${CMAKE_SOURCE_DIR}/zig-out/lib/ext_bridge_zig.lib
+    )
 endif()
 
 # ---------------------------------------------------------------------------
