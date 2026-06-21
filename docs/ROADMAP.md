@@ -462,12 +462,16 @@ Tamamlanan (Faz 2 — vulkan_initializer):
    [Vulkan] Zig init OK, vendor=0x1002
 ✅ ExternalMemoryBridge 3 image + 3 semaphore OK
 ✅ 3 headless frame, exit 0
+✅ vulkan_initializer.cpp 392 → 54 satır (%86 küçülme)
+✅ Dead kod silindi: create_instance, select_device,
+   create_device, detect_vendor, check_required_extensions
+✅ has_extension() → Zig delegate
+✅ Runtime: exit 0, 3 headless frame
 \`\`\`
 
 Sonraki adım (Faz 2 devam):
 
 \`\`\`
-- vulkan_initializer.cpp'yi tamamen sil (C++ stub kalır)
 - external_memory_bridge.zig pilot
 \`\`\`
 
