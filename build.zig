@@ -204,4 +204,27 @@ pub fn build(b: *std.Build) void {
     });
     const gpu_step = b.step("gpu-check", "GPU katmani Zig compile testi");
     gpu_step.dependOn(&gpu_abi.step);
+
+    // ── gpu (static lib — MinGW ABI, MSVC ile C ABI uyumlu) ──────────────────
+    // MSVC target @cImport'ta translate-c'den geçemiyor (vulkan.h → windows.h).
+    // MinGW target Zig kendi Windows başlıklarını getirir; x86-64 C ABI aynı.
+    const gpu_lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/pipeline/gpu/vulkan_initializer.zig"),
+        .target    = gpu_check_target,
+        .optimize  = optimize,
+        .link_libc = true,
+    });
+    if (vulkan_sdk.len > 0) {
+        gpu_lib_mod.addIncludePath(.{
+            .cwd_relative = b.fmt("{s}/Include", .{vulkan_sdk}),
+        });
+    }
+    const gpu_lib = b.addLibrary(.{
+        .name        = "vulkan_init_zig",
+        .linkage     = .static,
+        .root_module = gpu_lib_mod,
+    });
+    const vulkan_lib_step = b.step("gpu", "Vulkan init Zig static lib");
+    const install_gpu = b.addInstallArtifact(gpu_lib, .{});
+    vulkan_lib_step.dependOn(&install_gpu.step);
 }

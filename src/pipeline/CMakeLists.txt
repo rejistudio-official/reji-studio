@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(reji_pipeline CXX C)
+project(reji_pipeline CXX C ASM_MASM)
 
 set(PIPELINE_SOURCES
     pipeline.cpp
@@ -22,11 +22,22 @@ if(WIN32)
         list(APPEND PIPELINE_SOURCES
             gpu/vulkan_initializer.cpp
             gpu/external_memory_bridge.cpp
+            gpu/zig_win32_compat.c
         )
     endif()
 endif()
 
 add_library(reji_pipeline STATIC ${PIPELINE_SOURCES})
+
+# zig_win32_compat.asm — MASM ayri hedefte derlenir
+# ml64.exe CXX flag'lari (/W4 vb.) desteklemiyor; compile kuralini sadeleştir.
+if(WIN32 AND NOT REJI_VULKAN_MOCK AND MSVC)
+    set(CMAKE_ASM_MASM_COMPILE_OBJECT
+        "<CMAKE_ASM_MASM_COMPILER> -c -Fo <OBJECT> <SOURCE>")
+    add_library(zig_win32_compat_asm STATIC
+        gpu/zig_win32_compat.asm)
+    target_link_libraries(reji_pipeline PRIVATE zig_win32_compat_asm)
+endif()
 
 target_include_directories(reji_pipeline PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -57,8 +68,10 @@ if(WIN32)
         ${CMAKE_SOURCE_DIR}/zig-out/lib/reji_ffi.lib
     )
 
-    # Zig Vulkan lib (zig build gpu ile üretilecek)
-    # Şimdilik sadece extern "C" declare — link sonra
+    # Zig Vulkan init lib (zig build gpu -Dvulkan-sdk=... ile üretilir)
+    target_link_libraries(reji_pipeline PRIVATE
+        ${CMAKE_SOURCE_DIR}/zig-out/lib/vulkan_init_zig.lib
+    )
 endif()
 
 # ---------------------------------------------------------------------------
