@@ -449,6 +449,29 @@ pub const ExternalMemoryBridge = struct {
 
 
 
+Tamamlanan (Faz 2 başlangıç):
+
+\`\`\`
+✅ vulkan_initializer.zig — tam API coverage
+   - create_instance (layer probe + graceful skip)
+   - select_device (AMD öncelik skoru)
+   - create_device (keyed mutex extension gerçekten ekleniyor)
+   - Tüm C++ getter'lar: instance, device, physical_device,
+     queue, queue_family, vendor_id, use_keyed_mutex,
+     has_extension
+   - Gap raporu: 0 blocker kaldı
+\`\`\`
+
+Sonraki adım (Faz 2 devam):
+
+\`\`\`
+- vulkan_initializer.cpp → Zig tam entegrasyon testi
+  (C++ çağrılarını Zig versiyonuna yönlendir)
+- external_memory_bridge.zig pilot
+\`\`\`
+
+
+
 \---
 
 
