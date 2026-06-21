@@ -49,8 +49,10 @@ const State = struct {
     width:           u32                 = 0,
     height:          u32                 = 0,
     image_pool:      [POOL_SIZE]PoolSlot = [1]PoolSlot{.{}} ** POOL_SIZE,
-    gl_target_sizes: [POOL_SIZE]u64      = [1]u64{0} ** POOL_SIZE,
-    cached_texture_ptr: ?*anyopaque      = null,
+    gl_target_sizes:    [POOL_SIZE]u64              = [1]u64{0} ** POOL_SIZE,
+    gl_sync_semaphores: [POOL_SIZE]vk.VkSemaphore  = [1]vk.VkSemaphore{null} ** POOL_SIZE,
+    gl_sync_handles:    [POOL_SIZE]?*anyopaque      = [1]?*anyopaque{null} ** POOL_SIZE,
+    cached_texture_ptr: ?*anyopaque                 = null,
     shutdown_called: std.atomic.Value(bool) =
         std.atomic.Value(bool).init(false),
 };
@@ -221,6 +223,13 @@ fn invalidate_pool() void {
             slot.gl_handle = null;
         }
     }
+    // GL sync semaphore'ları yok et
+    for (&state.gl_sync_semaphores) |*sem| {
+        if (sem.* != null) {
+            vk.vkDestroySemaphore(state.device, sem.*, null);
+            sem.* = null;
+        }
+    }
     state.cached_texture_ptr = null;
 }
 
@@ -275,6 +284,60 @@ pub export fn ext_bridge_get_frame_images(
 pub export fn ext_bridge_gl_target_size(slot: u32) u64 {
     if (slot >= POOL_SIZE) return 0;
     return state.gl_target_sizes[slot];
+}
+
+pub export fn ext_bridge_create_gl_sync_semaphores() bool {
+    for (&state.gl_sync_semaphores,
+         &state.gl_sync_handles, 0..) |*sem, *handle, i| {
+        _ = i;
+
+        var export_info = vk.VkExportSemaphoreCreateInfo{
+            .sType = vk.VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO,
+            .pNext = null,
+            .handleTypes = vk.VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+        };
+        var sem_info = vk.VkSemaphoreCreateInfo{
+            .sType = vk.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = &export_info,
+            .flags = 0,
+        };
+        if (vk.vkCreateSemaphore(state.device,
+                &sem_info, null, sem) != vk.VK_SUCCESS) {
+            return false;
+        }
+
+        // Win32 handle export
+        var win32_info = vk.VkSemaphoreGetWin32HandleInfoKHR{
+            .sType = vk.VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR,
+            .pNext = null,
+            .semaphore = sem.*,
+            .handleType = vk.VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+        };
+        // PFN lookup
+        const pfn_get = @as(
+            vk.PFN_vkGetSemaphoreWin32HandleKHR,
+            @ptrCast(vk.vkGetDeviceProcAddr(
+                state.device,
+                "vkGetSemaphoreWin32HandleKHR")));
+        if (pfn_get == null) return false;
+        if (pfn_get.?(state.device,
+                &win32_info, handle) != vk.VK_SUCCESS) {
+            return false;
+        }
+    }
+    std.debug.print(
+        "[ExtBridgeZig] GL sync semaphores created\n", .{});
+    return true;
+}
+
+pub export fn ext_bridge_get_gl_sync_handle(slot: u32) ?*anyopaque {
+    if (slot >= POOL_SIZE) return null;
+    return state.gl_sync_handles[slot];
+}
+
+pub export fn ext_bridge_get_staging_semaphore(slot: u32) vk.VkSemaphore {
+    if (slot >= POOL_SIZE) return null;
+    return state.gl_sync_semaphores[slot];
 }
 
 // ── ABI doğrulama ─────────────────────────────────────────────────────────────
