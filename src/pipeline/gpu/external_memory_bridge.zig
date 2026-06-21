@@ -49,8 +49,11 @@ const State = struct {
     width:           u32                 = 0,
     height:          u32                 = 0,
     image_pool:      [POOL_SIZE]PoolSlot = [1]PoolSlot{.{}} ** POOL_SIZE,
-    gl_target_sizes:    [POOL_SIZE]u64              = [1]u64{0} ** POOL_SIZE,
-    gl_sync_semaphores: [POOL_SIZE]vk.VkSemaphore  = [1]vk.VkSemaphore{null} ** POOL_SIZE,
+    gl_target_sizes:    [POOL_SIZE]u64                    = [1]u64{0} ** POOL_SIZE,
+    gl_target_images:  [POOL_SIZE]vk.VkImage             = [1]vk.VkImage{null} ** POOL_SIZE,
+    gl_target_memory:  [POOL_SIZE]vk.VkDeviceMemory      = [1]vk.VkDeviceMemory{null} ** POOL_SIZE,
+    gl_target_handles: [POOL_SIZE]?*anyopaque             = [1]?*anyopaque{null} ** POOL_SIZE,
+    gl_sync_semaphores: [POOL_SIZE]vk.VkSemaphore        = [1]vk.VkSemaphore{null} ** POOL_SIZE,
     gl_sync_handles:    [POOL_SIZE]?*anyopaque      = [1]?*anyopaque{null} ** POOL_SIZE,
     cached_texture_ptr: ?*anyopaque                 = null,
     shutdown_called: std.atomic.Value(bool) =
@@ -223,6 +226,25 @@ fn invalidate_pool() void {
             slot.gl_handle = null;
         }
     }
+    // GL target pool — image önce, memory sonra, sonra NT handle
+    for (
+        &state.gl_target_images,
+        &state.gl_target_memory,
+        &state.gl_target_handles,
+    ) |*img, *mem, *hdl| {
+        if (img.* != null) {
+            vk.vkDestroyImage(state.device, img.*, null);
+            img.* = null;
+        }
+        if (mem.* != null) {
+            vk.vkFreeMemory(state.device, mem.*, null);
+            mem.* = null;
+        }
+        if (hdl.*) |h| {
+            _ = std.os.windows.CloseHandle(h);
+            hdl.* = null;
+        }
+    }
     // GL sync semaphore'ları yok et
     for (&state.gl_sync_semaphores) |*sem| {
         if (sem.* != null) {
@@ -338,6 +360,125 @@ pub export fn ext_bridge_get_gl_sync_handle(slot: u32) ?*anyopaque {
 pub export fn ext_bridge_get_staging_semaphore(slot: u32) vk.VkSemaphore {
     if (slot >= POOL_SIZE) return null;
     return state.gl_sync_semaphores[slot];
+}
+
+pub export fn ext_bridge_init_gl_target_pool(
+    format: vk.VkFormat,
+    width:  u32,
+    height: u32,
+) bool {
+    state.format = format;
+    state.width  = width;
+    state.height = height;
+
+    // PFN lookup
+    const pfn_get_mem = @as(
+        vk.PFN_vkGetMemoryWin32HandleKHR,
+        @ptrCast(vk.vkGetDeviceProcAddr(
+            state.device, "vkGetMemoryWin32HandleKHR")));
+    if (pfn_get_mem == null) return false;
+
+    for (0..POOL_SIZE) |i| {
+        var export_mem_info = vk.VkExportMemoryAllocateInfo{
+            .sType       = vk.VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+            .pNext       = null,
+            .handleTypes = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+        };
+        var ext_img_info = vk.VkExternalMemoryImageCreateInfo{
+            .sType       = vk.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+            .pNext       = null,
+            .handleTypes = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+        };
+        var img_info = vk.VkImageCreateInfo{
+            .sType                 = vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext                 = &ext_img_info,
+            .flags                 = 0,
+            .imageType             = vk.VK_IMAGE_TYPE_2D,
+            .format                = format,
+            .extent                = .{ .width = width, .height = height, .depth = 1 },
+            .mipLevels             = 1,
+            .arrayLayers           = 1,
+            .samples               = vk.VK_SAMPLE_COUNT_1_BIT,
+            .tiling                = vk.VK_IMAGE_TILING_OPTIMAL,
+            .usage                 = vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                     vk.VK_IMAGE_USAGE_SAMPLED_BIT      |
+                                     vk.VK_IMAGE_USAGE_STORAGE_BIT,
+            .sharingMode           = vk.VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices   = null,
+            .initialLayout         = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        };
+
+        var image: vk.VkImage = null;
+        if (vk.vkCreateImage(state.device, &img_info, null, &image) != vk.VK_SUCCESS) {
+            // B13 rollback — önceki slotları temizle
+            for (0..i) |j| {
+                if (state.gl_target_images[j] != null) {
+                    vk.vkDestroyImage(state.device, state.gl_target_images[j], null);
+                    state.gl_target_images[j] = null;
+                }
+                if (state.gl_target_memory[j] != null) {
+                    vk.vkFreeMemory(state.device, state.gl_target_memory[j], null);
+                    state.gl_target_memory[j] = null;
+                }
+            }
+            return false;
+        }
+        state.gl_target_images[i] = image;
+
+        // Memory requirements ve G6: exact size kaydet
+        var mem_reqs: vk.VkMemoryRequirements = undefined;
+        vk.vkGetImageMemoryRequirements(state.device, image, &mem_reqs);
+        state.gl_target_sizes[i] = mem_reqs.size;
+
+        var dedicated = vk.VkMemoryDedicatedAllocateInfo{
+            .sType  = vk.VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+            .pNext  = &export_mem_info,
+            .image  = image,
+            .buffer = null,
+        };
+        var alloc_info = vk.VkMemoryAllocateInfo{
+            .sType           = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext           = &dedicated,
+            .allocationSize  = mem_reqs.size,
+            .memoryTypeIndex = 0,
+        };
+
+        var memory: vk.VkDeviceMemory = null;
+        if (vk.vkAllocateMemory(state.device, &alloc_info, null, &memory) != vk.VK_SUCCESS) {
+            return false;
+        }
+        state.gl_target_memory[i] = memory;
+        _ = vk.vkBindImageMemory(state.device, image, memory, 0);
+
+        // NT handle export
+        var handle_info = vk.VkMemoryGetWin32HandleInfoKHR{
+            .sType      = vk.VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR,
+            .pNext      = null,
+            .memory     = memory,
+            .handleType = vk.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+        };
+        var handle: ?*anyopaque = null;
+        if (pfn_get_mem.?(state.device, &handle_info, &handle) != vk.VK_SUCCESS) {
+            return false;
+        }
+        state.gl_target_handles[i] = handle;
+    }
+
+    std.debug.print(
+        "[ExtBridgeZig] GL target pool: {}x{}\n",
+        .{ width, height });
+    return true;
+}
+
+pub export fn ext_bridge_get_gl_target_handle(slot: u32) ?*anyopaque {
+    if (slot >= POOL_SIZE) return null;
+    return state.gl_target_handles[slot];
+}
+
+pub export fn ext_bridge_get_gl_target_image(slot: u32) vk.VkImage {
+    if (slot >= POOL_SIZE) return null;
+    return state.gl_target_images[slot];
 }
 
 // ── ABI doğrulama ─────────────────────────────────────────────────────────────
