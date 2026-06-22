@@ -224,7 +224,10 @@ void GpuResourceManager::shutdown() {
     keyed_mutex_display_.Reset();
     encode_tex_.Reset();
     shared_tex_display_.Reset();
-    shared_handle_ = nullptr;
+    if (shared_handle_ && shared_handle_ != INVALID_HANDLE_VALUE) {
+        CloseHandle(shared_handle_);
+        shared_handle_ = nullptr;
+    }
 }
 
 } // namespace reji
