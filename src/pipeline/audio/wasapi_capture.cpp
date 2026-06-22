@@ -145,8 +145,8 @@ bool WasapiCapture::stop() {
 }
 
 bool     WasapiCapture::is_running()      const { return running_.load(std::memory_order_acquire); }
-uint32_t WasapiCapture::get_sample_rate() const { return actual_sample_rate_; }
-uint32_t WasapiCapture::get_channels()    const { return actual_channels_; }
+uint32_t WasapiCapture::get_sample_rate() const { return actual_sample_rate_.load(std::memory_order_acquire); }
+uint32_t WasapiCapture::get_channels()    const { return actual_channels_.load(std::memory_order_acquire); }
 
 // ============================================================================
 // shutdown — SEH ile sarılı

@@ -166,11 +166,11 @@ private:
     Config             cfg_{};
     AudioFrameCallback callback_fn_{nullptr};
     void*              callback_ud_{nullptr};
-    uint32_t           actual_sample_rate_{0};
-    uint32_t           actual_channels_{0};
-    uint32_t           actual_bits_{0};
-    bool               actual_is_float_{false};
-    uint32_t           buffer_frames_{0};
+    std::atomic<uint32_t> actual_sample_rate_{0};
+    std::atomic<uint32_t> actual_channels_{0};
+    std::atomic<uint32_t> actual_bits_{0};
+    std::atomic<bool>     actual_is_float_{false};
+    std::atomic<uint32_t> buffer_frames_{0};
     bool               using_exclusive_{false};
 
     // ---- hot-path scratch (sabit boyutlu, heap YOK) ----
