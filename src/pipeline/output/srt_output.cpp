@@ -127,25 +127,34 @@ static void seh_leaf_global_cleanup(int do_srt_cleanup) noexcept {
     if (do_srt_cleanup) srt_cleanup();
 }
 
+static LONG seh_filter(DWORD code) noexcept {
+    if (code == EXCEPTION_STACK_OVERFLOW ||
+        code == EXCEPTION_BREAKPOINT     ||
+        code == EXCEPTION_SINGLE_STEP) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 static int seh_safe_sendmsg(SRTSOCKET s, const char* b, int l,
                             int ttl, int io) noexcept {
     int rv = -1;
     __try { rv = seh_leaf_sendmsg(s, b, l, ttl, io); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { rv = -1; }
+    __except (seh_filter(GetExceptionCode())) { rv = -1; }
     return rv;
 }
 
 static int seh_safe_close(SRTSOCKET s) noexcept {
     int rv = -1;
     __try { rv = seh_leaf_close(s); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { rv = -1; }
+    __except (seh_filter(GetExceptionCode())) { rv = -1; }
     return rv;
 }
 
 static int seh_safe_epoll_release(int eid) noexcept {
     int rv = -1;
     __try { rv = seh_leaf_epoll_release(eid); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { rv = -1; }
+    __except (seh_filter(GetExceptionCode())) { rv = -1; }
     return rv;
 }
 
@@ -153,13 +162,13 @@ static int seh_safe_setsockopt(SRTSOCKET s, int opt,
                                const void* v, int l) noexcept {
     int rv = -1;
     __try { rv = seh_leaf_setsockopt(s, opt, v, l); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { rv = -1; }
+    __except (seh_filter(GetExceptionCode())) { rv = -1; }
     return rv;
 }
 
 static void seh_safe_global_cleanup(int do_srt_cleanup) noexcept {
     __try { seh_leaf_global_cleanup(do_srt_cleanup); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { }
+    __except (seh_filter(GetExceptionCode())) { }
 }
 
 } // namespace

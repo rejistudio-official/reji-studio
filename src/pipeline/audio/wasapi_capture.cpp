@@ -22,10 +22,15 @@ inline int64_t now_us() noexcept {
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-// SEH filter — yalnızca EXCEPTION_EXECUTE_HANDLER döner.
+// SEH filter — kritik exception'ları sisteme iletir, diğerlerini yakalar.
 // Kural: filter içinde C++ nesnesi yaratma/yıkma ve herhangi bir fonksiyon
 // çağrısı yasak; filter exception handler'ı seçer, başka iş yapmaz.
-extern "C" __declspec(noinline) LONG seh_filter(unsigned /*code*/) noexcept {
+extern "C" __declspec(noinline) LONG seh_filter(unsigned code) noexcept {
+    if (code == EXCEPTION_STACK_OVERFLOW ||
+        code == EXCEPTION_BREAKPOINT     ||
+        code == EXCEPTION_SINGLE_STEP) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     return EXCEPTION_EXECUTE_HANDLER;
 }
 } // namespace
