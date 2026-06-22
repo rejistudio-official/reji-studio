@@ -204,7 +204,6 @@ impl HealingMonitor {
 
         loop {
             tokio::select! {
-                biased;
                 result = self.system_rx.recv() => {
                     match result {
                         Ok(system) => { self.handle_system(system); }
