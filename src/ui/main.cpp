@@ -36,7 +36,15 @@ static int run_headless(int frames) {
         pipeline.run_frame();
     }
 
+    // H20: Shutdown order matters — pipeline MUST be torn down before
+    // VulkanInitializer so ExternalMemoryBridge can call vkDestroyImage
+    // while the Zig-owned VkDevice is still alive.
+    // pipeline is a stack variable, so its destructor also runs at scope
+    // exit; explicit shutdown() here makes the ordering visible in code.
     pipeline.shutdown();
+    // Explicit shutdown before the function-local static destructor fires
+    // at program exit, enforcing: pipeline → VulkanInitializer.
+    vk->shutdown();
     fprintf(stderr, "[headless] Done (%d frames)\n", frames);
     fflush(stderr);
     return 0;

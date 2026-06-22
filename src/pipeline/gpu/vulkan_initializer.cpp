@@ -5,6 +5,10 @@
 namespace rj::pipeline::gpu {
 
 VulkanInitializer* VulkanInitializer::get() {
+  // H20: Function-local static — destroyed at program exit, after all
+  // stack/member Pipeline objects. Never call shutdown() on this instance
+  // before the Pipeline (and ExternalMemoryBridge) has been torn down,
+  // or vkDestroyImage will be called on a dead VkDevice.
   static VulkanInitializer s_instance;
   return &s_instance;
 }
