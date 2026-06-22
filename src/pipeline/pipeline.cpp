@@ -818,7 +818,7 @@ void Pipeline::action_processor_main() {
             apply_action(action);
         }
         // Prevent busy-wait: yield briefly if queue is empty
-        Sleep(5);  // 5ms poll interval
+        Sleep(100);  // 100ms poll interval — enqueue_action() kullanılmadığı için sık wake-up gereksiz
     }
     dbglog("[Pipeline] action processor stopped");
 
