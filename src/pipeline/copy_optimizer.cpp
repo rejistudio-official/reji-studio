@@ -346,6 +346,9 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 
         VkResult submit_result = vkQueueSubmit(queue_, 1, &submit_info_, VK_NULL_HANDLE);
         if (submit_result != VK_SUCCESS) {
+            // H17: submit olmadı — timeline_counter_ geri al, sonraki frame sonsuza beklemesin
+            timeline_counter_ -= FRAME_INCREMENT;
+            signal_value_for_submit_ = timeline_counter_;
             fprintf(stderr, "[CopyOptimizer] submit failed: %d\n", submit_result);
             return false;
         }
