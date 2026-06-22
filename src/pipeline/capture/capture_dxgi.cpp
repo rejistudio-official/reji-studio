@@ -366,6 +366,11 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
         } else {
             // Keyed mutex yok veya desteklenmiyor — dogrudan kopyala, ReleaseSync cagirma
             display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
+            // H3: AMD path — Flush ile pending D3D11 komutlarini GPU'ya gonder.
+            // Tamamlanma garantisi yok; production icin keyed mutex zorunludur.
+            if (!use_keyed_mutex_ && keyed_mutex_shared_) {
+                display_ctx_->d3d_context()->Flush();
+            }
         }
     }
     if (staging_texture_) {

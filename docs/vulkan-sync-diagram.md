@@ -90,6 +90,11 @@
 **Not:** `d3d11_staging_memory == VK_NULL_HANDLE` ise keyed mutex atlanır (same-adapter yolu).  
 **Dosya:** `src/pipeline/copy_optimizer.cpp:249-268`
 
+> **AMD path (use_keyed_mutex_=false):**  
+> `D3D11::Flush()` ile pending komutlar GPU'ya gönderilir ama tamamlanma garantisi yoktur.  
+> Production kullanımı için keyed mutex zorunludur.  
+> Cross-adapter NVENC aktif edildiğinde bu path yeniden değerlendirilmelidir.
+
 ---
 
 ## Sync 3 — Vulkan Staging → Vulkan Target (Timeline + Blit)
