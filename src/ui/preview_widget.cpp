@@ -40,7 +40,7 @@ const char* kFragSrc = R"glsl(
     uniform sampler2D uTex;
     in  vec2 vUV;
     out vec4 FragColor;
-    void main() { FragColor = texture(uTex, vUV); }
+    void main() { FragColor = texture(uTex, vUV).bgra; }
 )glsl";
 
 } // namespace
@@ -439,6 +439,10 @@ void PreviewWidget::paintGL() {
                         glBindTexture(GL_TEXTURE_2D, gl_interop_textures_[pool_idx]);
                         pfn_TexStorageMem2D_(GL_TEXTURE_2D, 1, GL_RGBA8,
                                             w, h, gl_memory_objects_[pool_idx], 0);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                         glBindTexture(GL_TEXTURE_2D, 0);
                         gl_target_w_ = w;
                         gl_target_h_ = h;
