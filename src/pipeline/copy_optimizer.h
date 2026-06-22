@@ -76,7 +76,7 @@ private:
     VkPhysicalDevice phys_device_ = VK_NULL_HANDLE;
 
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
-    VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
+    VkCommandBuffer command_buffers_[3] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
 
     VkSemaphore timeline_semaphore_ = VK_NULL_HANDLE;
     uint64_t timeline_counter_ = 0;

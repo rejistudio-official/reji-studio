@@ -51,13 +51,13 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
             shutdown(); return false;
         }
 
-        // Allocate command buffer
+        // Allocate per-slot command buffer pool (3 slots, round-robin)
         VkCommandBufferAllocateInfo alloc_info = {};
         alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         alloc_info.commandPool = command_pool_;
         alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandBufferCount = 1;
-        if (vkAllocateCommandBuffers(device_, &alloc_info, &command_buffer_) != VK_SUCCESS) {
+        alloc_info.commandBufferCount = 3;
+        if (vkAllocateCommandBuffers(device_, &alloc_info, command_buffers_) != VK_SUCCESS) {
             fprintf(stderr, "[GpuCopyOptimizer] vkAllocateCommandBuffers failed\n");
             fflush(stderr);
             shutdown(); return false;
@@ -136,11 +136,11 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      VkDeviceMemory d3d11_staging_memory) {
 #ifdef RJ_DEBUG_VERBOSE
     fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu\n",
-            (void*)device_, (void*)command_buffer_, (void*)queue_,
+            (void*)device_, (void*)command_buffers_[frame_counter_ % POOL_SIZE], (void*)queue_,
             (void*)timeline_semaphore_, (unsigned long long)timeline_counter_);
 #endif
 
-    if (!device_ || !command_buffer_ || !queue_) {
+    if (!device_ || !command_buffers_[0] || !queue_) {
         fprintf(stderr, "[GpuCopyOptimizer] ABORT: null handle\n");
         return false;
     }
@@ -167,6 +167,8 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         // Wait for previous submit to complete before reusing the command buffer.
         // signal_value_for_submit_ holds the timeline value from the last submit.
         // Typically a no-op (GPU finishes well within the frame interval).
+        VkCommandBuffer cmd = command_buffers_[slot];
+
         if (signal_value_for_submit_ > 0 && pfn_get_semaphore_counter_value_ && pfn_wait_semaphores_) {
             uint64_t current_value = 0;
             pfn_get_semaphore_counter_value_(device_, timeline_semaphore_, &current_value);
@@ -181,13 +183,13 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         }
 
         // Reset command buffer for reuse (safe explicit reset)
-        CHECK_VK(vkResetCommandBuffer(command_buffer_, 0));
+        CHECK_VK(vkResetCommandBuffer(cmd, 0));
 
         // Begin command buffer
         VkCommandBufferBeginInfo begin_info = {};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;  // Buffer reused/pending
-        CHECK_VK(vkBeginCommandBuffer(command_buffer_, &begin_info));
+        begin_info.flags = 0;  // H1: SIMULTANEOUS_USE kaldırıldı — per-slot buffer reset öncesi timeline wait garantiliyor
+        CHECK_VK(vkBeginCommandBuffer(cmd, &begin_info));
 
         // ========== LAYOUT TRANSITION 1: Staging → TRANSFER_SRC (external acquire) ==========
         // D2: staging oldLayout always UNDEFINED — D3D11 externally writes this image each frame
@@ -205,7 +207,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         barrier_staging.image = d3d11_staging_vk;
         barrier_staging.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-        vkCmdPipelineBarrier(command_buffer_,
+        vkCmdPipelineBarrier(cmd,
                               VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  // E4: Vulkan'da önceki iş yok
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging);
@@ -223,7 +225,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         barrier_target.image = vulkan_target;
         barrier_target.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-        vkCmdPipelineBarrier(command_buffer_,
+        vkCmdPipelineBarrier(cmd,
                               VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_target);
@@ -242,7 +244,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                 (void*)d3d11_staging_vk, (void*)vulkan_target, width, height);
 #endif
 
-        vkCmdBlitImage(command_buffer_,
+        vkCmdBlitImage(cmd,
                        d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                        vulkan_target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        1, &blit_region,
@@ -258,7 +260,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         barrier_final.image = vulkan_target;
         barrier_final.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-        vkCmdPipelineBarrier(command_buffer_,
+        vkCmdPipelineBarrier(cmd,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_final);
@@ -278,14 +280,14 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         barrier_staging_release.image = d3d11_staging_vk;
         barrier_staging_release.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-        vkCmdPipelineBarrier(command_buffer_,
+        vkCmdPipelineBarrier(cmd,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging_release);
         staging_layouts_[slot] = VK_IMAGE_LAYOUT_UNDEFINED;
 
         // End command buffer
-        CHECK_VK(vkEndCommandBuffer(command_buffer_));
+        CHECK_VK(vkEndCommandBuffer(cmd));
 
         // ========== SUBMIT WITH TIMELINE + OPTIONAL GL SYNC SIGNAL ==========
         // CRITICAL: Timeline semaphore signal value MUST be > current value!
@@ -353,7 +355,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             ? static_cast<const void*>(&keyed_mutex_info_)
             : static_cast<const void*>(&timeline_submit_info_);
         submit_info_.commandBufferCount   = 1;
-        submit_info_.pCommandBuffers      = &command_buffer_;
+        submit_info_.pCommandBuffers      = &command_buffers_[slot];
         submit_info_.signalSemaphoreCount = sem_count;
         submit_info_.pSignalSemaphores    = signal_semaphores_;
 
@@ -453,9 +455,9 @@ void GpuCopyOptimizer::shutdown() {
             }
         }
         frame_counter_ = 0;
-        if (command_buffer_ != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
-            vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer_);
-            command_buffer_ = VK_NULL_HANDLE;
+        if (command_buffers_[0] != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(device_, command_pool_, 3, command_buffers_);
+            for (auto& cb : command_buffers_) cb = VK_NULL_HANDLE;
         }
         if (command_pool_ != VK_NULL_HANDLE) {
             vkDestroyCommandPool(device_, command_pool_, nullptr);
