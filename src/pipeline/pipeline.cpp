@@ -35,6 +35,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <cstdint>
@@ -681,9 +682,14 @@ bool Pipeline::run_frame() {
         m.timestamp_us = static_cast<uint64_t>(
                              ticks_to_us(frame_start, s.qpc_freq));
         m.bitrate_kbps = s.bitrate_kbps;
-        m.fps_actual   = s.last_frame_ticks
-            ? float(s.qpc_freq) / float(frame_start - s.last_frame_ticks)
-            : float(s.cfg.fps);
+        {
+            auto delta = frame_start - s.last_frame_ticks;
+            m.fps_actual = (delta > 0)
+                ? std::clamp(
+                      static_cast<float>(s.qpc_freq) / static_cast<float>(delta),
+                      0.0f, 240.0f)
+                : 0.0f;
+        }
         m.cpu_percent  = s.cpu.sample();
         m.frame_drops  = s.frame_drops.exchange(0, std::memory_order_acq_rel);
 

@@ -80,7 +80,11 @@ impl MetricState {
     pub fn update(&self, sample: &MetricSample) {
         if sample.source_id == 0 {
             self.bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
-            self.fps_actual.store((sample.fps_actual * 100.0) as u32, Ordering::Relaxed);
+            let fps = sample.fps_actual;
+            if fps.is_finite() && fps >= 0.0 && fps <= 240.0 {
+                self.fps_actual.store((fps * 100.0) as u32, Ordering::Relaxed);
+            }
+            // else: önceki değeri koru
             self.cpu_percent.store((sample.cpu_percent * 100.0) as u32, Ordering::Relaxed);
             self.frame_drops.fetch_add(sample.frame_drops as u64, Ordering::Relaxed);
         } else if sample.source_id == 1 {
@@ -183,6 +187,35 @@ mod tests {
 
         assert_eq!(state.bitrate(), 8000);
         assert_eq!(state.audio_bitrate(), 192);
+    }
+
+    #[test]
+    fn test_fps_nan_inf_guard() {
+        let state = MetricState::new();
+        let mut sample = valid_sample();
+        sample.fps_actual = 30.0;
+        state.update(&sample);
+        assert!((state.fps() - 30.0).abs() < 0.01);
+
+        // NaN → önceki değer korunmalı
+        sample.fps_actual = f32::NAN;
+        state.update(&sample);
+        assert!((state.fps() - 30.0).abs() < 0.01);
+
+        // Infinity → önceki değer korunmalı
+        sample.fps_actual = f32::INFINITY;
+        state.update(&sample);
+        assert!((state.fps() - 30.0).abs() < 0.01);
+
+        // 241.0 → sınır dışı, önceki değer korunmalı
+        sample.fps_actual = 241.0;
+        state.update(&sample);
+        assert!((state.fps() - 30.0).abs() < 0.01);
+
+        // 240.0 → geçerli, kabul edilmeli
+        sample.fps_actual = 240.0;
+        state.update(&sample);
+        assert!((state.fps() - 240.0).abs() < 0.01);
     }
 
     #[test]
