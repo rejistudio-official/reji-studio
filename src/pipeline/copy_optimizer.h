@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <cstdint>
 #include <array>
+#include <atomic>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -53,19 +54,19 @@ public:
 
     // D12: GL semaphore tüketildi — paintGL() içinde glWaitSemaphoreEXT sonrası çağır
     void clear_gl_signal(uint32_t slot) {
-        if (slot < 3) slot_gl_signaled_[slot] = false;
+        if (slot < 3) slot_gl_signaled_[slot].store(false, std::memory_order_release);
     }
 
     // E3: true ise bu slot'ta Vulkan sinyal attı, GL henüz tüketmedi — wait güvenli
     bool is_slot_signaled(uint32_t slot) const {
-        return slot < 3 && slot_gl_signaled_[slot];
+        return slot < 3 && slot_gl_signaled_[slot].load(std::memory_order_acquire);
     }
 
     // F8: execute_copy'nin başarıyla kullandığı son slot
-    uint32_t last_used_slot() const { return last_used_slot_; }
+    uint32_t last_used_slot() const { return last_used_slot_.load(std::memory_order_acquire); }
 
     // G2: execute_copy'nin kullanacağı bir sonraki slot (fence wait için)
-    uint32_t next_slot() const { return (frame_counter_ + 1) % POOL_SIZE; }
+    uint32_t next_slot() const { return (last_used_slot_.load(std::memory_order_relaxed) + 1) % POOL_SIZE; }
 
     // Shutdown and cleanup
     void shutdown();
@@ -91,7 +92,7 @@ private:
     std::array<VkImageLayout, POOL_SIZE> target_layouts_{};   // UNDEFINED → SHADER_READ_ONLY per slot
 
     // D12: binary semaphore re-signal koruması — true: GL henüz bu slot'u tüketmedi
-    std::array<bool, 3> slot_gl_signaled_{false, false, false};
+    std::array<std::atomic<bool>, 3> slot_gl_signaled_{};
     uint64_t signal_value_for_submit_ = 0;  // Must persist for async vkQueueSubmit (not stack-local)
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info_ = {};  // Must persist (submit_info.pNext)
     VkSubmitInfo submit_info_ = {};  // Must persist for reuse
@@ -113,7 +114,7 @@ private:
     PFN_vkGetSemaphoreCounterValueKHR pfn_get_semaphore_counter_value_ = nullptr;
     PFN_vkWaitSemaphores              pfn_wait_semaphores_             = nullptr;
 
-    uint32_t last_used_slot_ = 0;
+    std::atomic<uint32_t> last_used_slot_{0};
 
     uint32_t dispatch_x_ = 1;
     uint32_t dispatch_y_ = 1;

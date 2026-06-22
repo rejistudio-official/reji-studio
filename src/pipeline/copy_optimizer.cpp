@@ -301,7 +301,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 
         // D12: binary semaphore re-signal koruması — GL henüz tüketmediyse signal atla
         bool will_signal_gl = false;
-        if (slot_gl_signaled_[slot]) {
+        if (slot_gl_signaled_[slot].load(std::memory_order_acquire)) {
 #ifdef RJ_DEBUG_VERBOSE
             fprintf(stderr, "[CopyOptimizer] slot %u: GL wait bekleniyor, signal atlandı\n", slot);
             fflush(stderr);
@@ -366,9 +366,9 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         }
         // Submit başarılı — şimdi state güncelle
         if (will_signal_gl) {
-            slot_gl_signaled_[slot] = true;
+            slot_gl_signaled_[slot].store(true, std::memory_order_release);
         }
-        last_used_slot_ = slot;
+        last_used_slot_.store(slot, std::memory_order_release);
         ++frame_counter_;
 
         // Return outputs
