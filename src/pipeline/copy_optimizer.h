@@ -49,9 +49,6 @@ public:
     // Check if copy is ready (non-blocking poll)
     bool is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value);
 
-    // C7: Returns the binary semaphore signaled in the last execute_copy call (GL waits on this)
-    VkSemaphore current_gl_sync_semaphore() const noexcept;
-
     // D12: GL semaphore tüketildi — paintGL() içinde glWaitSemaphoreEXT sonrası çağır
     void clear_gl_signal(uint32_t slot) {
         if (slot < 3) slot_gl_signaled_[slot].store(false, std::memory_order_release);
@@ -82,9 +79,7 @@ private:
     VkSemaphore timeline_semaphore_ = VK_NULL_HANDLE;
     uint64_t timeline_counter_ = 0;
 
-    // C7: 3-slot binary semaphore pool — round-robin avoids re-signaling before GL consumes
-    VkSemaphore gl_sync_sem_pool_[3] = {};
-    uint32_t    frame_counter_        = 0;
+    uint32_t    frame_counter_ = 0;
 
     // D2: Per-slot layout tracking — staging always UNDEFINED (D3D11 externally written each frame)
     static constexpr uint32_t POOL_SIZE = 3;

@@ -80,18 +80,6 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         fprintf(stderr, "[GpuCopyOptimizer] vkCreateSemaphore: timeline_semaphore_=%p\n",
                 (void*)timeline_semaphore_);
 
-        // C7: Create 3-slot binary semaphore pool for GL sync
-        VkSemaphoreCreateInfo bin_sem_info{};
-        bin_sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        for (int i = 0; i < 3; ++i) {
-            if (vkCreateSemaphore(device_, &bin_sem_info, nullptr, &gl_sync_sem_pool_[i]) != VK_SUCCESS) {
-                fprintf(stderr, "[GpuCopyOptimizer] vkCreateSemaphore (gl_sync_sem_pool[%d]) failed\n", i);
-                fflush(stderr);
-                shutdown(); return false;
-            }
-        }
-        fprintf(stderr, "[GpuCopyOptimizer] gl_sync_sem_pool: 3 binary semaphores created\n");
-
         // Resolve extension function pointer (must happen after device creation).
         // vkGetSemaphoreCounterValueKHR is NOT part of the Vulkan 1.0 core API
         // (it's from VK_KHR_timeline_semaphore); direct linking will fail at
@@ -294,10 +282,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         timeline_counter_ += FRAME_INCREMENT;
         signal_value_for_submit_ = timeline_counter_;
 
-        // C7: Round-robin slot — uses same slot computed above for layout tracking.
-        VkSemaphore active_gl_sem = (gl_sync_sem != VK_NULL_HANDLE)
-            ? gl_sync_sem
-            : gl_sync_sem_pool_[slot];
+        VkSemaphore active_gl_sem = gl_sync_sem;  // VK_NULL_HANDLE → GL sync atlanır
 
         // D12: binary semaphore re-signal koruması — GL henüz tüketmediyse signal atla
         bool will_signal_gl = false;
@@ -388,10 +373,6 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
     }
 }
 
-VkSemaphore GpuCopyOptimizer::current_gl_sync_semaphore() const noexcept {
-    if (frame_counter_ == 0) return VK_NULL_HANDLE;
-    return gl_sync_sem_pool_[(frame_counter_ - 1) % 3];
-}
 
 bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value) {
     if (!device_ || !pfn_wait_semaphores_ || timeline_semaphore == VK_NULL_HANDLE) {
@@ -446,13 +427,6 @@ void GpuCopyOptimizer::shutdown() {
         if (timeline_semaphore_ != VK_NULL_HANDLE) {
             vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
             timeline_semaphore_ = VK_NULL_HANDLE;
-        }
-        // C7: Destroy binary semaphore pool
-        for (int i = 0; i < 3; ++i) {
-            if (gl_sync_sem_pool_[i] != VK_NULL_HANDLE) {
-                vkDestroySemaphore(device_, gl_sync_sem_pool_[i], nullptr);
-                gl_sync_sem_pool_[i] = VK_NULL_HANDLE;
-            }
         }
         frame_counter_ = 0;
         if (command_buffers_[0] != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
