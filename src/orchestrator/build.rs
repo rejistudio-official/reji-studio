@@ -28,9 +28,15 @@ fn check_abi_sizes() {
         Ok(s)  => s,
         Err(_) => return,
     };
+    let ffi_src = match std::fs::read_to_string(workspace.join("src/orchestrator/src/ffi.rs")) {
+        Ok(s)  => s,
+        Err(_) => return,
+    };
 
     let cpp_sizes  = parse_cpp_static_asserts(&cpp_src);
-    let rust_sizes = parse_rust_size_asserts(&rust_src);
+    let mut rust_sizes = parse_rust_size_asserts(&rust_src);
+    let ffi_sizes = parse_rust_size_asserts(&ffi_src);
+    rust_sizes.extend(ffi_sizes);
 
     // Rust adi -> C++ adi eslesmeleri
     let name_map: &[(&str, &str)] = &[
