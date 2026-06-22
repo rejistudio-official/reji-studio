@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include "frame_profiler.h"
 #include "metrics_collector.h"
 #include "../ffi/ffi_bridge.h"  // RjAction
@@ -113,6 +114,8 @@ private:
 
     /// v0.4+: Apply a single action (bitrate/resolution/fps change).
     bool apply_action(const RjAction& action);
+
+    std::once_flag shutdown_once_;
 };
 
 } // namespace rj

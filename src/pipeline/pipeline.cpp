@@ -114,6 +114,12 @@ static int seh_srt_send(SrtSendArgs* a) noexcept {
     __except(EXCEPTION_EXECUTE_HANDLER) { return -2; }
 }
 
+__declspec(noinline)
+static void seh_uninit_com(bool* ok) noexcept {
+    __try   { CoUninitialize(); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { if (ok) *ok = false; }
+}
+
 // Shutdown subsystems via raw pointers  no C++ destructors in scope.
 __declspec(noinline)
 static bool seh_shutdown_subsystems(
@@ -721,52 +727,53 @@ bool Pipeline::run_frame() {
 
 bool Pipeline::shutdown() {
     if (!impl_) return true;
-    auto& s = *impl_;
 
-    s.streaming.store(false, std::memory_order_release);
-    s.srt_atomic.store(nullptr, std::memory_order_release);
+    bool ok = true;
+    std::call_once(shutdown_once_, [this, &ok]() {
+        auto& s = *impl_;
 
-    // v0.4+: Stop action processor thread
-    s.action_processor_running.store(false, std::memory_order_release);
-    if (s.action_processor.joinable()) {
-        s.action_processor.join();
-    }
+        s.streaming.store(false, std::memory_order_release);
+        s.srt_atomic.store(nullptr, std::memory_order_release);
 
-    // Finalize profiler
-    if (profiler_) {
-        profiler_->finalize();
-    }
+        // v0.4+: Stop action processor thread
+        s.action_processor_running.store(false, std::memory_order_release);
+        if (s.action_processor.joinable()) {
+            s.action_processor.join();
+        }
 
-    // SEH-protected teardown  raw pointers only, no C++ destructors in scope.
-    bool ok = seh_shutdown_subsystems(
-        s.audio.get(), s.encoder.get(), s.srt.get());
+        // Finalize profiler
+        if (profiler_) {
+            profiler_->finalize();
+        }
 
-    // RAII reset outside __try  destructors run safely here.
-    s.audio.reset();
-    s.srt.reset();
-    s.encoder.reset();
-    s.capture.reset();
+        // SEH-protected teardown  raw pointers only, no C++ destructors in scope.
+        ok = seh_shutdown_subsystems(
+            s.audio.get(), s.encoder.get(), s.srt.get());
 
-    // B10: Shutdown bridge before VulkanInitializer can release the device.
-    // ExternalMemoryBridge holds raw VkDevice/VkImage handles; resetting here
-    // while the singleton device is still valid prevents use-after-free.
-    if (s.ext_bridge) {
-        s.ext_bridge->shutdown();
-        s.ext_bridge.reset();
-    }
+        // RAII reset outside __try  destructors run safely here.
+        s.audio.reset();
+        s.srt.reset();
+        s.encoder.reset();
+        s.capture.reset();
 
-    if (s.timer_set.exchange(false, std::memory_order_acq_rel))
-        timeEndPeriod(1);
+        // B10: Shutdown bridge before VulkanInitializer can release the device.
+        // ExternalMemoryBridge holds raw VkDevice/VkImage handles; resetting here
+        // while the singleton device is still valid prevents use-after-free.
+        if (s.ext_bridge) {
+            s.ext_bridge->shutdown();
+            s.ext_bridge.reset();
+        }
 
-    // CoUninitialize only if we called CoInitializeEx.
-    // Only locals here are bool ok and reference s  no non-trivial destructors.
-    if (s.com_owned.exchange(false, std::memory_order_acq_rel)) {
-        __try   { CoUninitialize(); }
-        __except(EXCEPTION_EXECUTE_HANDLER) { ok = false; }
-    }
+        if (s.timer_set.exchange(false, std::memory_order_acq_rel))
+            timeEndPeriod(1);
 
-    s.initialized.store(false, std::memory_order_release);
-    dbglog(ok ? "[Pipeline] shutdown clean" : "[Pipeline] shutdown SEH fault");
+        // CoUninitialize only if we called CoInitializeEx.
+        if (s.com_owned.exchange(false, std::memory_order_acq_rel))
+            seh_uninit_com(&ok);
+
+        s.initialized.store(false, std::memory_order_release);
+        dbglog(ok ? "[Pipeline] shutdown clean" : "[Pipeline] shutdown SEH fault");
+    });
     return ok;
 }
 
