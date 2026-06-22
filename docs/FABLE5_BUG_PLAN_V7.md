@@ -44,7 +44,7 @@
 | H16 | Kimi+MM  | HealingMonitor ticker starvation (biased select)   | healing.rs               | Yuksek  | Sprint 5 |
 | H17 | Kimi     | execute_copy basarisiz submit sonrasi deadlock     | copy_optimizer.cpp       | Kritik  | Sprint 5 |
 | H18 | Kimi     | WasapiCapture non-atomic members — data race       | wasapi_capture.h         | Yuksek  | Sprint 5 |
-| H19 | Kimi     | GL texture filter eksik → incomplete → siyah ekran | preview_widget.cpp       | Yuksek  | Sprint 5 |
+| H19 | Kimi     | GL texture filter eksik → incomplete → siyah ekran | preview_widget.cpp       | Yuksek  | Sprint 2 |
 | H20 | GLM      | VulkanInitializer static destroy order (Zig sonrasi)| vulkan_initializer.cpp  | Orta    | Sprint 5 |
 
 ---
@@ -612,7 +612,7 @@ just abi-check
 ## Takip
 
 - [x] Sprint 1 tamamlandi (H1-H4)
-- [ ] Sprint 2 tamamlandi (H5-H8)
+- [x] Sprint 2 tamamlandi (H5-H8, H19)
 - [ ] Sprint 3 tamamlandi (H9-H11)
 - [ ] Sprint 4 tamamlandi (H12-H14)
 - [ ] Sprint 5 tamamlandi (H15-H20)
