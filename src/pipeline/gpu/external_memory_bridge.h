@@ -81,6 +81,10 @@ class ExternalMemoryBridge {
   // Used to build VkWin32KeyedMutexAcquireReleaseInfoKHR in execute_copy().
   VkDeviceMemory get_staging_memory_for_image(VkImage img) const;
 
+  // H2: Return the VkDeviceMemory imported from the shared D3D11 texture (slot 0).
+  // Keyed mutex must protect this memory — not the per-frame staging pool entry.
+  VkDeviceMemory get_shared_texture_memory() const;
+
   // B16: Register GL-side memory object cleanup hook.
   // Must be called from the GL thread before shutdown() to delete imported GL memory
   // objects before their NT handles are closed.

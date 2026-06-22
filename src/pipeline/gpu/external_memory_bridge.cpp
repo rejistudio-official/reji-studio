@@ -75,6 +75,11 @@ VkDeviceMemory ExternalMemoryBridge::get_staging_memory_for_image(
     return ext_bridge_get_staging_memory(img);
 }
 
+VkDeviceMemory ExternalMemoryBridge::get_shared_texture_memory() const {
+    // All pool slots share the same imported D3D11 texture memory; slot 0 is canonical.
+    return ext_bridge_get_staging_memory(ext_bridge_get_pooled_image(0));
+}
+
 void ExternalMemoryBridge::shutdown() {
     ext_bridge_shutdown();
 }

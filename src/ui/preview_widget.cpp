@@ -387,9 +387,9 @@ void PreviewWidget::paintGL() {
         VkSemaphore gl_sync_sem = bridge_
             ? bridge_->get_gl_sync_semaphore(pool_idx)
             : VK_NULL_HANDLE;
-        // B6: keyed mutex memory for D3D11↔Vulkan sync
+        // H2: keyed mutex must protect shared texture memory, not the per-frame staging image
         VkDeviceMemory staging_mem = bridge_
-            ? bridge_->get_staging_memory_for_image(staging_vk)
+            ? bridge_->get_shared_texture_memory()
             : VK_NULL_HANDLE;
         // D5/G2: execute_copy'nin kullanacağı next_slot'un fence'ini bekle (pool_idx değil)
         uint32_t next = copy_optimizer_->next_slot();
