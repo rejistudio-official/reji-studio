@@ -494,10 +494,12 @@ float WasapiCapture::compute_cpu_percent() noexcept {
     FILETIME ct, et, kt, ut;
     if (!GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut)) return 0.0f;
 
-    FILETIME wall_ft;
-    GetSystemTimeAsFileTime(&wall_ft);
+    // NTP jump'larından bağımsız monotonic wall clock (H12)
+    LARGE_INTEGER qpc, freq;
+    QueryPerformanceCounter(&qpc);
+    QueryPerformanceFrequency(&freq);
 
-    ULARGE_INTEGER cpu, wall;
+    ULARGE_INTEGER cpu;
     cpu.LowPart  = kt.dwLowDateTime;
     cpu.HighPart = kt.dwHighDateTime;
     ULARGE_INTEGER ut_li;
@@ -505,21 +507,20 @@ float WasapiCapture::compute_cpu_percent() noexcept {
     ut_li.HighPart = ut.dwHighDateTime;
     cpu.QuadPart  += ut_li.QuadPart; // kernel + user time toplamı (100ns birim)
 
-    wall.LowPart  = wall_ft.dwLowDateTime;
-    wall.HighPart = wall_ft.dwHighDateTime;
+    uint64_t wall = static_cast<uint64_t>(qpc.QuadPart);
 
     if (wall_prev_.QuadPart == 0) {
         // İlk çağrı — referans al, 0 döndür
-        cpu_prev_  = cpu;
-        wall_prev_ = wall;
+        cpu_prev_.QuadPart  = cpu.QuadPart;
+        wall_prev_.QuadPart = wall;
         return 0.0f;
     }
 
     uint64_t d_cpu  = cpu.QuadPart  - cpu_prev_.QuadPart;
-    uint64_t d_wall = wall.QuadPart - wall_prev_.QuadPart;
+    uint64_t d_wall = wall           - wall_prev_.QuadPart;
 
-    cpu_prev_  = cpu;
-    wall_prev_ = wall;
+    cpu_prev_.QuadPart  = cpu.QuadPart;
+    wall_prev_.QuadPart = wall;
 
     if (d_wall == 0) return 0.0f;
 
@@ -528,9 +529,10 @@ float WasapiCapture::compute_cpu_percent() noexcept {
     uint32_t cores = si.dwNumberOfProcessors;
     if (cores == 0) cores = 1;
 
-    // d_cpu / (d_wall * cores): tüm CPU kapasitesinin yüzdesi olarak
-    return static_cast<float>(d_cpu) /
-           static_cast<float>(d_wall * static_cast<uint64_t>(cores)) * 100.0f;
+    // d_cpu: 100ns ticks | d_wall: QPC ticks | freq: QPC ticks/s
+    // CPU% = (d_cpu / 10_000_000s) / (d_wall / freq s) / cores * 100
+    return static_cast<float>(d_cpu) * static_cast<float>(freq.QuadPart) /
+           (static_cast<float>(d_wall) * 10'000'000.0f * static_cast<float>(cores)) * 100.0f;
 }
 
 // ============================================================================
