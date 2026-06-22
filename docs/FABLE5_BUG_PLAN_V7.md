@@ -613,7 +613,7 @@ just abi-check
 
 - [x] Sprint 1 tamamlandi (H1-H4)
 - [x] Sprint 2 tamamlandi (H5-H8, H19)
-- [ ] Sprint 3 tamamlandi (H9-H11)
+- [x] Sprint 3 tamamlandi (H9-H11)
 - [ ] Sprint 4 tamamlandi (H12-H14)
 - [ ] Sprint 5 tamamlandi (H15-H20)
 - [ ] Sekizinci tarama yapildi
