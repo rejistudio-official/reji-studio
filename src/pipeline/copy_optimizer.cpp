@@ -188,7 +188,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         // Begin command buffer
         VkCommandBufferBeginInfo begin_info = {};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin_info.flags = 0;  // H1: SIMULTANEOUS_USE kaldırıldı — per-slot buffer reset öncesi timeline wait garantiliyor
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         CHECK_VK(vkBeginCommandBuffer(cmd, &begin_info));
 
         // ========== LAYOUT TRANSITION 1: Staging → TRANSFER_SRC (external acquire) ==========
