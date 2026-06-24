@@ -279,39 +279,8 @@ fn invalidate_pool() void {
             slot.gl_handle = null;
         }
     }
-    // GL target pool — image önce, memory sonra, sonra NT handle
-    for (
-        &state.gl_target_images,
-        &state.gl_target_memory,
-        &state.gl_target_handles,
-    ) |*img, *mem, *hdl| {
-        if (img.* != null) {
-            vk.vkDestroyImage(state.device, img.*, null);
-            img.* = null;
-        }
-        if (mem.* != null) {
-            vk.vkFreeMemory(state.device, mem.*, null);
-            mem.* = null;
-        }
-        if (hdl.*) |h| {
-            _ = std.os.windows.CloseHandle(h);
-            hdl.* = null;
-        }
-    }
-    // GL sync semaphore'ları yok et
-    for (&state.gl_sync_semaphores) |*sem| {
-        if (sem.* != null) {
-            vk.vkDestroySemaphore(state.device, sem.*, null);
-            sem.* = null;
-        }
-    }
-    // GL sync semaphore Win32 handle leak fix
-    for (&state.gl_sync_handles) |*h| {
-        if (h.*) |handle| {
-            _ = std.os.windows.CloseHandle(handle);
-            h.* = null;
-        }
-    }
+    // GL target pool ve sync semaphore'lar D3D11 texture değişimine bağlı değil —
+    // bunlar notify_vulkan_ready ile bir kez init edilir, yalnızca shutdown'da temizlenir.
     state.cached_texture_ptr = null;
 }
 
@@ -334,6 +303,34 @@ pub export fn ext_bridge_shutdown() void {
             .acq_rel, .acquire) != null) return;
 
     invalidate_pool();
+
+    // GL sync semaphore'lar: önce Win32 handle, sonra VkSemaphore
+    for (&state.gl_sync_semaphores, &state.gl_sync_handles) |*sem, *h| {
+        if (h.*) |handle| {
+            _ = std.os.windows.CloseHandle(handle);
+            h.* = null;
+        }
+        if (sem.* != null) {
+            vk.vkDestroySemaphore(state.device, sem.*, null);
+            sem.* = null;
+        }
+    }
+
+    // GL target pool: önce image, sonra memory, sonra NT handle
+    for (0..POOL_SIZE) |i| {
+        if (state.gl_target_images[i] != null) {
+            vk.vkDestroyImage(state.device, state.gl_target_images[i], null);
+            state.gl_target_images[i] = null;
+        }
+        if (state.gl_target_memory[i] != null) {
+            vk.vkFreeMemory(state.device, state.gl_target_memory[i], null);
+            state.gl_target_memory[i] = null;
+        }
+        if (state.gl_target_handles[i]) |h| {
+            _ = std.os.windows.CloseHandle(h);
+            state.gl_target_handles[i] = null;
+        }
+    }
 
     state.device          = null;
     state.physical_device = null;
@@ -370,7 +367,7 @@ pub export fn ext_bridge_get_frame_images(
     }
 
     staging_out.* = state.image_pool[slot].image;
-    target_out.*  = state.image_pool[slot].image;
+    target_out.*  = state.gl_target_images[(slot + 1) % POOL_SIZE];
     return state.image_pool[slot].image != null;
 }
 
