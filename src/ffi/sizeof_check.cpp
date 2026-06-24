@@ -2,10 +2,10 @@
 #include <cstdio>
 
 // ABI constraints — derleme zamanı güvencesi; Rust const_assert ile eşleşmeli.
-static_assert(sizeof(RjMetricSample) == 56, "RjMetricSample ABI mismatch");
+static_assert(sizeof(RjMetricSample) == 60, "RjMetricSample ABI mismatch");
 static_assert(sizeof(RjAction)       == 20, "RjAction ABI mismatch");
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI mismatch");
-static_assert(offsetof(RjMetricSample, magic_tail) == 52, "magic_tail offset mismatch");
+static_assert(offsetof(RjMetricSample, magic_tail) == 56, "magic_tail offset mismatch");
 
 int main() {
     printf("=== RjMetricSample ABI Check ===\n");
@@ -28,6 +28,7 @@ int main() {
     printf("cpu_temp_c offset: %zu\n", offsetof(RjMetricSample, cpu_temp_c));
     printf("memory_usage_pct offset: %zu\n", offsetof(RjMetricSample, memory_usage_pct));
     printf("cpu_load_pct offset: %zu\n", offsetof(RjMetricSample, cpu_load_pct));
+    printf("gpu_load_pct offset: %zu\n", offsetof(RjMetricSample, gpu_load_pct));
     printf("network_rtt_ms offset: %zu\n", offsetof(RjMetricSample, network_rtt_ms));
     printf("network_loss_pct offset: %zu\n", offsetof(RjMetricSample, network_loss_pct));
     printf("source_id offset: %zu\n", offsetof(RjMetricSample, source_id));

@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
-/// Anlık metrik snapshot — C++ RjMetricSample ile birebir ABI uyumlu (#[repr(C)], 56 byte)
+/// Anlık metrik snapshot — C++ RjMetricSample ile birebir ABI uyumlu (#[repr(C)], 60 byte)
 ///
 /// C++ layout (ffi_bridge.h):
 ///   +0   magic_head:       u32
@@ -18,11 +18,12 @@ use std::sync::Arc;
 ///   +38  cpu_temp_c:       i16
 ///   +40  memory_usage_pct: u32   [0, 100]
 ///   +44  cpu_load_pct:     u32   [0, 100]
-///   +48  network_rtt_ms:   u16
-///   +50  network_loss_pct: u8    [0, 100]
-///   +51  source_id:        u8    (0=video, 1=audio)
-///   +52  magic_tail:       u32
-///   = 56 bytes
+///   +48  gpu_load_pct:     u32   [0, 100]
+///   +52  network_rtt_ms:   u16
+///   +54  network_loss_pct: u8    [0, 100]
+///   +55  source_id:        u8    (0=video, 1=audio)
+///   +56  magic_tail:       u32
+///   = 60 bytes
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MetricSample {
@@ -37,14 +38,15 @@ pub struct MetricSample {
     pub cpu_temp_c:       i16,
     pub memory_usage_pct: u32,
     pub cpu_load_pct:     u32,
+    pub gpu_load_pct:     u32,
     pub network_rtt_ms:   u16,
     pub network_loss_pct: u8,
     pub source_id:        u8,
     pub magic_tail:       u32,
 }
 
-const _: () = assert!(core::mem::size_of::<MetricSample>() == 56);
-const _: () = assert!(core::mem::offset_of!(MetricSample, magic_tail) == 52);
+const _: () = assert!(core::mem::size_of::<MetricSample>() == 60);
+const _: () = assert!(core::mem::offset_of!(MetricSample, magic_tail) == 56);
 
 impl MetricSample {
     pub const MAGIC: u32 = 0xEEFF1234;
@@ -147,6 +149,7 @@ mod tests {
             cpu_temp_c:       55,
             memory_usage_pct: 40,
             cpu_load_pct:     32,
+            gpu_load_pct:     0,
             network_rtt_ms:   15,
             network_loss_pct: 0,
             source_id:        0,
@@ -156,8 +159,8 @@ mod tests {
 
     #[test]
     fn test_metric_sample_size() {
-        assert_eq!(core::mem::size_of::<MetricSample>(), 56);
-        assert_eq!(core::mem::offset_of!(MetricSample, magic_tail), 52);
+        assert_eq!(core::mem::size_of::<MetricSample>(), 60);
+        assert_eq!(core::mem::offset_of!(MetricSample, magic_tail), 56);
     }
 
     #[test]

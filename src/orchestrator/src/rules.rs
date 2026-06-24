@@ -20,6 +20,7 @@ pub struct RuleMetrics {
     pub cpu_temp_c: i16,
     pub memory_usage_pct: u32,
     pub cpu_load_pct: u32,
+    pub gpu_load_pct: u32,
     pub network_rtt_ms: u16,
     pub network_loss_pct: u8,
 }
@@ -32,6 +33,7 @@ impl Default for RuleMetrics {
             cpu_temp_c: 0,
             memory_usage_pct: 0,
             cpu_load_pct: 0,
+            gpu_load_pct: 0,
             network_rtt_ms: 0,
             network_loss_pct: 0,
         }
@@ -235,6 +237,7 @@ impl RuleEngine {
                     "cpu_temp_c" => metrics.cpu_temp_c as i32,
                     "memory_usage_pct" => metrics.memory_usage_pct as i32,
                     "cpu_load_pct" => metrics.cpu_load_pct as i32,
+                    "gpu_load_pct" => metrics.gpu_load_pct as i32,
                     "network_rtt_ms" => metrics.network_rtt_ms as i32,
                     "network_loss_pct" => metrics.network_loss_pct as i32,
                     _ => return Err(format!("Unknown metric: {}", metric_name).into()),

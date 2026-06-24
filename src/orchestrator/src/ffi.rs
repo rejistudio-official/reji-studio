@@ -128,9 +128,9 @@ fn rj_start_monitor_impl() {
                         let _ = bus_system.send(SystemEvent::CpuUsage {
                             ratio: sample.cpu_percent / 100.0,
                         });
-                        if sample.cpu_load_pct > 0 {
+                        if sample.gpu_load_pct > 0 {
                             let _ = bus_system.send(SystemEvent::GpuUsage {
-                                ratio: sample.cpu_load_pct as f32 / 100.0,
+                                ratio: sample.gpu_load_pct as f32 / 100.0,
                             });
                         }
                         if sample.frame_drops > 0 {
@@ -476,6 +476,7 @@ mod tests {
             cpu_temp_c:       0,
             memory_usage_pct: 0,
             cpu_load_pct:     40,
+            gpu_load_pct:     0,
             network_rtt_ms:   0,
             network_loss_pct: 0,
             source_id:        0,
