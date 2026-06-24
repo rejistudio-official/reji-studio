@@ -23,16 +23,16 @@ namespace reji::pipeline::audio {
 // v0.4: RjMetricSample = 56 bytes (extended: frame_drop_pct, gpu_temp_c, cpu_temp_c,
 //                                   memory_usage_pct, cpu_load_pct, network_rtt_ms,
 //                                   network_loss_pct, reserved)
-// v0.5: RjMetricSample = 60 bytes (H10: gpu_load_pct alanı eklendi)
+// v0.5: RjMetricSample = 64 bytes (H10: gpu_load_pct alanı eklendi, u64 align→pad 4)
 // Layout (x64 MSVC, #pragma pack(8)):
 //   uint32_t magic_head (0) + 4pad + uint64_t timestamp_us (8) + uint32_t bitrate_kbps (16)
 //   + float fps_actual (20) + float cpu_percent (24) + uint32_t frame_drops (28)
 //   + uint32_t frame_drop_pct (32) + int16_t gpu_temp_c (36) + int16_t cpu_temp_c (38)
 //   + uint32_t memory_usage_pct (40) + uint32_t cpu_load_pct (44) + uint32_t gpu_load_pct (48)
 //   + uint16_t network_rtt_ms (52) + uint8_t network_loss_pct (54) + uint8_t source_id (55)
-//   + uint32_t magic_tail (56) = 60 bytes
-static_assert(sizeof(RjMetricSample) == 60,
-              "RjMetricSample ABI drift — expected 60 bytes (v0.5 gpu_load_pct)");
+//   + uint32_t magic_tail (56) + [4 bytes trailing pad, u64 align] = 64 bytes
+static_assert(sizeof(RjMetricSample) == 64,
+              "RjMetricSample ABI drift — expected 64 bytes (v0.5 gpu_load_pct)");
 static_assert(sizeof(RjCommand) == 24,
               "RjCommand ABI bozulmus — Rust repr(C) ile eslesmeli");
 
