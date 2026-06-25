@@ -55,6 +55,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             this, &MainWindow::pollMetrics);
     metrics_timer_->start(1000);
 
+    // Vulkan init — pipeline ve VK Caps logu için önce yapılmalı
+    {
+        auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
+        if (!vk->initialize()) {
+            fprintf(stderr, "[MainWindow] Vulkan init failed — GPU interop devre dışı\n");
+            fflush(stderr);
+        }
+    }
+
     // v0.2: Pipeline init + preview callback
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
     if (!pipeline_.init(pcfg)) {
@@ -101,11 +110,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 // v0.5.1: Get cached frame images from ExternalMemoryBridge
                 VkImage staging_vk = VK_NULL_HANDLE;
                 VkImage target_vk = VK_NULL_HANDLE;
-                if (pipeline_.get_last_frame_images(&staging_vk, &target_vk)) {
-                    // Queue frame for GPU copy in preview widget (non-blocking)
+                bool got = pipeline_.get_last_frame_images(&staging_vk, &target_vk);
+                if (got) {
                     preview_widget_->submitD3D11Frame(staging_vk, target_vk, width, height);
                 }
-                (void)staging_texture;  // D3D11 handle not needed — we have VkImages
+                (void)staging_texture;
             }
         );
     }

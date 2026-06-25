@@ -23,6 +23,23 @@ bool VulkanInitializer::initialize() {
 
   instance_              = vulkan_init_instance();
   physical_device_       = vulkan_init_physical_device();
+
+#ifndef REJI_VULKAN_MOCK
+  {
+    VkPhysicalDeviceTimelineSemaphoreFeatures ts_features{};
+    ts_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+
+    VkPhysicalDeviceFeatures2 features2{};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &ts_features;
+
+    vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+
+    fprintf(stderr, "[VK Caps] timelineSemaphore: %s\n",
+        ts_features.timelineSemaphore ? "YES" : "NO");
+  }
+#endif
+
   device_                = vulkan_init_device();
   graphics_queue_        = vulkan_init_graphics_queue();
   graphics_queue_family_ = vulkan_init_graphics_queue_family();
