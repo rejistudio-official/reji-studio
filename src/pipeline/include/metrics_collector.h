@@ -22,6 +22,7 @@ struct Metrics {
   // System load
   uint32_t memory_usage_pct = 0;      // [0, 100]
   uint32_t cpu_load_pct = 0;          // [0, 100]
+  uint32_t gpu_load_pct = 0;          // [0, 100] — GPU 3D engine max utilisation
 
   // Network (optional, v0.4.1+)
   uint16_t network_rtt_ms = 0;        // [0, 65535] ms
@@ -60,6 +61,7 @@ private:
   // System load
   uint32_t query_memory_usage_pct();
   uint32_t query_cpu_load_pct();
+  uint32_t query_gpu_load_pct();
 
   // Frame drop calculation (30s rolling window @ 1Hz = 30 polls)
   void calculate_frame_drop_pct();
@@ -78,6 +80,11 @@ private:
   uint32_t total_drops_ = 0;
   uint32_t prev_total_frames_ = 0;
   uint32_t prev_total_drops_ = 0;
+
+  // PDH query state (Windows only — void* avoids including pdh.h in header)
+  void* pdh_query_   = nullptr;   // HQUERY
+  void* pdh_cpu_ctr_ = nullptr;   // HCOUNTER  \\Processor(_Total)\\% Processor Time
+  void* pdh_gpu_ctr_ = nullptr;   // HCOUNTER  \\GPU Engine(*engtype_3D)\\Utilization Percentage
 
   // Polling throttle
   std::chrono::steady_clock::time_point last_poll_time_;

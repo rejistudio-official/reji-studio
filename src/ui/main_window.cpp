@@ -460,6 +460,8 @@ void MainWindow::onSettingsClicked() {
 // rj_command_drain is lock-free (crossbeam ArrayQueue) and non-blocking.
 // ---------------------------------------------------------------------------
 void MainWindow::pollMetrics() {
+    metrics_collector_.poll();
+
     RjMetricSample sample{};
     if (rj_metrics_poll(&sample) == 0) return;
 

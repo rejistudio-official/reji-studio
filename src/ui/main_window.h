@@ -1,7 +1,8 @@
 #pragma once
 #include <cstdint>
-#include "../pipeline/include/pipeline.h"  // rj::Pipeline, rj::Pipeline::Config
-#include "../pipeline/copy_optimizer.h"     // GpuCopyOptimizer
+#include "../pipeline/include/pipeline.h"       // rj::Pipeline, rj::Pipeline::Config
+#include "../pipeline/copy_optimizer.h"        // GpuCopyOptimizer
+#include "../pipeline/include/metrics_collector.h"  // rj::MetricsCollector
 
 // ---------------------------------------------------------------------------
 // QT6_AVAILABLE is defined by CMakeLists.txt when find_package(Qt6) succeeds.
@@ -129,6 +130,7 @@ private:
     bool                 stream_active_{false};
     GpuCopyOptimizer     copy_optimizer_;              // v0.5.1: GPU-only blit + timeline sem
     bool                 copy_optimizer_initialized_{false};
+    rj::MetricsCollector metrics_collector_;           // system load — polled at 1 Hz
 
     // ── Frame thread — DXGI single-thread requirement ──────────────────────
     QThread* frame_thread_{nullptr};
