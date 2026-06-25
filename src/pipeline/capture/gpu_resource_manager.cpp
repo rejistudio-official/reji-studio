@@ -64,7 +64,7 @@ bool GpuResourceManager::create_same_adapter_staging(uint32_t w, uint32_t h,
     HRESULT hr = display_gpu_->d3d_device()->CreateTexture2D(
         &desc, nullptr, &encode_tex_);
     if (FAILED(hr)) {
-        printf("[GpuRM] CreateTexture2D (staging) failed: 0x%08lX\n", hr);
+        fprintf(stderr, "[GpuRM] CreateTexture2D (staging) failed: 0x%08lX\n", hr);
         return false;
     }
     return true;
@@ -83,33 +83,44 @@ bool GpuResourceManager::create_cross_adapter_shared(uint32_t w, uint32_t h,
     desc.SampleDesc = { 1, 0 };
     desc.Usage      = D3D11_USAGE_DEFAULT;
     desc.BindFlags  = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    desc.MiscFlags  = D3D11_RESOURCE_MISC_SHARED;
+    desc.MiscFlags  = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 
-    printf("[GpuRM] Cross-adapter: forcing RGBA format (src fmt=%u)\n", static_cast<unsigned>(fmt));
+    fprintf(stderr, "[GpuRM] Cross-adapter: forcing RGBA format (src fmt=%u)\n", static_cast<unsigned>(fmt));
 
     HRESULT hr = display_gpu_->d3d_device()->CreateTexture2D(
         &desc, nullptr, &shared_tex_display_);
     if (FAILED(hr)) {
-        printf("[GpuRM] CreateTexture2D (shared) failed: 0x%08lX\n", hr);
+        fprintf(stderr, "[GpuRM] CreateTexture2D (shared) failed: 0x%08lX\n", hr);
         return false;
     }
 
-    // Export legacy shared handle from display GPU.
-    Microsoft::WRL::ComPtr<IDXGIResource> dxgi_res;
-    hr = shared_tex_display_.As(&dxgi_res);
-    if (FAILED(hr)) { return false; }
-
-    hr = dxgi_res->GetSharedHandle(&shared_handle_);
+    // Export NT shared handle from display GPU via IDXGIResource1.
+    Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_res1;
+    hr = shared_tex_display_.As(&dxgi_res1);
     if (FAILED(hr)) {
-        printf("[GpuRM] GetSharedHandle failed: 0x%08lX\n", hr);
+        fprintf(stderr, "[GpuRM] QI IDXGIResource1 failed: 0x%08lX\n", hr);
         return false;
     }
 
-    // Import on encode (NVIDIA) GPU using legacy handle.
-    hr = encode_gpu_->d3d_device()->OpenSharedResource(
-        shared_handle_, IID_PPV_ARGS(&encode_tex_));
+    hr = dxgi_res1->CreateSharedHandle(
+        nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+        nullptr, &shared_handle_);
     if (FAILED(hr)) {
-        printf("[GpuRM] OpenSharedResource failed: 0x%08lX\n", hr);
+        fprintf(stderr, "[GpuRM] CreateSharedHandle (NT) failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    // Import on encode (NVIDIA) GPU using NT handle.
+    Microsoft::WRL::ComPtr<ID3D11Device1> encode_dev1;
+    hr = encode_gpu_->d3d_device()->QueryInterface(IID_PPV_ARGS(&encode_dev1));
+    if (FAILED(hr)) {
+        fprintf(stderr, "[GpuRM] QI ID3D11Device1 failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    hr = encode_dev1->OpenSharedResource1(shared_handle_, IID_PPV_ARGS(&encode_tex_));
+    if (FAILED(hr)) {
+        fprintf(stderr, "[GpuRM] OpenSharedResource1 (NT) failed: 0x%08lX\n", hr);
         return false;
     }
 
@@ -193,7 +204,7 @@ bool GpuResourceManager::init(
 
     if (!ok) { return false; }
 
-    printf("[GpuRM] Init OK  adapter=%s  %ux%u  fmt=%u\n",
+    fprintf(stderr, "[GpuRM] Init OK  adapter=%s  %ux%u  fmt=%u\n",
            same_adapter_ ? "same" : "cross",
            width, height, static_cast<unsigned>(format));
 
