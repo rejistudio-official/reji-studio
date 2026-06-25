@@ -117,6 +117,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 (void)staging_texture;
             }
         );
+
+        // Program widget — CPU staging path (map/unmap pipeline-internal)
+        pipeline_.set_preview_callback(
+            [this](const void* bgra, int width, int height, int pitch) {
+                program_widget_->uploadFrame(bgra, width, height, pitch);
+            }
+        );
     }
 
     // run_frame() ayrı thread'de çalışsın
