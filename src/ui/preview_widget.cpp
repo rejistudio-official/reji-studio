@@ -196,6 +196,40 @@ void PreviewWidget::initializeGL() {
     d_->vao.release();
     glFinish();  // ensure shader/VBO compiled before first paintGL
 
+    // GL capability detection — timeline semaphore ve interop extension'ları
+    struct GlCaps {
+        bool timeline_semaphore;
+        bool binary_semaphore;
+        bool win32_semaphore;
+        bool memory_object;
+        bool memory_object_win32;
+    };
+
+    auto detect_gl_caps = [this](QOpenGLContext* ctx) -> GlCaps {
+        GlCaps caps{};
+        caps.timeline_semaphore  = ctx->hasExtension("GL_EXT_timeline_semaphore");
+        caps.binary_semaphore    = ctx->hasExtension("GL_EXT_semaphore");
+        caps.win32_semaphore     = ctx->hasExtension("GL_EXT_semaphore_win32");
+        caps.memory_object       = ctx->hasExtension("GL_EXT_memory_object");
+        caps.memory_object_win32 = ctx->hasExtension("GL_EXT_memory_object_win32");
+
+        fprintf(stderr, "[GL Caps] Renderer: %s\n",
+                (const char*)glGetString(GL_RENDERER));
+        fprintf(stderr, "[GL Caps] GL_EXT_timeline_semaphore : %s\n",
+                caps.timeline_semaphore  ? "YES" : "NO");
+        fprintf(stderr, "[GL Caps] GL_EXT_semaphore          : %s\n",
+                caps.binary_semaphore    ? "YES" : "NO");
+        fprintf(stderr, "[GL Caps] GL_EXT_semaphore_win32    : %s\n",
+                caps.win32_semaphore     ? "YES" : "NO");
+        fprintf(stderr, "[GL Caps] GL_EXT_memory_object      : %s\n",
+                caps.memory_object       ? "YES" : "NO");
+        fprintf(stderr, "[GL Caps] GL_EXT_memory_object_win32: %s\n",
+                caps.memory_object_win32 ? "YES" : "NO");
+        return caps;
+    };
+
+    auto gl_caps = detect_gl_caps(QOpenGLContext::currentContext());
+
     // v0.5.2: GL_EXT_memory_object_win32 extension check (GL interop)
     bool has_mem_obj = context()->hasExtension("GL_EXT_memory_object");
     bool has_win32   = context()->hasExtension("GL_EXT_memory_object_win32");
@@ -274,15 +308,13 @@ void PreviewWidget::resizeGL(int w, int h) {
 }
 
 void PreviewWidget::paintGL() {
+    static int paint_count = 0;
 #ifdef RJ_DEBUG_VERBOSE
     fprintf(stderr, "[PreviewWidget] paintGL called, bridge_=%p\n", bridge_);
     fflush(stderr);
 #endif
 
     if (profiler_) profiler_->markPaintGLStart();
-
-    // v0.5.1: Debug logging and timeout handling
-    static int paint_count = 0;
     if (++paint_count % 10 == 0) {
         bool has_pending = false;
         uint32_t frame_dirty = false;
@@ -397,9 +429,10 @@ void PreviewWidget::paintGL() {
             pfn_ClientWaitSync_(gl_draw_fences_[next],
                                 GL_SYNC_FLUSH_COMMANDS_BIT, 1'000'000);
         }
-        if (!copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
+        bool ok = copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
                                            &sem, &value, &result_target_image,
-                                           gl_sync_sem, staging_mem)) {
+                                           gl_sync_sem, staging_mem);
+        if (!ok) {
 #ifdef RJ_DEBUG_VERBOSE
             fprintf(stderr, "[PreviewWidget] execute_copy failed, skipping frame\n");
 #endif
