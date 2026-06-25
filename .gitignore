@@ -36,3 +36,23 @@ fix_*.*
 
 # cbindgen otomatik üretilen C header
 src/ffi/ffi_auto.h
+
+# Uygulama çıktı/hata dosyaları
+app_err.txt
+app_out.txt
+
+# Geçici fonksiyon/cihaz snapshot dosyaları
+device()
+physical_device()
+selectRenderPath*
+fix_pipeline*.ps1
+
+# Alternatif build dizinleri
+build_debug/
+build_fresh/
+build_ninja/
+build_vs/
+
+# Zig derleme çıktıları
+zig-cache/
+zig-out/
