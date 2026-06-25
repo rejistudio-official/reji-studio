@@ -162,21 +162,23 @@ bool GpuResourceManager::init(
             encode_info_.description, encode_info_.vendor_id,
             encode_info_.dedicated_vram_mb);
 
-    // Detect same-adapter vs. cross-adapter topology.
-    // cross-adapter path (same_adapter_ = false) requires B6 keyed mutex +
-    // B11 copy_fence_ — both unimplemented. Keep same_adapter_ = true until v0.6.
+    // Detect same-adapter vs. cross-adapter topology via LUID comparison.
     {
-        IDXGIAdapter* encode_adapter  = encode_gpu_->dxgi_adapter();
         IDXGIAdapter* display_adapter = display_gpu_->dxgi_adapter();
-        if (encode_adapter == display_adapter) {
-            fprintf(stderr, "[GpuRM] Same adapter detected — "
-                            "cross-adapter encode unavailable\n");
-            same_adapter_ = true;
-        } else {
-            fprintf(stderr, "[GpuRM] Encode adapter: NVIDIA — "
-                            "cross-adapter path required (TODO)\n");
-            same_adapter_ = true; // cross-adapter hazır değil, güvenli default
-        }
+        IDXGIAdapter* encode_adapter  = encode_gpu_->dxgi_adapter();
+        DXGI_ADAPTER_DESC display_desc{}, encode_desc{};
+        display_adapter->GetDesc(&display_desc);
+        encode_adapter->GetDesc(&encode_desc);
+
+        same_adapter_ = (
+            display_desc.AdapterLuid.LowPart  == encode_desc.AdapterLuid.LowPart &&
+            display_desc.AdapterLuid.HighPart == encode_desc.AdapterLuid.HighPart
+        );
+
+        fprintf(stderr, "[GpuRM] same_adapter=%s (display=%ls encode=%ls)\n",
+            same_adapter_ ? "true" : "false",
+            display_desc.Description,
+            encode_desc.Description);
     }
 
     // C9: same-adapter → encode_gpu_ must share the display device so that
