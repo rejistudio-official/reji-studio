@@ -4,6 +4,11 @@
 #include <cstdio>
 #include <intrin.h>   // YieldProcessor
 
+// d3d11_1.h doesn't define SHARED_CROSS_ADAPTER; it arrived in d3d11_2.h (Win8.1 SDK).
+#ifndef D3D11_RESOURCE_MISC_SHARED_CROSS_ADAPTER
+#define D3D11_RESOURCE_MISC_SHARED_CROSS_ADAPTER 0x20000
+#endif
+
 namespace reji {
 
 // ---------------------------------------------------------------------------
@@ -83,7 +88,15 @@ bool GpuResourceManager::create_cross_adapter_shared(uint32_t w, uint32_t h,
     desc.SampleDesc = { 1, 0 };
     desc.Usage      = D3D11_USAGE_DEFAULT;
     desc.BindFlags  = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    desc.MiscFlags  = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+    // SHARED|NTHANDLE: NT handle export/import between AMD display and NVIDIA encode GPU.
+    // SHARED_CROSS_ADAPTER (0x20000) was tested but AMD 780M returns E_INVALIDARG on
+    // CreateTexture2D — driver does not support cross-adapter D3D11 sharing.
+    // KEYEDMUTEX|NTHANDLE also produces E_INVALIDARG on OpenSharedResource1 (NVIDIA side).
+    // Current best attempt: SHARED|NTHANDLE — OpenSharedResource1 still returns E_INVALIDARG.
+    // Root cause: AMD iGPU + NVIDIA dGPU cross-vendor D3D11 NT handle sharing unsupported
+    // on this Optimus/hybrid topology. Next step: CPU staging fallback path.
+    desc.MiscFlags  = D3D11_RESOURCE_MISC_SHARED
+                   | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 
     fprintf(stderr, "[GpuRM] Cross-adapter: forcing RGBA format (src fmt=%u)\n", static_cast<unsigned>(fmt));
 
