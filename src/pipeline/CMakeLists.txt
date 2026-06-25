@@ -27,7 +27,13 @@ if(WIN32)
     endif()
 endif()
 
-add_library(reji_pipeline STATIC ${PIPELINE_SOURCES})
+set(PIPELINE_HEADERS
+    include/i_screen_capture.h
+    include/i_video_encoder.h
+    include/i_transport.h
+)
+
+add_library(reji_pipeline STATIC ${PIPELINE_SOURCES} ${PIPELINE_HEADERS})
 
 # zig_win32_compat.asm — MASM ayri hedefte derlenir
 # ml64.exe CXX flag'lari (/W4 vb.) desteklemiyor; compile kuralini sadeleştir.
