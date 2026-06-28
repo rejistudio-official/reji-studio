@@ -2,6 +2,10 @@
 #include <cstdint>
 #include <memory>
 
+#ifdef _WIN32
+struct ID3D11Device;
+#endif
+
 namespace rj {
 
 struct CapturedFrame {
@@ -27,6 +31,13 @@ public:
     virtual uint32_t      width()  const       = 0;
     virtual uint32_t      height() const       = 0;
     virtual void          shutdown()           = 0;
+
+#ifdef _WIN32
+    // Returns the D3D11 device used by this capture implementation.
+    // DxgiScreenCapture returns its encode-GPU device; WgcScreenCapture its
+    // internally created device. Returns nullptr if not applicable.
+    virtual ID3D11Device* d3d_device() const noexcept { return nullptr; }
+#endif
 
     static std::unique_ptr<IScreenCapture> create();
 };

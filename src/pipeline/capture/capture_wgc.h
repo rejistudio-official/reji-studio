@@ -35,6 +35,7 @@ public:
     uint32_t          width()  const      override { return width_;  }
     uint32_t          height() const      override { return height_; }
     void              shutdown()          override;
+    ID3D11Device*     d3d_device()  const noexcept override { return device_.Get(); }
 
 private:
     bool init_capture(HMONITOR monitor);

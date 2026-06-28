@@ -338,14 +338,19 @@ struct Pipeline::Impl {
         }
         auto* dsc = dynamic_cast<reji::DxgiScreenCapture*>(capture.get());
         capture_dxgi_ = dsc ? dsc->pipeline() : nullptr;
-        if (!capture_dxgi_) {
-            dbglog("[Pipeline] TDR: WGC selected — encoder reinit skipped");
-            cfg.width  = capture->width();
-            cfg.height = capture->height();
-            return true;
-        }
         cfg.width  = capture->width();
         cfg.height = capture->height();
+
+        ID3D11Device* encode_device = nullptr;
+        if (capture_dxgi_ && capture_dxgi_->encode_gpu()) {
+            encode_device = capture_dxgi_->encode_gpu()->d3d_device();
+        } else if (capture) {
+            encode_device = capture->d3d_device();  // WGC path
+        }
+        if (!encode_device) {
+            dbglog("[Pipeline] TDR: no encode device — encoder reinit skipped");
+            return true;
+        }
 
         reji::NvencEncoder::Config enc_cfg;
         enc_cfg.width            = cfg.width;
@@ -355,7 +360,7 @@ struct Pipeline::Impl {
         enc_cfg.bitrate_kbps     = bitrate_kbps;
         enc_cfg.max_bitrate_kbps = bitrate_kbps + bitrate_kbps / 4;
         encoder = std::make_unique<reji::NvencEncoder>();
-        if (!encoder->init(capture_dxgi_->encode_gpu()->d3d_device(), enc_cfg, packet_cb)) {
+        if (!encoder->init(encode_device, enc_cfg, packet_cb)) {
             dbglog("[Pipeline] TDR encoder reinit failed");
             encoder.reset(); return false;
         }
@@ -479,23 +484,31 @@ bool Pipeline::init(const Config& cfg_in) {
         }
     }
 
-    //  NvencEncoder (DXGI path only — WGC D3D device entegrasyonu henüz yok)
-    if (s.capture_dxgi_) {
-        reji::NvencEncoder::Config enc_cfg;
-        enc_cfg.width            = s.cfg.width;
-        enc_cfg.height           = s.cfg.height;
-        enc_cfg.fps_num          = cfg_in.fps;
-        enc_cfg.fps_den          = 1;
-        enc_cfg.bitrate_kbps     = cfg_in.bitrate_kbps;
-        enc_cfg.max_bitrate_kbps = cfg_in.bitrate_kbps + cfg_in.bitrate_kbps / 4;
-        s.packet_cb = [&s](const reji::NvencEncoder::Packet& pkt) noexcept {
-            Impl::on_packet(pkt, &s);
-        };
-        s.encoder = std::make_unique<reji::NvencEncoder>();
-        if (!s.encoder->init(s.capture_dxgi_->encode_gpu()->d3d_device(),
-                             enc_cfg, s.packet_cb)) {
-            dbglog("[Pipeline] NvencEncoder::init failed -- running in preview-only mode");
-            s.encoder.reset();  // encode olmadan devam et
+    //  NvencEncoder — DXGI ve WGC path desteklenir
+    {
+        ID3D11Device* encode_device = nullptr;
+        if (s.capture_dxgi_ && s.capture_dxgi_->encode_gpu()) {
+            encode_device = s.capture_dxgi_->encode_gpu()->d3d_device();
+        } else if (s.capture) {
+            encode_device = s.capture->d3d_device();  // WGC: kendi D3D11 device'ı
+        }
+
+        if (encode_device) {
+            reji::NvencEncoder::Config enc_cfg;
+            enc_cfg.width            = s.cfg.width;
+            enc_cfg.height           = s.cfg.height;
+            enc_cfg.fps_num          = cfg_in.fps;
+            enc_cfg.fps_den          = 1;
+            enc_cfg.bitrate_kbps     = cfg_in.bitrate_kbps;
+            enc_cfg.max_bitrate_kbps = cfg_in.bitrate_kbps + cfg_in.bitrate_kbps / 4;
+            s.packet_cb = [&s](const reji::NvencEncoder::Packet& pkt) noexcept {
+                Impl::on_packet(pkt, &s);
+            };
+            s.encoder = std::make_unique<reji::NvencEncoder>();
+            if (!s.encoder->init(encode_device, enc_cfg, s.packet_cb)) {
+                dbglog("[Pipeline] NvencEncoder::init failed -- running in preview-only mode");
+                s.encoder.reset();
+            }
         }
     }
 
