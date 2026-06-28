@@ -68,6 +68,7 @@ def find_nvenc_sdk():
     """Return the NVENC SDK root dir (containing Interface/nvEncodeAPI.h), or None."""
     candidates = [
         Path("C:/nvenc_sdk"),
+        Path("C:/NVENC_SDK/Video_Codec_SDK_13.1.15"),
         Path("C:/Program Files/NVIDIA GPU Computing Toolkit/Video_Codec_SDK"),
         ROOT / "third_party" / "nvenc_sdk",
     ]
