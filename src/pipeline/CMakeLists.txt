@@ -115,28 +115,26 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------------------
-# Optional NVENC support — requires NVIDIA Video Codec SDK
-# Set NVENC_SDK_PATH to the SDK root, or put nvEncodeAPI.h in CUDA include dir.
+# Optional NVENC support — requires NVIDIA Video Codec SDK 13+
+# Download: https://developer.nvidia.com/nvidia-video-codec-sdk
+# Extract to C:/nvenc_sdk or set NVENC_SDK_PATH env var / cmake cache variable.
 # ---------------------------------------------------------------------------
 if(WIN32)
-    find_path(NVENC_INCLUDE_DIR nvEncodeAPI.h
+    find_path(NVENC_SDK_PATH Interface/nvEncodeAPI.h
         PATHS
-            "${NVENC_SDK_PATH}/Interface"
-            "${NVENC_SDK_PATH}/include"
-            "$ENV{NVENC_SDK_PATH}/Interface"
-            "$ENV{NVENC_SDK_PATH}/include"
-            "$ENV{CUDA_PATH}/include"
-            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/include"
-            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.0/include"
+            "C:/nvenc_sdk"
+            "$ENV{NVENC_SDK_PATH}"
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/Video_Codec_SDK"
+        NO_DEFAULT_PATH
     )
 
-    if(NVENC_INCLUDE_DIR)
-        message(STATUS "NVENC SDK found: ${NVENC_INCLUDE_DIR}")
+    if(NVENC_SDK_PATH)
+        target_include_directories(reji_pipeline PRIVATE ${NVENC_SDK_PATH}/Interface)
         target_compile_definitions(reji_pipeline PRIVATE RJ_NVENC_AVAILABLE)
-        target_include_directories(reji_pipeline PRIVATE ${NVENC_INCLUDE_DIR})
+        message(STATUS "[NVENC] SDK found: ${NVENC_SDK_PATH}")
     else()
-        message(STATUS "NVENC SDK not found — encode_nvenc.cpp builds as stub. "
-                       "Set NVENC_SDK_PATH to enable.")
+        message(STATUS "[NVENC] SDK not found — preview-only mode "
+                       "(set NVENC_SDK_PATH or extract SDK to C:/nvenc_sdk)")
     endif()
 endif()
 

@@ -64,6 +64,19 @@ def find_qt6():
     return None
 
 
+def find_nvenc_sdk():
+    """Return the NVENC SDK root dir (containing Interface/nvEncodeAPI.h), or None."""
+    candidates = [
+        Path("C:/nvenc_sdk"),
+        Path("C:/Program Files/NVIDIA GPU Computing Toolkit/Video_Codec_SDK"),
+        ROOT / "third_party" / "nvenc_sdk",
+    ]
+    for p in candidates:
+        if (p / "Interface" / "nvEncodeAPI.h").exists():
+            return p
+    return None
+
+
 def setup_ninja():
     if subprocess.run(["where", "ninja.exe"], capture_output=True).returncode == 0:
         return True
@@ -98,13 +111,20 @@ def main():
 
     needs_cfg = args.clean or not (BUILD / "CMakeCache.txt").exists()
     qt6_flag = ""
+    nvenc_flag = ""
     if needs_cfg:
         qt6_base = find_qt6()
         if qt6_base:
             qt6_flag = f' -DCMAKE_PREFIX_PATH="{qt6_base}"'
         else:
             print("[build] WARN: Qt6 bulunamadı — UI stub olarak derlenir")
-    configure_line = (f'cmake -B "{BUILD}" -G "{generator}" -DCMAKE_BUILD_TYPE={args.config}{qt6_flag} "{ROOT}"'
+        nvenc_sdk = find_nvenc_sdk()
+        if nvenc_sdk:
+            nvenc_flag = f' -DNVENC_SDK_PATH="{nvenc_sdk}"'
+            print(f"[build] NVENC SDK: {nvenc_sdk}")
+        else:
+            print("[build] INFO: NVENC SDK bulunamadı — preview-only mode (C:/nvenc_sdk bekleniyor)")
+    configure_line = (f'cmake -B "{BUILD}" -G "{generator}" -DCMAKE_BUILD_TYPE={args.config}{qt6_flag}{nvenc_flag} "{ROOT}"'
                       if needs_cfg else "")
     build_line = f'cmake --build "{BUILD}" --target {args.target} --config {args.config}'
     j_flag = " -- -j 8" if generator == "Ninja" else ""
