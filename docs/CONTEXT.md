@@ -104,7 +104,7 @@ cmake --build --preset mock
 
 ---
 
-## Mevcut Durum (2026-06-09)
+## Mevcut Durum (2026-06-28)
 
 ### Çalışan ✅
 - D3D11 → NT handle export → VkImage import (zero-copy)
@@ -114,6 +114,8 @@ cmake --build --preset mock
 - CMakePresets.json — `cmake --preset release`
 - Git repack kapalı — `gc.auto=0`
 - Build sistemi: `python scripts/build.py` (cmd.exe + vcvars64.bat otomatik)
+- **WGC capture backend** — `WgcScreenCapture` (C++20/WinRT), `ScreenCaptureFactory`, `IScreenCapture` arayüzü
+- **CPU preview path** — staging_texture_ → map_preview_frame() → PreviewWidget + ProgramWidget; her iki panel çalışıyor ✅
 
 ### Root Cause Found & Fixed ✅
 - **VK_ERROR_DEVICE_LOST原因:** VK_IMAGE_USAGE_TRANSFER_SRC_BIT eksikti
@@ -135,15 +137,16 @@ cmake --build --preset mock
 - SRT output — stub
 - Build environment — CMake MSVC include paths from bash/PowerShell (x64 Native Tools required)
 - FrameProfiler benchmark — No samples collected
+- VkImage → OpenGL texture transfer (GPU path) — CPU fallback aktif, GPU yolu henüz tamamlanmadı
 
 ---
 
 ## Sonraki Milestone: v0.5.2
 
 ### Öncelik 1 (Kritik)
-- [ ] `paintGL` içinde VkImage → OpenGL texture transfer
+- [ ] `paintGL` içinde VkImage → OpenGL texture transfer (GPU path)
   - `VK_KHR_external_memory` + GL interop extension
-  - Hedef: frame'lerin ekranda görünmesi
+  - CPU path çalışıyor; GPU path ile latency/CPU overhead düşürülecek
 - [ ] FrameProfiler benchmark — copy p50 hedef <1ms
 
 ### Öncelik 2
