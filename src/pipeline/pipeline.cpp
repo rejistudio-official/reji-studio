@@ -294,6 +294,13 @@ struct Pipeline::Impl {
     // srt_atomic provides acquire/release visibility against stop_stream().
     static void on_packet(const reji::NvencEncoder::Packet& pkt,
                           Impl* self) noexcept {
+        static std::atomic<int> pkt_count{0};
+        int n = ++pkt_count;
+        if (n <= 5 || n % 60 == 0)
+            fprintf(stderr, "[NVENC] packet #%d size=%zu pts=%lld keyframe=%d\n",
+                    n, pkt.size, (long long)pkt.pts, pkt.is_keyframe ? 1 : 0);
+        fflush(stderr);
+
         if (!self->streaming.load(std::memory_order_acquire)) return;
         auto* out = self->srt_atomic.load(std::memory_order_acquire);
         if (!out) return;
@@ -492,7 +499,6 @@ bool Pipeline::init(const Config& cfg_in) {
         } else if (s.capture) {
             encode_device = s.capture->d3d_device();  // WGC: kendi D3D11 device'ı
         }
-
         if (encode_device) {
             reji::NvencEncoder::Config enc_cfg;
             enc_cfg.width            = s.cfg.width;

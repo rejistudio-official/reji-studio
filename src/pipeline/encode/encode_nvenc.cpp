@@ -26,7 +26,7 @@ NvencEncoder::NvencEncoder() = default;
 NvencEncoder::~NvencEncoder() { shutdown(); }
 
 bool NvencEncoder::init(ID3D11Device*, const Config&, PacketCallback) {
-    printf("[NVENC] SDK not available — set NVENC_SDK_PATH at CMake configure time\n");
+    fprintf(stderr, "[NVENC] SDK not available — set NVENC_SDK_PATH at CMake configure time\n");
     return false;
 }
 void NvencEncoder::shutdown()                              {}
@@ -55,6 +55,14 @@ struct NvencEncoder::Impl {
     NV_ENCODE_API_FUNCTION_LIST api          = {};   // function table filled by SDK
     void*                      session       = nullptr;
 
+    // Negotiated API version — may be lower than NVENCAPI_VERSION if driver is older.
+    // All struct version fields must use sv() instead of the SDK macros.
+    // Some structs additionally OR in (1<<31) — pass hi=true for those.
+    uint32_t driver_api_ver = NVENCAPI_VERSION;
+    uint32_t sv(uint32_t idx, bool hi = false) const {
+        return driver_api_ver | (idx << 16) | (0x7u << 28) | (hi ? (1u << 31) : 0u);
+    }
+
     // Lazy-registered input resource cache
     ID3D11Texture2D*           reg_tex       = nullptr;
     NV_ENC_REGISTERED_PTR      reg_res       = nullptr;
@@ -73,80 +81,73 @@ struct NvencEncoder::Impl {
     int64_t                    frame_idx     = 0;
 
     // -----------------------------------------------------------------------
-    // DLL load + function list population
+    // DLL load + function list population.
+    // Queries MaxSupportedVersion so that NvEncodeAPICreateInstance receives
+    // the correct function-list struct version for the installed driver.
     // -----------------------------------------------------------------------
     bool load_dll() {
         dll = LoadLibraryW(L"nvEncodeAPI64.dll");
         if (!dll) {
-            printf("[NVENC] LoadLibrary(nvEncodeAPI64.dll) failed: %lu\n",
-                   GetLastError());
+            fprintf(stderr, "[NVENC] LoadLibrary(nvEncodeAPI64.dll) failed: %lu\n",
+                    GetLastError());
             return false;
         }
-        wchar_t dll_path[MAX_PATH] = {};
-        GetModuleFileNameW(dll, dll_path, MAX_PATH);
-        fprintf(stderr, "[NVENC] DLL loaded from: %ls\n", dll_path);
+
         auto* create_fn = reinterpret_cast<PFN_NvEncodeAPICreateInstance>(
             GetProcAddress(dll, "NvEncodeAPICreateInstance"));
         if (!create_fn) {
-            printf("[NVENC] GetProcAddress(NvEncodeAPICreateInstance) failed\n");
+            fprintf(stderr, "[NVENC] GetProcAddress(NvEncodeAPICreateInstance) failed\n");
             return false;
         }
-        api.version = NV_ENCODE_API_FUNCTION_LIST_VER;
+
+        // Query driver's maximum supported API version.
+        // raw_max is in (major<<4)|minor format; convert to NVENCAPI_VERSION format.
+        auto* pfn_max = reinterpret_cast<PFN_NvEncodeAPIGetMaxSupportedVersion>(
+            GetProcAddress(dll, "NvEncodeAPIGetMaxSupportedVersion"));
+        if (pfn_max) {
+            uint32_t raw_max = 0;
+            pfn_max(&raw_max);
+            if (raw_max != 0) {
+                uint32_t converted = (raw_max >> 4) | ((raw_max & 0xF) << 24);
+                if (converted < NVENCAPI_VERSION) {
+                    driver_api_ver = converted;
+                }
+            }
+        }
+
+        // NV_ENCODE_API_FUNCTION_LIST_VER = NVENCAPI_STRUCT_VERSION(2)
+        api.version = sv(2);
         NVENCSTATUS s = create_fn(&api);
         if (s != NV_ENC_SUCCESS) {
-            printf("[NVENC] NvEncodeAPICreateInstance failed: %d\n", s);
+            fprintf(stderr, "[NVENC] NvEncodeAPICreateInstance failed: %d  "
+                    "(fn_list_ver=0x%08X  driver_api_ver=0x%08X)\n",
+                    s, api.version, driver_api_ver);
             return false;
         }
+        fprintf(stderr, "[NVENC] DLL loaded  driver_api_ver=0x%08X\n", driver_api_ver);
         return true;
     }
 
     // -----------------------------------------------------------------------
-    // Session open — attach D3D11 device as NVENC device context
+    // Session open — attach D3D11 device as NVENC device context.
+    // Uses the driver-negotiated API version so the driver accepts the params.
     // -----------------------------------------------------------------------
     NVENCSTATUS open_session(ID3D11Device* device) {
-        fprintf(stderr, "[NVENC] NVENCAPI_VERSION=0x%08X  NVENCAPI_MAJOR=%u  NVENCAPI_MINOR=%u\n",
-                NVENCAPI_VERSION, NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION);
-
-        uint32_t max_ver = 0;
-        auto* get_max_fn = reinterpret_cast<PFN_NvEncodeAPIGetMaxSupportedVersion>(
-            GetProcAddress(dll, "NvEncodeAPIGetMaxSupportedVersion"));
-        if (get_max_fn) {
-            get_max_fn(&max_ver);
-            fprintf(stderr, "[NVENC] MaxSupportedVersion=0x%08X  major=%u  minor=%u\n",
-                    max_ver, max_ver >> 4, max_ver & 0xF);
-        } else {
-            fprintf(stderr, "[NVENC] NvEncodeAPIGetMaxSupportedVersion not found in DLL\n");
-        }
-
-        // NvEncodeAPIGetMaxSupportedVersion returns (major<<4)|minor — a different
-        // encoding from p.apiVersion which uses major|(minor<<24).  Convert before
-        // comparing and before passing to the session-open call.
-        uint32_t api_ver = NVENCAPI_VERSION;
-        if (max_ver != 0) {
-            uint32_t max_major = max_ver >> 4;
-            uint32_t max_minor = max_ver & 0xF;
-            uint32_t max_api_ver = max_major | (max_minor << 24);  // apiVersion encoding
-            if (max_api_ver < NVENCAPI_VERSION) {
-                api_ver = max_api_ver;
-                fprintf(stderr, "[NVENC] Downgrading apiVersion 0x%08X → 0x%08X "
-                        "(driver cap: major=%u minor=%u)\n",
-                        NVENCAPI_VERSION, api_ver, max_major, max_minor);
-            }
-        }
-
+        // NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER = NVENCAPI_STRUCT_VERSION(1)
         NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS p = {};
-        // NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER embeds NVENCAPI_VERSION (SDK 13.1).
-        // If we downgraded apiVersion to match the driver, rebuild p.version with the
-        // same formula: api_ver | (struct_index<<16) | (0x7<<28).
-        p.version    = (api_ver != NVENCAPI_VERSION)
-                     ? (api_ver | (1u << 16) | (0x7u << 28))
-                     : NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
+        p.version    = sv(1);
         p.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
         p.device     = device;
-        p.apiVersion = api_ver;
-        fprintf(stderr, "[NVENC] p.version=0x%08X  p.apiVersion=0x%08X  device=%p\n",
-                p.version, p.apiVersion, device);
-        return api.nvEncOpenEncodeSessionEx(&p, &session);
+        p.apiVersion = driver_api_ver;
+
+        NVENCSTATUS s = api.nvEncOpenEncodeSessionEx(&p, &session);
+        if (s != NV_ENC_SUCCESS) {
+            fprintf(stderr, "[NVENC] OpenEncodeSessionEx failed: %d  "
+                   "(p.ver=0x%08X  apiVersion=0x%08X)\n",
+                   s, p.version, p.apiVersion);
+            session = nullptr;
+        }
+        return s;
     }
 
     // -----------------------------------------------------------------------
@@ -154,8 +155,8 @@ struct NvencEncoder::Impl {
     // -----------------------------------------------------------------------
     NVENCSTATUS get_preset_cfg(NV_ENC_CONFIG& out) {
         NV_ENC_PRESET_CONFIG pc = {};
-        pc.version           = NV_ENC_PRESET_CONFIG_VER;
-        pc.presetCfg.version = NV_ENC_CONFIG_VER;
+        pc.version           = sv(5, true);  // NV_ENC_PRESET_CONFIG_VER
+        pc.presetCfg.version = sv(9, true);  // NV_ENC_CONFIG_VER
 
         GUID codec  = (config.codec == Config::Codec::H264)
                     ? NV_ENC_CODEC_H264_GUID : NV_ENC_CODEC_HEVC_GUID;
@@ -176,7 +177,7 @@ struct NvencEncoder::Impl {
         NV_ENC_CONFIG enc = {};
         NVENCSTATUS s = get_preset_cfg(enc);
         if (s != NV_ENC_SUCCESS) {
-            printf("[NVENC] GetEncodePresetConfigEx failed: %d\n", s);
+            fprintf(stderr, "[NVENC] GetEncodePresetConfigEx failed: %d\n", s);
             return s;
         }
 
@@ -194,7 +195,7 @@ struct NvencEncoder::Impl {
         enc.gopLength                 = config.gop_size;
 
         NV_ENC_INITIALIZE_PARAMS init = {};
-        init.version           = NV_ENC_INITIALIZE_PARAMS_VER;
+        init.version           = sv(7, true);  // NV_ENC_INITIALIZE_PARAMS_VER
         init.encodeGUID        = (config.codec == Config::Codec::H264)
                                   ? NV_ENC_CODEC_H264_GUID : NV_ENC_CODEC_HEVC_GUID;
         init.presetGUID        = NV_ENC_PRESET_P4_GUID;
@@ -225,7 +226,7 @@ struct NvencEncoder::Impl {
     NVENCSTATUS create_output_bufs() {
         for (int i = 0; i < kBitstreamPoolSize; ++i) {
             NV_ENC_CREATE_BITSTREAM_BUFFER bb = {};
-            bb.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
+            bb.version = sv(1);  // NV_ENC_CREATE_BITSTREAM_BUFFER_VER
             NVENCSTATUS s = api.nvEncCreateBitstreamBuffer(session, &bb);
             if (s != NV_ENC_SUCCESS) { return s; }
             out_bufs[i] = bb.bitstreamBuffer;
@@ -251,7 +252,7 @@ struct NvencEncoder::Impl {
         tex->GetDesc(&desc);
 
         NV_ENC_REGISTER_RESOURCE reg = {};
-        reg.version            = NV_ENC_REGISTER_RESOURCE_VER;
+        reg.version            = sv(5);  // NV_ENC_REGISTER_RESOURCE_VER
         reg.resourceType       = NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX;
         reg.resourceToRegister = tex;
         reg.width              = desc.Width;
@@ -264,7 +265,7 @@ struct NvencEncoder::Impl {
 
         NVENCSTATUS s = api.nvEncRegisterResource(session, &reg);
         if (s != NV_ENC_SUCCESS) {
-            printf("[NVENC] RegisterResource failed: %d  tex=%p  %ux%u\n",
+            fprintf(stderr, "[NVENC] RegisterResource failed: %d  tex=%p  %ux%u\n",
                    s, static_cast<void*>(tex), desc.Width, desc.Height);
             return false;
         }
@@ -282,17 +283,17 @@ struct NvencEncoder::Impl {
         // Map registered DIRECTX resource → NV_ENC_INPUT_PTR.
         // No data movement: NVENC reads directly from NVIDIA VRAM.
         NV_ENC_MAP_INPUT_RESOURCE map = {};
-        map.version            = NV_ENC_MAP_INPUT_RESOURCE_VER;
+        map.version            = sv(4);  // NV_ENC_MAP_INPUT_RESOURCE_VER
         map.registeredResource = reg_res;
 
         NVENCSTATUS s = api.nvEncMapInputResource(session, &map);
         if (s != NV_ENC_SUCCESS) {
-            printf("[NVENC] MapInputResource failed: %d\n", s);
+            fprintf(stderr, "[NVENC] MapInputResource failed: %d\n", s);
             return false;
         }
 
         NV_ENC_PIC_PARAMS pic = {};
-        pic.version         = NV_ENC_PIC_PARAMS_VER;
+        pic.version         = sv(7, true);  // NV_ENC_PIC_PARAMS_VER
         pic.pictureStruct   = NV_ENC_PIC_STRUCT_FRAME;
         pic.inputBuffer     = map.mappedResource;
         pic.bufferFmt       = map.mappedBufferFmt;
@@ -317,7 +318,7 @@ struct NvencEncoder::Impl {
             return true;
         }
         if (s != NV_ENC_SUCCESS) {
-            printf("[NVENC] EncodePicture failed: %d\n", s);
+            fprintf(stderr, "[NVENC] EncodePicture failed: %d\n", s);
             return false;
         }
 
@@ -329,13 +330,13 @@ struct NvencEncoder::Impl {
     // -----------------------------------------------------------------------
     bool drain_one(int64_t pts) {
         NV_ENC_LOCK_BITSTREAM lock = {};
-        lock.version         = NV_ENC_LOCK_BITSTREAM_VER;
+        lock.version         = sv(2, true);  // NV_ENC_LOCK_BITSTREAM_VER
         lock.outputBitstream = out_bufs[out_idx];
         lock.doNotWait       = 0;   // block — synchronous mode guarantees data is ready
 
         NVENCSTATUS s = api.nvEncLockBitstream(session, &lock);
         if (s != NV_ENC_SUCCESS) {
-            printf("[NVENC] LockBitstream failed: %d\n", s);
+            fprintf(stderr, "[NVENC] LockBitstream failed: %d\n", s);
             return false;
         }
 
@@ -360,7 +361,7 @@ struct NvencEncoder::Impl {
     // -----------------------------------------------------------------------
     void send_eos() {
         NV_ENC_PIC_PARAMS eos = {};
-        eos.version        = NV_ENC_PIC_PARAMS_VER;
+        eos.version        = sv(7, true);  // NV_ENC_PIC_PARAMS_VER
         eos.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
         api.nvEncEncodePicture(session, &eos);
     }
@@ -409,24 +410,24 @@ bool NvencEncoder::init(ID3D11Device* device, const Config& cfg, PacketCallback 
 
     NVENCSTATUS s = impl_->open_session(device);
     if (s != NV_ENC_SUCCESS) {
-        printf("[NVENC] OpenEncodeSessionEx failed: %d\n", s);
+        fprintf(stderr, "[NVENC] OpenEncodeSessionEx failed: %d\n", s);
         return false;
     }
 
     s = impl_->init_encoder();
     if (s != NV_ENC_SUCCESS) {
-        printf("[NVENC] InitializeEncoder failed: %d\n", s);
+        fprintf(stderr, "[NVENC] InitializeEncoder failed: %d\n", s);
         return false;
     }
 
     s = impl_->create_output_bufs();
     if (s != NV_ENC_SUCCESS) {
-        printf("[NVENC] CreateBitstreamBuffer failed: %d\n", s);
+        fprintf(stderr, "[NVENC] CreateBitstreamBuffer failed: %d\n", s);
         return false;
     }
 
     impl_->initialized = true;
-    printf("[NVENC] Ready  %ux%u@%u/%ufps  %ukbps  codec=%s\n",
+    fprintf(stderr, "[NVENC] Ready  %ux%u@%u/%ufps  %ukbps  codec=%s\n",
            cfg.width, cfg.height, cfg.fps_num, cfg.fps_den, cfg.bitrate_kbps,
            cfg.codec == Config::Codec::H264 ? "H264" : "HEVC");
     return true;
@@ -458,7 +459,7 @@ bool NvencEncoder::set_bitrate(uint32_t kbps) {
         kbps * 1000u / impl_->config.fps_num;
 
     NV_ENC_RECONFIGURE_PARAMS rp = {};
-    rp.version                         = NV_ENC_RECONFIGURE_PARAMS_VER;
+    rp.version                         = impl_->sv(2, true);  // NV_ENC_RECONFIGURE_PARAMS_VER
     rp.reInitEncodeParams              = impl_->saved_init;
     rp.reInitEncodeParams.encodeConfig = &impl_->saved_cfg;
     rp.resetEncoder                    = 0;  // hot swap — no session teardown
@@ -466,11 +467,11 @@ bool NvencEncoder::set_bitrate(uint32_t kbps) {
 
     NVENCSTATUS s = impl_->api.nvEncReconfigureEncoder(impl_->session, &rp);
     if (s != NV_ENC_SUCCESS) {
-        printf("[NVENC] ReconfigureEncoder (bitrate %u kbps) failed: %d\n", kbps, s);
+        fprintf(stderr, "[NVENC] ReconfigureEncoder (bitrate %u kbps) failed: %d\n", kbps, s);
         return false;
     }
     impl_->config.bitrate_kbps = kbps;
-    printf("[NVENC] Bitrate → %u kbps\n", kbps);
+    fprintf(stderr, "[NVENC] Bitrate → %u kbps\n", kbps);
     return true;
 }
 
@@ -482,7 +483,7 @@ bool NvencEncoder::set_resolution(float scale_factor) {
 
     // Clamp to NVENC minimum (typically 16x16, but practical minimum is ~64x64 for H.264)
     if (new_width < 128 || new_height < 128) {
-        printf("[NVENC] Resolution scale %.2f too small (min ~128x128)\n", scale_factor);
+        fprintf(stderr, "[NVENC] Resolution scale %.2f too small (min ~128x128)\n", scale_factor);
         return false;
     }
 
@@ -492,19 +493,19 @@ bool NvencEncoder::set_resolution(float scale_factor) {
     impl_->saved_init.maxEncodeHeight = new_height;
 
     NV_ENC_RECONFIGURE_PARAMS rp = {};
-    rp.version                         = NV_ENC_RECONFIGURE_PARAMS_VER;
+    rp.version                         = impl_->sv(2, true);  // NV_ENC_RECONFIGURE_PARAMS_VER
     rp.reInitEncodeParams              = impl_->saved_init;
     rp.reInitEncodeParams.encodeConfig = &impl_->saved_cfg;
     rp.resetEncoder                    = 0;
 
     NVENCSTATUS s = impl_->api.nvEncReconfigureEncoder(impl_->session, &rp);
     if (s != NV_ENC_SUCCESS) {
-        printf("[NVENC] ReconfigureEncoder (resolution %.2fx) failed: %d\n", scale_factor, s);
+        fprintf(stderr, "[NVENC] ReconfigureEncoder (resolution %.2fx) failed: %d\n", scale_factor, s);
         return false;
     }
     impl_->config.width  = new_width;
     impl_->config.height = new_height;
-    printf("[NVENC] Resolution → %.2f%% (%ux%u)\n", scale_factor * 100.f, new_width, new_height);
+    fprintf(stderr, "[NVENC] Resolution → %.2f%% (%ux%u)\n", scale_factor * 100.f, new_width, new_height);
     return true;
 }
 
@@ -516,17 +517,17 @@ bool NvencEncoder::set_fps_limit(uint32_t fps) {
     impl_->saved_init.frameRateDen = 1;
 
     NV_ENC_RECONFIGURE_PARAMS rp = {};
-    rp.version                         = NV_ENC_RECONFIGURE_PARAMS_VER;
+    rp.version                         = impl_->sv(2, true);  // NV_ENC_RECONFIGURE_PARAMS_VER
     rp.reInitEncodeParams              = impl_->saved_init;
     rp.reInitEncodeParams.encodeConfig = &impl_->saved_cfg;
     rp.resetEncoder                    = 0;
 
     NVENCSTATUS s = impl_->api.nvEncReconfigureEncoder(impl_->session, &rp);
     if (s != NV_ENC_SUCCESS) {
-        printf("[NVENC] ReconfigureEncoder (fps %u) failed: %d\n", fps, s);
+        fprintf(stderr, "[NVENC] ReconfigureEncoder (fps %u) failed: %d\n", fps, s);
         return false;
     }
-    printf("[NVENC] FPS limit → %u\n", fps);
+    fprintf(stderr, "[NVENC] FPS limit → %u\n", fps);
     return true;
 }
 
