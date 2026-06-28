@@ -1,3 +1,8 @@
+// Force discrete GPU on Optimus / hybrid graphics systems
+#include <windows.h>
+extern "C" { __declspec(dllexport) DWORD NvOptimusEnablement = 1; }
+extern "C" { __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 1; }
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
