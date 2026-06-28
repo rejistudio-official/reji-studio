@@ -64,13 +64,15 @@ bool WgcScreenCapture::init(const Config& cfg)
         factory->EnumAdapters(0, &encode_adapter);
     }
 
-    // Create D3D11 device on NVIDIA adapter — WGC requires BGRA support flag
+    // Create D3D11 device on NVIDIA adapter.
+    // BGRA_SUPPORT  — required by WGC / DXGI surface interop
+    // VIDEO_SUPPORT — required by NVENC to open an encode session on this device
     D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
     HRESULT hr = D3D11CreateDevice(
         encode_adapter.Get(),
         D3D_DRIVER_TYPE_UNKNOWN,
         nullptr,
-        D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
         &fl, 1,
         D3D11_SDK_VERSION,
         device_.GetAddressOf(), nullptr, nullptr);

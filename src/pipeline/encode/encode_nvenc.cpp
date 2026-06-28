@@ -82,6 +82,9 @@ struct NvencEncoder::Impl {
                    GetLastError());
             return false;
         }
+        wchar_t dll_path[MAX_PATH] = {};
+        GetModuleFileNameW(dll, dll_path, MAX_PATH);
+        fprintf(stderr, "[NVENC] DLL loaded from: %ls\n", dll_path);
         auto* create_fn = reinterpret_cast<PFN_NvEncodeAPICreateInstance>(
             GetProcAddress(dll, "NvEncodeAPICreateInstance"));
         if (!create_fn) {
