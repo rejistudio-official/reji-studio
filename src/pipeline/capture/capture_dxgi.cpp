@@ -54,11 +54,26 @@ bool DxgiCaptureSession::create_duplication() {
         return false;
     }
 
-    hr = output1->DuplicateOutput(device_.Get(), &duplication_);
+    // Tüm output'ları listele (debug)
+    for (UINT i = 0; ; ++i) {
+        Microsoft::WRL::ComPtr<IDXGIOutput> dbg_out;
+        if (FAILED(adapter_->EnumOutputs(i, &dbg_out))) break;
+        DXGI_OUTPUT_DESC d = {};
+        dbg_out->GetDesc(&d);
+        fprintf(stderr, "[DxgiCapture] output[%u] DeviceName=%ls AttachedToDesktop=%d\n",
+                i, d.DeviceName, d.AttachedToDesktop);
+    }
+
+    // DXGI_ERROR_NOT_CURRENTLY_AVAILABLE (0x887A0022) geçici hatadır —
+    // başka process capture ediyorsa veya masaüstü henüz hazır değilse çıkar.
+    // 3 deneme, 100ms aralıkla.
+    hr = E_FAIL;
+    for (int attempt = 0; attempt < 3 && FAILED(hr); ++attempt) {
+        if (attempt > 0) Sleep(100);
+        hr = output1->DuplicateOutput(device_.Get(), &duplication_);
+    }
     if (FAILED(hr)) {
-        // E_ACCESSDENIED: this adapter does not drive the display.
-        // DXGI_ERROR_UNSUPPORTED: running in a remote session without WDDM.
-        printf("[DxgiCapture] DuplicateOutput failed: 0x%08lX\n", hr);
+        printf("[DxgiCapture] DuplicateOutput failed after 3 attempts: 0x%08lX\n", hr);
         return false;
     }
 

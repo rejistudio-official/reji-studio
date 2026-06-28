@@ -88,6 +88,10 @@ public:
     // Bridge is borrowed; lifecycle managed externally.
     void setBridge(rj::pipeline::gpu::ExternalMemoryBridge* b) noexcept;
 
+public slots:
+    // Thread-safe CPU frame upload for WGC staging path.
+    void uploadCpuFrame(const void* bgra, int w, int h, int pitch);
+
 protected:
     void initializeGL() override;
     void resizeGL(int w, int h) override;

@@ -208,24 +208,20 @@ impl HealingMonitor {
                     match result {
                         Ok(system) => { self.handle_system(system); }
                         Err(RecvError::Lagged(n)) => {
-                            warn!("HealingMonitor: system_rx {} mesaj kaçtı", n);
+                            eprintln!("[EventBus] {} mesaj atlandı, devam ediliyor", n);
+                            // devam et — canlı yayında eski metrik kaybı kabul edilebilir
                         }
-                        Err(RecvError::Closed) => {
-                            info!("HealingMonitor: system_rx kapandı, çıkılıyor");
-                            break;
-                        }
+                        Err(RecvError::Closed) => break,
                     }
                 }
                 result = self.media_rx.recv() => {
                     match result {
                         Ok(media) => { self.handle_media(media); }
                         Err(RecvError::Lagged(n)) => {
-                            warn!("HealingMonitor: media_rx {} mesaj kaçtı", n);
+                            eprintln!("[EventBus] {} mesaj atlandı, devam ediliyor", n);
+                            // devam et — canlı yayında eski metrik kaybı kabul edilebilir
                         }
-                        Err(RecvError::Closed) => {
-                            info!("HealingMonitor: media_rx kapandı, çıkılıyor");
-                            break;
-                        }
+                        Err(RecvError::Closed) => break,
                     }
                 }
                 _ = ticker.tick() => {

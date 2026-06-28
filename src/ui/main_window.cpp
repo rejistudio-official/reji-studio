@@ -118,9 +118,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             }
         );
 
-        // Program widget — CPU staging path (map/unmap pipeline-internal)
+        // CPU staging path: WGC → PreviewWidget (left panel) + ProgramWidget (right panel)
         pipeline_.set_preview_callback(
             [this](const void* bgra, int width, int height, int pitch) {
+                preview_widget_->uploadCpuFrame(bgra, width, height, pitch);
                 program_widget_->uploadFrame(bgra, width, height, pitch);
             }
         );

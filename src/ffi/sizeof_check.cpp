@@ -2,7 +2,7 @@
 #include <cstdio>
 
 // ABI constraints — derleme zamanı güvencesi; Rust const_assert ile eşleşmeli.
-static_assert(sizeof(RjMetricSample) == 60, "RjMetricSample ABI mismatch");
+static_assert(sizeof(RjMetricSample) == 64, "RjMetricSample ABI mismatch");
 static_assert(sizeof(RjAction)       == 20, "RjAction ABI mismatch");
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI mismatch");
 static_assert(offsetof(RjMetricSample, magic_tail) == 56, "magic_tail offset mismatch");

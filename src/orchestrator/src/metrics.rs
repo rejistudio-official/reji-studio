@@ -23,7 +23,8 @@ use std::sync::Arc;
 ///   +54  network_loss_pct: u8    [0, 100]
 ///   +55  source_id:        u8    (0=video, 1=audio)
 ///   +56  magic_tail:       u32
-///   = 60 bytes
+///   [+60 implicit trailing padding: 4 bytes — u64 alignment rounds 60→64]
+///   = 64 bytes
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MetricSample {
@@ -45,7 +46,7 @@ pub struct MetricSample {
     pub magic_tail:       u32,
 }
 
-const _: () = assert!(core::mem::size_of::<MetricSample>() == 60);
+const _: () = assert!(core::mem::size_of::<MetricSample>() == 64);
 const _: () = assert!(core::mem::offset_of!(MetricSample, magic_tail) == 56);
 
 impl MetricSample {
@@ -159,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_metric_sample_size() {
-        assert_eq!(core::mem::size_of::<MetricSample>(), 60);
+        assert_eq!(core::mem::size_of::<MetricSample>(), 64);
         assert_eq!(core::mem::offset_of!(MetricSample, magic_tail), 56);
     }
 

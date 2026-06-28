@@ -13,8 +13,10 @@ set(PIPELINE_SOURCES
 if(WIN32)
     list(APPEND PIPELINE_SOURCES
         capture/capture_dxgi.cpp
+        capture/capture_wgc.cpp
         capture/gpu_resource_manager.cpp
         encode/encode_nvenc.cpp
+        screen_capture_factory.cpp
     )
 
     # Vulkan support (requires Vulkan SDK)
@@ -55,6 +57,32 @@ target_include_directories(reji_pipeline PUBLIC
 )
 
 if(WIN32)
+    # C++/WinRT headers reside in the Windows SDK cppwinrt/ subfolder which is
+    # not added to INCLUDE automatically — locate it via find_path.
+    find_path(CPPWINRT_INCLUDE_DIR
+        NAMES winrt/Windows.Graphics.Capture.h
+        PATHS
+            "$ENV{WindowsSdkDir}Include/$ENV{WindowsSDKVersion}cppwinrt"
+            "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt"
+            "C:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/cppwinrt"
+        DOC "Windows SDK cppwinrt include path (required for WGC)"
+    )
+    if(CPPWINRT_INCLUDE_DIR)
+        message(STATUS "C++/WinRT headers: ${CPPWINRT_INCLUDE_DIR}")
+        target_include_directories(reji_pipeline PRIVATE ${CPPWINRT_INCLUDE_DIR})
+    else()
+        message(WARNING "C++/WinRT headers not found — capture_wgc.cpp may fail to compile")
+    endif()
+
+    # capture_wgc.cpp and screen_capture_factory.cpp use C++/WinRT (C++20 required).
+    # Override just these TUs so the rest of the pipeline stays at C++17.
+    if(MSVC)
+        set_source_files_properties(
+            ${CMAKE_CURRENT_SOURCE_DIR}/capture/capture_wgc.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/screen_capture_factory.cpp
+            PROPERTIES COMPILE_OPTIONS "/std:c++20;/Zc:__cplusplus")
+    endif()
+
     target_link_libraries(reji_pipeline PUBLIC
         d3d11.lib
         dxgi.lib
@@ -63,6 +91,7 @@ if(WIN32)
         wbemuuid.lib
         avrt.lib
         winmm.lib
+        windowsapp.lib
     )
 
     if(Vulkan_FOUND)

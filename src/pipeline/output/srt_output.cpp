@@ -16,10 +16,10 @@
 #include <chrono>
 
 // Layout doğrulama — Rust #[repr(C)] ile eşleşmeli (naturel hizalanmış, x64 MSVC).
-// v0.3: 40 bytes; v0.4: 56 bytes (extended with thermal, load, network metrics)
+// v0.3: 40 bytes; v0.4: 56 bytes; v0.5: 64 bytes (gpu_load_pct + u64 align trailing pad)
 // Rust tarafı için bkz. src/orchestrator/lib.rs ffi::RjMetricSample
-static_assert(sizeof(RjMetricSample) == 56,
-              "RjMetricSample C layout Rust repr(C) ile eslesmeli (56 bayt v0.4, pragma pack yok)");
+static_assert(sizeof(RjMetricSample) == 64,
+              "RjMetricSample C layout Rust repr(C) ile eslesmeli (64 bayt v0.5, pragma pack yok)");
 
 namespace rj::pipeline::output {
 

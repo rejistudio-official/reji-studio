@@ -6,6 +6,7 @@
 #include "../pipeline/include/frame_profiler.h"
 #include "../pipeline/gpu/vulkan_initializer.h"
 #include "../pipeline/include/pipeline.h"
+#include <QByteArray>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QOpenGLBuffer>
@@ -64,6 +65,13 @@ public:
     uint32_t pending_width      = 0;
     uint32_t pending_height     = 0;
     bool     frame_dirty        = false;
+
+    // CPU fallback path (WGC staging)
+    QByteArray cpu_bgra;
+    int        cpu_w           = 0;
+    int        cpu_h           = 0;
+    int        cpu_pitch       = 0;
+    bool       cpu_frame_dirty = false;
 
     // Timeline semaphore tracking (per submit, non-blocking poll).
     VkSemaphore timeline_semaphore = VK_NULL_HANDLE;
@@ -166,6 +174,16 @@ void PreviewWidget::setBridge(rj::pipeline::gpu::ExternalMemoryBridge* b) noexce
     bridge_ = b;
     fprintf(stderr, "[PreviewWidget] setBridge: bridge=%p\n", b);
     fflush(stderr);
+}
+
+void PreviewWidget::uploadCpuFrame(const void* bgra, int w, int h, int pitch) {
+    QMutexLocker lk(&d_->frame_mutex);
+    d_->cpu_bgra        = QByteArray(static_cast<const char*>(bgra), pitch * h);
+    d_->cpu_w           = w;
+    d_->cpu_h           = h;
+    d_->cpu_pitch       = pitch;
+    d_->cpu_frame_dirty = true;
+    QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
 }
 
 void PreviewWidget::initializeGL() {
@@ -336,6 +354,9 @@ void PreviewWidget::paintGL() {
     VkImage  staging_vk     = VK_NULL_HANDLE;
     VkImage  target_vk      = VK_NULL_HANDLE;
     uint32_t w = 0, h = 0;
+    bool       have_cpu_frame = false;
+    int        cpu_fw = 0, cpu_fh = 0;
+    QByteArray cpu_fdata;
 
     {
         QMutexLocker lock(&d_->frame_mutex);
@@ -377,6 +398,14 @@ void PreviewWidget::paintGL() {
             d_->frame_dirty = false;
             d_->has_pending_copy = false;  // Clear any old pending, submit new
         }
+
+        if (d_->cpu_frame_dirty) {
+            cpu_fdata       = d_->cpu_bgra;
+            cpu_fw          = d_->cpu_w;
+            cpu_fh          = d_->cpu_h;
+            have_cpu_frame  = true;
+            d_->cpu_frame_dirty = false;
+        }
     }
 
     // ---- Handle pending GPU copy ----
@@ -386,6 +415,26 @@ void PreviewWidget::paintGL() {
     if (was_pending && is_ready) {
         // GPU copy complete, clear pending flag
         // (next iteration will load new frame if available)
+    }
+
+    // ---- CPU fallback upload (WGC staging path) ----
+    // Upload BGRA bytes with GL_RGBA format so the shader's .bgra swizzle corrects
+    // channel order to match the Vulkan interop path (both end up R,G,B,A in FragColor).
+    if (have_cpu_frame && cpu_fw > 0 && cpu_fh > 0) {
+        if (!d_->tex_id) glGenTextures(1, &d_->tex_id);
+        glBindTexture(GL_TEXTURE_2D, d_->tex_id);
+        if (cpu_fw != d_->tex_w || cpu_fh != d_->tex_h) {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, cpu_fw, cpu_fh, 0,
+                         GL_RGBA, GL_UNSIGNED_BYTE, cpu_fdata.constData());
+            d_->tex_w = cpu_fw;
+            d_->tex_h = cpu_fh;
+        } else {
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, cpu_fw, cpu_fh,
+                            GL_RGBA, GL_UNSIGNED_BYTE, cpu_fdata.constData());
+        }
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
 
     // ---- Submit GPU-only copy (non-blocking submit, returns timeline sem) ----

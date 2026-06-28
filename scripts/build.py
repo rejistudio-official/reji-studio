@@ -31,6 +31,39 @@ def find_vcvars():
     return None
 
 
+def find_winsdk():
+    """Return (bin_x64, ucrt_lib_x64, um_lib_x64) for the newest usable Windows SDK, or (None,)*3."""
+    kits = Path("C:/Program Files (x86)/Windows Kits/10")
+    kits_bin = kits / "bin"
+    kits_lib = kits / "Lib"
+    if not kits_bin.exists():
+        return None, None, None
+    versions = sorted(
+        (d for d in kits_bin.iterdir() if d.is_dir() and d.name.startswith("10.")),
+        reverse=True,
+    )
+    for ver in versions:
+        bin_dir  = kits_bin / ver.name / "x64"
+        ucrt_lib = kits_lib / ver.name / "ucrt" / "x64"
+        um_lib   = kits_lib / ver.name / "um"   / "x64"
+        if (bin_dir / "mt.exe").exists() and (um_lib / "kernel32.lib").exists():
+            return bin_dir, ucrt_lib, um_lib
+    return None, None, None
+
+
+def find_qt6():
+    """Return the Qt6 MSVC x64 installation base dir, or None."""
+    candidates = [
+        Path("C:/Qt/6.9.0/msvc2022_64"),
+        Path("C:/Qt/6.8.0/msvc2022_64"),
+        Path("C:/Qt/6.7.0/msvc2022_64"),
+    ]
+    for base in candidates:
+        if (base / "lib" / "cmake" / "Qt6" / "Qt6Config.cmake").exists():
+            return base
+    return None
+
+
 def setup_ninja():
     if subprocess.run(["where", "ninja.exe"], capture_output=True).returncode == 0:
         return True
@@ -64,16 +97,47 @@ def main():
     BUILD.mkdir(parents=True, exist_ok=True)
 
     needs_cfg = args.clean or not (BUILD / "CMakeCache.txt").exists()
-    configure = (f'cmake -B "{BUILD}" -G "{generator}" -DCMAKE_BUILD_TYPE={args.config} "{ROOT}" && '
-                 if needs_cfg else "")
+    qt6_flag = ""
+    if needs_cfg:
+        qt6_base = find_qt6()
+        if qt6_base:
+            qt6_flag = f' -DCMAKE_PREFIX_PATH="{qt6_base}"'
+        else:
+            print("[build] WARN: Qt6 bulunamadı — UI stub olarak derlenir")
+    configure_line = (f'cmake -B "{BUILD}" -G "{generator}" -DCMAKE_BUILD_TYPE={args.config}{qt6_flag} "{ROOT}"'
+                      if needs_cfg else "")
+    build_line = f'cmake --build "{BUILD}" --target {args.target} --config {args.config}'
     j_flag = " -- -j 8" if generator == "Ninja" else ""
-    cmd = (f'call "{vcvars}" x64 && {configure}'
-           f'cmake --build "{BUILD}" --target {args.target} --config {args.config}{j_flag}')
+
+    # Write a temporary .bat so each line sees the previous line's env changes.
+    # After vcvars64.bat, %PATH%/%LIB% already contain VS paths — we append SDK
+    # bin/lib dirs that vcvars omits when the Windows SDK isn't fully wired up.
+    import tempfile
+    sdk_bin = sdk_ucrt = sdk_um = None
+    if needs_cfg:
+        sdk_bin, sdk_ucrt, sdk_um = find_winsdk()
+    sdk_path_line = f'set "PATH={sdk_bin};%PATH%"\n' if sdk_bin else ""
+    sdk_lib_line  = (f'set "LIB={sdk_ucrt};{sdk_um};%LIB%"\n'
+                     if sdk_ucrt and sdk_um else "")
+    bat_lines = [
+        '@echo off\n',
+        f'call "{vcvars}" x64\n',
+        'if errorlevel 1 exit /b 1\n',
+        sdk_path_line,
+        sdk_lib_line,
+    ]
+    if configure_line:
+        bat_lines += [f'{configure_line}\n', 'if errorlevel 1 exit /b 1\n']
+    bat_lines.append(f'{build_line}{j_flag}\n')
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.bat',
+                                     delete=False, dir=ROOT) as bat:
+        bat.writelines(bat_lines)
+        bat_path = bat.name
 
     t0 = time.time()
-    # shell=True required: `call vcvars64.bat && cmake` uses CMD built-ins and &&.
-    # All inputs are controlled: fixed filesystem paths + argparse choices validation.
-    rc = subprocess.run(cmd, shell=True, cwd=ROOT).returncode
+    rc = subprocess.run(["cmd", "/c", bat_path], cwd=ROOT).returncode
+    os.unlink(bat_path)
     elapsed = time.time() - t0
 
     with open(args.log, "a") as f:
