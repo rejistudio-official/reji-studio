@@ -43,6 +43,7 @@ bool NvencEncoder::is_initialized() const                  { return false; }
 // ===========================================================================
 
 typedef NVENCSTATUS (NVENCAPI* PFN_NvEncodeAPICreateInstance)(NV_ENCODE_API_FUNCTION_LIST*);
+typedef NVENCSTATUS (NVENCAPI* PFN_NvEncodeAPIGetMaxSupportedVersion)(uint32_t*);
 
 static constexpr int kBitstreamPoolSize = 3;  // triple-buffer; keeps GPU pipeline full
 
@@ -100,11 +101,48 @@ struct NvencEncoder::Impl {
     // Session open — attach D3D11 device as NVENC device context
     // -----------------------------------------------------------------------
     NVENCSTATUS open_session(ID3D11Device* device) {
+        fprintf(stderr, "[NVENC] NVENCAPI_VERSION=0x%08X  NVENCAPI_MAJOR=%u  NVENCAPI_MINOR=%u\n",
+                NVENCAPI_VERSION, NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION);
+
+        uint32_t max_ver = 0;
+        auto* get_max_fn = reinterpret_cast<PFN_NvEncodeAPIGetMaxSupportedVersion>(
+            GetProcAddress(dll, "NvEncodeAPIGetMaxSupportedVersion"));
+        if (get_max_fn) {
+            get_max_fn(&max_ver);
+            fprintf(stderr, "[NVENC] MaxSupportedVersion=0x%08X  major=%u  minor=%u\n",
+                    max_ver, max_ver >> 4, max_ver & 0xF);
+        } else {
+            fprintf(stderr, "[NVENC] NvEncodeAPIGetMaxSupportedVersion not found in DLL\n");
+        }
+
+        // NvEncodeAPIGetMaxSupportedVersion returns (major<<4)|minor — a different
+        // encoding from p.apiVersion which uses major|(minor<<24).  Convert before
+        // comparing and before passing to the session-open call.
+        uint32_t api_ver = NVENCAPI_VERSION;
+        if (max_ver != 0) {
+            uint32_t max_major = max_ver >> 4;
+            uint32_t max_minor = max_ver & 0xF;
+            uint32_t max_api_ver = max_major | (max_minor << 24);  // apiVersion encoding
+            if (max_api_ver < NVENCAPI_VERSION) {
+                api_ver = max_api_ver;
+                fprintf(stderr, "[NVENC] Downgrading apiVersion 0x%08X → 0x%08X "
+                        "(driver cap: major=%u minor=%u)\n",
+                        NVENCAPI_VERSION, api_ver, max_major, max_minor);
+            }
+        }
+
         NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS p = {};
-        p.version    = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
+        // NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER embeds NVENCAPI_VERSION (SDK 13.1).
+        // If we downgraded apiVersion to match the driver, rebuild p.version with the
+        // same formula: api_ver | (struct_index<<16) | (0x7<<28).
+        p.version    = (api_ver != NVENCAPI_VERSION)
+                     ? (api_ver | (1u << 16) | (0x7u << 28))
+                     : NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
         p.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
         p.device     = device;
-        p.apiVersion = NVENCAPI_VERSION;
+        p.apiVersion = api_ver;
+        fprintf(stderr, "[NVENC] p.version=0x%08X  p.apiVersion=0x%08X  device=%p\n",
+                p.version, p.apiVersion, device);
         return api.nvEncOpenEncodeSessionEx(&p, &session);
     }
 
