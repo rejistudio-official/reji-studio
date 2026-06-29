@@ -90,6 +90,19 @@ def setup_ninja():
     return False
 
 
+def copy_srt_dlls(build_dir: Path):
+    vcpkg_bin = Path("C:/vcpkg/installed/x64-windows/bin")
+    dst = build_dir / "src" / "ui"
+    dlls = ["srt.dll", "libcrypto-3-x64.dll", "libssl-3-x64.dll"]
+    for dll in dlls:
+        src = vcpkg_bin / dll
+        if src.exists():
+            shutil.copy2(src, dst / dll)
+            print(f"[build] DLL copied: {dll}")
+        else:
+            print(f"[build] WARN: {dll} not found at {src}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Reji Studio Build")
     ap.add_argument("--target", default="reji_app",
@@ -166,6 +179,7 @@ def main():
     if rc != 0:
         sys.exit(f"[build] FAILED ({elapsed:.1f}s)")
     print(f"[build] OK — {args.target} ({elapsed:.1f}s)")
+    copy_srt_dlls(BUILD)
 
     if args.run:
         for sub in ["src/ui", "src", "."]:
