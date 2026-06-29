@@ -203,6 +203,7 @@ impl RuleEngine {
             }
         }
 
+        let actions = resolve_conflicts(actions);
         Ok(actions)
     }
 
@@ -322,6 +323,46 @@ impl RuleEngine {
             is_critical,
         })
     }
+}
+
+/// Çakışan aksiyonları çözer ve öncelik sırasına göre filtreler.
+///
+/// Öncelik (yüksekten düşüğe):
+/// 1. BitrateReduce   — en kritik, hemen uygula
+/// 2. CapFps          — ikinci öncelik
+/// 3. ScaleResolution — üçüncü
+/// 4. BitrateRecover  — sadece sistem stabil ise
+/// 5. LogOnly         — her zaman uygula, diğerlerini engellemez
+///
+/// Çakışma kuralları:
+/// BitrateReduce + BitrateRecover     → sadece BitrateReduce
+/// CapFps        + RestoreFps         → sadece CapFps
+/// ScaleResolution + RestoreResolution → sadece ScaleResolution
+fn resolve_conflicts(actions: Vec<Action>) -> Vec<Action> {
+    let has_reduce  = actions.iter().any(|a| a.action_type == ActionType::BitrateReduce);
+    let has_cap_fps = actions.iter().any(|a| a.action_type == ActionType::CapFps);
+    let has_scale   = actions.iter().any(|a| a.action_type == ActionType::ScaleResolution);
+
+    let mut result: Vec<Action> = actions.into_iter().filter(|a| {
+        match a.action_type {
+            ActionType::BitrateRecover    if has_reduce  => false,
+            ActionType::RestoreFps        if has_cap_fps => false,
+            ActionType::RestoreResolution if has_scale   => false,
+            _ => true,
+        }
+    }).collect();
+
+    result.sort_by_key(|a| match a.action_type {
+        ActionType::BitrateReduce   => 0,
+        ActionType::CapFps          => 1,
+        ActionType::ScaleResolution => 2,
+        ActionType::BitrateRecover  => 3,
+        ActionType::RestoreFps      => 4,
+        ActionType::RestoreResolution => 5,
+        ActionType::LogOnly         => 6,
+    });
+
+    result
 }
 
 // JSON Format
