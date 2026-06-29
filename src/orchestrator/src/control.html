@@ -42,7 +42,20 @@
     conn.className = 'disconnected';
   };
   ws.onmessage = (e) => {
-    status.textContent = e.data;
+    try {
+      const m = JSON.parse(e.data);
+      if (m.fps !== undefined) {
+        status.innerHTML = `
+          📡 ${m.fps.toFixed(1)} fps |
+          📶 ${m.kbps} kbps |
+          💀 drop: ${m.drop} |
+          🖥 CPU: ${m.cpu}% |
+          🎮 GPU: ${m.gpu}%
+        `;
+      }
+    } catch {
+      status.textContent = e.data;
+    }
   };
 
   function send(cmd) { ws.send(JSON.stringify({cmd})); }

@@ -78,6 +78,7 @@ struct FfiState {
     _metric_state:  Arc<MetricState>,
     _runtime:       Runtime,
     media_tx:       broadcast::Sender<MediaEvent>,
+    ws_evt_tx:      broadcast::Sender<String>,     // Metrik eventleri → WS istemcileri
     rule_engine:    Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
     _ws_state:      Arc<WsState>,                  // WebSocket sunucu durumu
 }
@@ -265,6 +266,7 @@ fn rj_start_monitor_impl() {
             _metric_state: metric_state,
             _runtime: runtime,
             media_tx: event_bus.media.clone(),
+            ws_evt_tx: ws_state.evt_rx.clone(),
             rule_engine,
             _ws_state: ws_state,
         }
@@ -287,6 +289,16 @@ pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
         }
         if let Some(state) = FFI_STATE.get() {
             let _ = state.metric_ring.push(s);
+            let json = format!(
+                r#"{{"fps":{:.1},"kbps":{},"drop":{},"cpu":{},"gpu":{},"mem":{}}}"#,
+                s.fps_actual,
+                s.bitrate_kbps,
+                s.frame_drops,
+                s.cpu_load_pct,
+                s.gpu_load_pct,
+                s.memory_usage_pct
+            );
+            let _ = state.ws_evt_tx.send(json);
         }
     }))
     .map_err(|_| {
