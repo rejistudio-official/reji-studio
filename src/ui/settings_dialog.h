@@ -6,6 +6,8 @@
 #include "healing_overlay.h"
 
 class QComboBox;
+class QLineEdit;
+class QSpinBox;
 
 namespace reji {
 
@@ -27,6 +29,10 @@ public:
     // v0.4+ Hot-reload
     bool isAutoReloadEnabled() const;
     void setAutoReloadEnabled(bool enabled);
+
+    // SRT çıkış ayarları
+    QString  srtHost() const;
+    uint16_t srtPort() const;
 
 signals:
     void healingModeChanged(HealingMode mode);

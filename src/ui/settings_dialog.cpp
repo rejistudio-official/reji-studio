@@ -3,11 +3,15 @@
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QFormLayout>
 #include <QLabel>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QGroupBox>
+#include <QSettings>
+#include <QSpinBox>
 #include <QTextEdit>
 #include <QMessageBox>
 
@@ -26,8 +30,12 @@ public:
     QCheckBox* chk_fps_auto{nullptr};            // varsayılan: kapalı
 
     // v0.4+ Hot-reload
-    QCheckBox* chk_auto_reload{nullptr};         // Auto-reload rules on file change
-    QPushButton* btn_edit_rules{nullptr};        // Open rules.json in editor
+    QCheckBox* chk_auto_reload{nullptr};
+    QPushButton* btn_edit_rules{nullptr};
+
+    // SRT çıkış ayarları
+    QLineEdit* srt_host_edit{nullptr};
+    QSpinBox*  srt_port_spin{nullptr};
 };
 
 SettingsDialog::SettingsDialog(QWidget* parent)
@@ -108,6 +116,26 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     lbl_rules_path->setStyleSheet("color:#888;font-size:11px;");
     layout_hotreload->addWidget(lbl_rules_path);
 
+    // ===== SRT Çıkış Ayarları =====
+    auto* grp_srt  = new QGroupBox(tr("SRT Çıkış Ayarları"), this);
+    auto* srt_layout = new QFormLayout(grp_srt);
+
+    d_->srt_host_edit = new QLineEdit(this);
+    d_->srt_host_edit->setPlaceholderText("örn: 192.168.1.100");
+
+    d_->srt_port_spin = new QSpinBox(this);
+    d_->srt_port_spin->setRange(1024, 65535);
+
+    srt_layout->addRow(tr("Host:"), d_->srt_host_edit);
+    srt_layout->addRow(tr("Port:"), d_->srt_port_spin);
+
+    // QSettings'ten kalıcı değerleri yükle
+    {
+        QSettings qs("RejiStudio", "RejiStudio");
+        d_->srt_host_edit->setText(qs.value("srt/host", "127.0.0.1").toString());
+        d_->srt_port_spin->setValue(qs.value("srt/port", 9000).toInt());
+    }
+
     // ===== Buttons =====
     auto* btn_ok = new QPushButton(tr("Tamam"));
     auto* btn_cancel = new QPushButton(tr("İptal"));
@@ -125,6 +153,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     layout_main->addWidget(grp_healing);
     layout_main->addWidget(grp_copilot);
     layout_main->addWidget(grp_hotreload);
+    layout_main->addWidget(grp_srt);
     layout_main->addStretch();
     layout_main->addLayout(layout_buttons);
 
@@ -169,6 +198,10 @@ void SettingsDialog::onModeChanged(int index) {
 }
 
 void SettingsDialog::onOkClicked() {
+    QSettings qs("RejiStudio", "RejiStudio");
+    qs.setValue("srt/host", d_->srt_host_edit->text());
+    qs.setValue("srt/port", d_->srt_port_spin->value());
+
     emit healingModeChanged(d_->current_mode);
     accept();
 }
@@ -207,6 +240,16 @@ void SettingsDialog::onEditRulesClicked() {
 
 void SettingsDialog::onAutoReloadToggled(int state) {
     emit autoReloadToggled(state == Qt::Checked);
+}
+
+QString SettingsDialog::srtHost() const {
+    return d_->srt_host_edit ? d_->srt_host_edit->text() : QStringLiteral("127.0.0.1");
+}
+
+uint16_t SettingsDialog::srtPort() const {
+    return d_->srt_port_spin
+        ? static_cast<uint16_t>(d_->srt_port_spin->value())
+        : 9000u;
 }
 
 } // namespace reji

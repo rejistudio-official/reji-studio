@@ -64,10 +64,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     }
 
+    // SettingsDialog'ı erken oluştur — pipeline init öncesi SRT değerlerini okumak için
+    settings_dialog_ = new reji::SettingsDialog(this);
+    connect(settings_dialog_, &reji::SettingsDialog::healingModeChanged,
+            this, [this](reji::HealingMode mode) {
+        if (healing_overlay_) healing_overlay_->setHealingMode(mode);
+    });
+    if (healing_overlay_) {
+        healing_overlay_->setSettingsDialog(settings_dialog_);
+    }
+
     // v0.2: Pipeline init + preview callback
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
-    strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host), "127.0.0.1", _TRUNCATE);
-    pcfg.srt_port = 9000;
+    // SRT ayarları — SettingsDialog'dan al, yoksa varsayılan
+    if (settings_dialog_) {
+        strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host),
+                  settings_dialog_->srtHost().toStdString().c_str(), _TRUNCATE);
+        pcfg.srt_port = settings_dialog_->srtPort();
+    } else {
+        strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host), "127.0.0.1", _TRUNCATE);
+        pcfg.srt_port = 9000;
+    }
     if (!pipeline_.init(pcfg)) {
         qDebug() << "Pipeline init failed";
         lbl_status_->setText(tr("Pipeline init başarısız — NVENC SDK eksik olabilir"));
@@ -445,23 +462,15 @@ void MainWindow::onFadeTransition() {
 }
 
 void MainWindow::onSettingsClicked() {
+    // settings_dialog_ constructor'da oluşturulur; bu guard sıra dışı durumlar içindir
     if (!settings_dialog_) {
         settings_dialog_ = new reji::SettingsDialog(this);
-
-        // Connect mode change signal to HealingOverlay
         connect(settings_dialog_, &reji::SettingsDialog::healingModeChanged,
                 this, [this](reji::HealingMode mode) {
-            if (healing_overlay_) {
-                healing_overlay_->setHealingMode(mode);
-            }
+            if (healing_overlay_) healing_overlay_->setHealingMode(mode);
         });
-
-        // Link SettingsDialog to HealingOverlay for Yaklaşım C
-        if (healing_overlay_) {
-            healing_overlay_->setSettingsDialog(settings_dialog_);
-        }
+        if (healing_overlay_) healing_overlay_->setSettingsDialog(settings_dialog_);
     }
-
     settings_dialog_->exec();
 }
 
