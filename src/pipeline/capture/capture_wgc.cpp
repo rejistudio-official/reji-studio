@@ -165,6 +165,8 @@ bool WgcScreenCapture::init_capture(HMONITOR monitor)
 // ---------------------------------------------------------------------------
 rj::CapturedFrame WgcScreenCapture::next_frame()
 {
+    std::lock_guard<std::mutex> lk(frame_mutex_);
+
     // Release previous holdings before fetching the next frame
     last_tex_.Reset();
     last_frame_ = nullptr;
@@ -217,16 +219,19 @@ rj::CapturedFrame WgcScreenCapture::next_frame()
 // ---------------------------------------------------------------------------
 void WgcScreenCapture::shutdown()
 {
-    last_tex_.Reset();
-    last_frame_ = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(frame_mutex_);
+        last_tex_.Reset();
+        last_frame_ = nullptr;
 
-    if (session_) {
-        session_.Close();
-        session_ = nullptr;
-    }
-    if (frame_pool_) {
-        frame_pool_.Close();
-        frame_pool_ = nullptr;
+        if (session_) {
+            session_.Close();
+            session_ = nullptr;
+        }
+        if (frame_pool_) {
+            frame_pool_.Close();
+            frame_pool_ = nullptr;
+        }
     }
     device_.Reset();
     fprintf(stderr, "[WgcCapture] Shutdown\n");

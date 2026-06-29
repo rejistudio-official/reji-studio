@@ -10,6 +10,7 @@
 
 #include "../include/i_screen_capture.h"
 #include <d3d11.h>
+#include <mutex>
 #include <wrl/client.h>
 
 // C++/WinRT projection (requires C++20 or /await)
@@ -49,6 +50,8 @@ private:
 
     uint32_t width_  = 0;
     uint32_t height_ = 0;
+
+    std::mutex frame_mutex_;
 };
 
 } // namespace reji
