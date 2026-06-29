@@ -26,9 +26,14 @@ use crate::rules::RuleEngine;
 use crate::ws_server::{self, WsState};
 
 // Reverse FFI: Rust → C++ (implemented in pipeline.cpp, resolved at link time)
+#[cfg(not(test))]
 extern "C" {
     fn rj_ws_command(cmd: i32);
 }
+
+// Test binary'si C++ tarafını link edemez — no-op stub kullan
+#[cfg(test)]
+unsafe fn rj_ws_command(_cmd: i32) {}
 
 /// Rust tarafı RjCommand — `ffi_bridge.h`'daki RjCommand ile #[repr(C)] eşleşmeli.
 #[repr(C)]

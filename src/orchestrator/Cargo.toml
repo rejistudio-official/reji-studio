@@ -16,5 +16,8 @@ redb        = { workspace = true }
 axum        = { workspace = true, features = ["ws"] }
 tracing     = { workspace = true }
 
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
 [build-dependencies]
 cbindgen = "0.27"

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
@@ -70,9 +70,11 @@ pub struct Action {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
     pub id: String,
+    #[serde(default)]
     pub description: String,
     pub condition: String,  // e.g., "frame_drop_pct > 10"
     pub action: String,
+    #[serde(default)]
     pub params: HashMap<String, serde_json::Value>,
     pub modes: Vec<String>,
 }
@@ -94,7 +96,8 @@ impl RuleEngine {
         let engine = Self {
             rules: Arc::new(Mutex::new(Vec::new())),
             file_path: path,
-            last_reload: Arc::new(Mutex::new(Instant::now())),
+            // 2s geride başlat — ilk hot_reload() çağrısı throttle'a takılmasın
+            last_reload: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(2))),
             last_file_mtime: Arc::new(Mutex::new(None)),
             hysteresis_ms: Arc::new(Mutex::new(0)),
             last_trigger: Arc::new(Mutex::new(HashMap::new())),
@@ -403,6 +406,32 @@ struct TomlMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_load_rules_from_home() {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_target(false)
+            .try_init();
+
+        let path = std::env::var("USERPROFILE")
+            .map(|h| PathBuf::from(h).join(".reji").join("rules.json"))
+            .unwrap_or_else(|_| PathBuf::from("rules.json"));
+
+        match RuleEngine::new(&path) {
+            Ok(engine) => {
+                let rules = engine.rules.lock().unwrap();
+                eprintln!("[Rules] Loaded {} rules from {:?}", rules.len(), path);
+                for r in rules.iter() {
+                    eprintln!("[Rules]   id={:?}  action={:?}  modes={:?}", r.id, r.action, r.modes);
+                }
+            }
+            Err(e) => {
+                eprintln!("[Rules] FAILED to load {:?}: {}", path, e);
+                panic!("rules.json parse error: {}", e);
+            }
+        }
+    }
 
     #[test]
     fn test_condition_parse_simple() {
