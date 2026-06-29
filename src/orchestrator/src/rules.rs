@@ -207,36 +207,47 @@ impl RuleEngine {
         Ok(actions)
     }
 
-    /// Condition string'i basit kural motoru ile değerlendir.
-    /// Örn: "frame_drop_pct > 10", "gpu_temp_c > 85"
+    /// Condition string'i özyinelemeli olarak değerlendir.
+    ///
+    /// Operatör önceliği (düşükten yükseğe): || → && → tek koşul
+    ///
+    /// Örnekler:
+    ///   "frame_drop_pct > 10"
+    ///   "gpu_temp_c > 85 && cpu_load_pct > 90"
+    ///   "frame_drop_pct > 10 || network_loss_pct > 5"
+    ///   "cpu_load_pct > 80 && gpu_load_pct > 80 || frame_drop_pct > 15"
     fn eval_condition(
         &self,
         condition: &str,
         metrics: &RuleMetrics,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        // Simple condition parser — limited, secure
-        // Supports: metric_name > value, metric_name < value, metric_name >= value
-        //
-        // Examples:
-        //   "frame_drop_pct > 10"
-        //   "gpu_temp_c > 85"
-        //   "memory_usage_pct > 85 && cpu_load_pct > 90"
-
         let condition = condition.trim();
 
-        // Split by && (AND)
-        let and_parts: Vec<&str> = condition.split("&&").map(|s| s.trim()).collect();
-
-        for part in and_parts {
-            if !self.eval_simple_condition(part, metrics)? {
-                return Ok(false);
+        // || en düşük öncelik — önce böl
+        if condition.contains("||") {
+            for part in condition.split("||") {
+                if self.eval_condition(part.trim(), metrics)? {
+                    return Ok(true);
+                }
             }
+            return Ok(false);
         }
 
-        Ok(true)
+        // && ikinci öncelik
+        if condition.contains("&&") {
+            for part in condition.split("&&") {
+                if !self.eval_condition(part.trim(), metrics)? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+
+        // Tek koşul
+        self.eval_single_condition(condition, metrics)
     }
 
-    fn eval_simple_condition(
+    fn eval_single_condition(
         &self,
         cond: &str,
         metrics: &RuleMetrics,
@@ -409,8 +420,8 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(engine.eval_simple_condition("frame_drop_pct > 10", &metrics).unwrap());
-        assert!(!engine.eval_simple_condition("frame_drop_pct > 15", &metrics).unwrap());
+        assert!(engine.eval_single_condition("frame_drop_pct > 10", &metrics).unwrap());
+        assert!(!engine.eval_single_condition("frame_drop_pct > 15", &metrics).unwrap());
     }
 
     #[test]
@@ -429,8 +440,8 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(engine.eval_simple_condition("gpu_temp_c > 85", &metrics).unwrap());
-        assert!(!engine.eval_simple_condition("gpu_temp_c < 85", &metrics).unwrap());
+        assert!(engine.eval_single_condition("gpu_temp_c > 85", &metrics).unwrap());
+        assert!(!engine.eval_single_condition("gpu_temp_c < 85", &metrics).unwrap());
     }
 
     #[test]
