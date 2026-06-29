@@ -233,7 +233,7 @@ fn rj_start_monitor_impl() {
             }
             let ws_state_clone = ws_state.clone();
             runtime.spawn(async move {
-                ws_server::serve(7070, ws_state_clone).await;
+                ws_server::serve(7070, "127.0.0.1", ws_state_clone).await;
             });
 
             // WS komutu → C++ pipeline köprüsü

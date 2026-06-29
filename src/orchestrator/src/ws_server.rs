@@ -58,13 +58,14 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>) {
     }
 }
 
-pub async fn serve(port: u16, state: Arc<WsState>) {
+pub async fn serve(port: u16, bind_addr: &str, state: Arc<WsState>) {
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/", get(|| async { axum::response::Html(include_str!("control.html")) }))
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{}", port);
+    let host = std::env::var("REJI_WS_BIND").unwrap_or_else(|_| bind_addr.to_owned());
+    let addr = format!("{}:{}", host, port);
 
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => {
