@@ -144,6 +144,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 program_widget_->uploadFrame(bgra, width, height, pitch);
             }
         );
+
+        // WebSocket scene commands → GUI thread via QueuedConnection
+        pipeline_.set_scene_command_callback([this](int cmd) {
+            QMetaObject::invokeMethod(this, [this, cmd]() {
+                if (cmd == 3) onCutTransition();
+                if (cmd == 4) onFadeTransition();
+            }, Qt::QueuedConnection);
+        });
     }
 
     // run_frame() ayrı thread'de çalışsın

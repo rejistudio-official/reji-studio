@@ -77,6 +77,15 @@ public:
     using D3D11FrameCallback = std::function<void(void* staging_texture, uint32_t width, uint32_t height)>;
     bool set_d3d11_frame_callback(D3D11FrameCallback cb);
 
+    /// WebSocket scene command callback — fired for cmd=3 (scene_cut) and cmd=4 (scene_fade).
+    /// Called from rj_ws_command on a Tokio worker thread; use QMetaObject::invokeMethod for UI.
+    using SceneCommandCallback = std::function<void(int cmd)>;
+    bool set_scene_command_callback(SceneCommandCallback cb);
+
+    /// Invoked by rj_ws_command (extern "C" free function) to dispatch cmd=3/4.
+    /// Public because rj_ws_command cannot access private members.
+    void invoke_scene_cmd_(int cmd) noexcept;
+
     /// Late Vulkan device binding — updates ExternalMemoryBridge with real device handles.
     /// Call after VulkanInitializer::initialize() succeeds. Safe to call multiple times.
     bool notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device);

@@ -272,6 +272,9 @@ struct Pipeline::Impl {
     // v0.5.1: D3D11 zero-copy callback - called from run_frame() with staging texture
     Pipeline::D3D11FrameCallback     d3d11_frame_cb;
 
+    // WebSocket scene command callback — invoked by rj_ws_command for cmd=3/4
+    Pipeline::SceneCommandCallback   scene_cmd_cb;
+
     // v0.5.1: Cache last frame images for get_last_frame_images() getter
     // E2: atomic — frame thread writes, GL thread reads via get_last_frame_images()
     std::atomic<VkImage> last_staging_vk{nullptr};
@@ -419,13 +422,15 @@ Pipeline::Pipeline()  = default;
 Pipeline::~Pipeline() { (void)shutdown(); }
 
 #ifndef _WIN32
-bool Pipeline::init(const Config&)              { return false; }
-bool Pipeline::start_stream()                   { return false; }
-bool Pipeline::stop_stream()                    { return false; }
-bool Pipeline::is_running() const               { return false; }
-bool Pipeline::set_preview_callback(PreviewCallback) { return false; }
-bool Pipeline::run_frame()                      { return false; }
-bool Pipeline::shutdown()                       { return true;  }
+bool Pipeline::init(const Config&)                        { return false; }
+bool Pipeline::start_stream()                             { return false; }
+bool Pipeline::stop_stream()                              { return false; }
+bool Pipeline::is_running() const                         { return false; }
+bool Pipeline::set_preview_callback(PreviewCallback)      { return false; }
+bool Pipeline::set_scene_command_callback(SceneCommandCallback) { return false; }
+void Pipeline::invoke_scene_cmd_(int) noexcept            {}
+bool Pipeline::run_frame()                                { return false; }
+bool Pipeline::shutdown()                                 { return true;  }
 #else
 
 bool Pipeline::init(const Config& cfg_in) {
@@ -654,6 +659,16 @@ bool Pipeline::set_d3d11_frame_callback(D3D11FrameCallback cb) {
     }
     fprintf(stderr, "[Pipeline] d3d11_frame_cb set OK\n"); fflush(stderr);
     return true;
+}
+
+bool Pipeline::set_scene_command_callback(SceneCommandCallback cb) {
+    if (!impl_) impl_ = std::make_unique<Impl>();
+    impl_->scene_cmd_cb = std::move(cb);
+    return true;
+}
+
+void Pipeline::invoke_scene_cmd_(int cmd) noexcept {
+    if (impl_ && impl_->scene_cmd_cb) impl_->scene_cmd_cb(cmd);
 }
 
 bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device) {
@@ -1036,8 +1051,8 @@ extern "C" void rj_ws_command(int cmd) {
     switch (cmd) {
         case 1: (void)p->start_stream(); break;
         case 2: (void)p->stop_stream();  break;
-        case 3: /* scene_cut  — MainWindow handles via existing UI path */ break;
-        case 4: /* scene_fade — MainWindow handles via existing UI path */ break;
+        case 3: p->invoke_scene_cmd_(3); break;  // scene_cut
+        case 4: p->invoke_scene_cmd_(4); break;  // scene_fade
         default: break;
     }
 }
