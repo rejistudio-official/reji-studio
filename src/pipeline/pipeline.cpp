@@ -796,6 +796,16 @@ bool Pipeline::run_frame() {
 
             // WGC path — CPU staging preview
             if (!s.capture_dxgi_ && s.preview_cb) {
+                // Resolution change: reset staging texture if dimensions no longer match
+                if (s.wgc_staging_tex_) {
+                    D3D11_TEXTURE2D_DESC existing{};
+                    s.wgc_staging_tex_->GetDesc(&existing);
+                    D3D11_TEXTURE2D_DESC current{};
+                    tex->GetDesc(&current);
+                    if (existing.Width != current.Width || existing.Height != current.Height) {
+                        s.wgc_staging_tex_.Reset();
+                    }
+                }
                 // NVIDIA device'da staging texture oluştur (bir kez)
                 if (!s.wgc_staging_tex_) {
                     D3D11_TEXTURE2D_DESC desc{};
