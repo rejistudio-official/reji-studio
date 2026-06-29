@@ -220,7 +220,7 @@ struct Pipeline::Impl {
     int64_t  next_deadline    = 0;
     int64_t  pts_origin       = 0;
     int64_t  last_frame_ticks = 0;
-    uint32_t bitrate_kbps     = 0;
+    std::atomic<uint32_t> bitrate_kbps{0};
 
     std::atomic<uint32_t> frame_drops{0};
     std::array<RjCommand, kCmdDrainMax> cmd_buf{};
@@ -248,7 +248,7 @@ struct Pipeline::Impl {
             case RJ_ACTION_BITRATE_RECOVER:
                 if (cmd.param1 > 0) {
                     (void)encoder->set_bitrate(static_cast<uint32_t>(cmd.param1));
-                    bitrate_kbps     = static_cast<uint32_t>(cmd.param1);
+                    bitrate_kbps.store(static_cast<uint32_t>(cmd.param1), std::memory_order_relaxed);
                     cfg.bitrate_kbps = static_cast<uint32_t>(cmd.param1);
                 }
                 break;
@@ -288,7 +288,7 @@ struct Pipeline::Impl {
             case RJ_CMD_BITRATE_SET:
                 if (encoder && c.param_u32 > 0) {
                     (void)encoder->set_bitrate(c.param_u32);
-                    bitrate_kbps     = c.param_u32;
+                    bitrate_kbps.store(c.param_u32, std::memory_order_relaxed);
                     cfg.bitrate_kbps = c.param_u32;
                 }
                 break;
@@ -398,8 +398,9 @@ struct Pipeline::Impl {
         enc_cfg.height           = cfg.height;
         enc_cfg.fps_num          = cfg.fps;
         enc_cfg.fps_den          = 1;
-        enc_cfg.bitrate_kbps     = bitrate_kbps;
-        enc_cfg.max_bitrate_kbps = bitrate_kbps + bitrate_kbps / 4;
+        const uint32_t bps       = bitrate_kbps.load(std::memory_order_relaxed);
+        enc_cfg.bitrate_kbps     = bps;
+        enc_cfg.max_bitrate_kbps = bps + bps / 4;
         encoder = std::make_unique<reji::NvencEncoder>();
         if (!encoder->init(encode_device, enc_cfg, packet_cb)) {
             dbglog("[Pipeline] TDR encoder reinit failed");
@@ -454,7 +455,7 @@ bool Pipeline::init(const Config& cfg_in) {
 
     s.cfg                          = cfg_in;
     s.cfg.original_bitrate_kbps    = cfg_in.bitrate_kbps;
-    s.bitrate_kbps                 = cfg_in.bitrate_kbps;
+    s.bitrate_kbps.store(cfg_in.bitrate_kbps, std::memory_order_relaxed);
 
     //  COM 
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -853,7 +854,7 @@ bool Pipeline::run_frame() {
         m.magic_tail   = kMetricMagic;
         m.timestamp_us = static_cast<uint64_t>(
                              ticks_to_us(frame_start, s.qpc_freq));
-        m.bitrate_kbps = s.bitrate_kbps;
+        m.bitrate_kbps = s.bitrate_kbps.load(std::memory_order_relaxed);
         {
             auto delta = frame_start - s.last_frame_ticks;
             m.fps_actual = (delta > 0)
@@ -1007,7 +1008,7 @@ bool Pipeline::apply_action(const RjAction& action) {
 
     switch (action.action_type) {
         case RJ_ACTION_BITRATE_REDUCE: {
-            uint32_t current    = impl_->bitrate_kbps;
+            uint32_t current    = impl_->bitrate_kbps.load(std::memory_order_relaxed);
             uint32_t new_bitrate = static_cast<uint32_t>(current * 0.85f);
             new_bitrate = (std::max)(new_bitrate, impl_->cfg.min_bitrate_kbps);
             impl_->push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_bitrate)});
@@ -1015,7 +1016,7 @@ bool Pipeline::apply_action(const RjAction& action) {
         }
         case RJ_ACTION_BITRATE_RECOVER: {
             uint32_t target  = impl_->cfg.original_bitrate_kbps;
-            uint32_t current = impl_->bitrate_kbps;
+            uint32_t current = impl_->bitrate_kbps.load(std::memory_order_relaxed);
             if (current < target) {
                 uint32_t new_bitrate = (std::min)(
                     static_cast<uint32_t>(current * 1.15f),
