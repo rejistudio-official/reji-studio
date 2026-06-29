@@ -64,12 +64,17 @@ fn create_instance() bool {
             std.debug.print("[VulkanZig] VK_LAYER_KHRONOS_validation bulunamadi, atlanıyor\n", .{});
     }
 
-    const extensions = [_][*:0]const u8{
-        vk.VK_KHR_SURFACE_EXTENSION_NAME,
-        vk.VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-        vk.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-        vk.VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-    };
+    // 4 zorunlu + 1 opsiyonel (external_memory_capabilities) — fixed buffer
+    var ext_buf: [5][*:0]const u8 = undefined;
+    var ext_n: u32 = 0;
+    ext_buf[ext_n] = vk.VK_KHR_SURFACE_EXTENSION_NAME;                           ext_n += 1;
+    ext_buf[ext_n] = vk.VK_KHR_WIN32_SURFACE_EXTENSION_NAME;                     ext_n += 1;
+    ext_buf[ext_n] = vk.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;  ext_n += 1;
+    ext_buf[ext_n] = vk.VK_EXT_DEBUG_UTILS_EXTENSION_NAME;                       ext_n += 1;
+    if (check_instance_extension_available(vk.VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME)) {
+        ext_buf[ext_n] = vk.VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;  ext_n += 1;
+        std.debug.print("[VulkanZig] VK_KHR_external_memory_capabilities: enabled\n", .{});
+    }
 
     const create_info = vk.VkInstanceCreateInfo{
         .sType                   = vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -78,8 +83,8 @@ fn create_instance() bool {
         .pApplicationInfo        = &app_info,
         .enabledLayerCount       = layer_count,
         .ppEnabledLayerNames     = if (layer_count > 0) @ptrCast(&layers) else null,
-        .enabledExtensionCount   = @intCast(extensions.len),
-        .ppEnabledExtensionNames = @ptrCast(&extensions),
+        .enabledExtensionCount   = ext_n,
+        .ppEnabledExtensionNames = @ptrCast(&ext_buf),
     };
 
     const result = vk.vkCreateInstance(&create_info, null, &state.instance);
@@ -89,6 +94,40 @@ fn create_instance() bool {
     }
     std.debug.print("[VulkanZig] Instance created\n", .{});
     return true;
+}
+
+// ── query_nvidia_ext_support ──────────────────────────────────────────────────
+// NVIDIA physical device'da VK_KHR_external_memory_win32 ve
+// VK_KHR_external_semaphore_win32 varlığını sorgular ve loglar.
+// VK_KHR_external_memory_capabilities instance-level olduğundan burada
+// device sorgusuna dahil edilmez; create_instance()'ta etkinleştirilir.
+
+fn query_nvidia_ext_support(dev: vk.VkPhysicalDevice) void {
+    var count: u32 = 0;
+    _ = vk.vkEnumerateDeviceExtensionProperties(dev, null, &count, null);
+    var props: [256]vk.VkExtensionProperties = undefined;
+    var actual: u32 = @min(count, 256);
+    _ = vk.vkEnumerateDeviceExtensionProperties(dev, null, &actual, &props);
+
+    const to_check = [_][*:0]const u8{
+        vk.VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+        vk.VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+    };
+    for (to_check) |name| {
+        var found = false;
+        for (props[0..actual]) |p| {
+            if (std.mem.eql(u8,
+                std.mem.sliceTo(&p.extensionName, 0),
+                std.mem.sliceTo(name, 0)))
+            {
+                found = true;
+                break;
+            }
+        }
+        std.debug.print("[VK NVIDIA] {s}: {s}\n",
+            .{ name, if (found) "OK" else "MISSING" });
+    }
+    std.debug.print("[VK NVIDIA] VK_KHR_external_memory_capabilities: INSTANCE (VK1.1 core)\n", .{});
 }
 
 // ── select_device ─────────────────────────────────────────────────────────────
@@ -113,7 +152,8 @@ fn select_device() bool {
         vk.vkGetPhysicalDeviceProperties(dev, &props);
 
         var score: u32 = 1;
-        if (props.vendorID == 0x1002) score = 100; // AMD iGPU öncelikli
+        if (props.vendorID == 0x10DE) score = 200; // NVIDIA öncelikli
+        if (props.vendorID == 0x1002) score = 100; // AMD ikincil
         if (props.deviceType == vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) score += 10;
 
         if (score > best_score) {
@@ -124,6 +164,10 @@ fn select_device() bool {
     }
 
     state.physical_device = best;
+
+    if (state.vendor_id == 0x10DE) {
+        query_nvidia_ext_support(best);
+    }
 
     var qf_count: u32 = 0;
     vk.vkGetPhysicalDeviceQueueFamilyProperties(best, &qf_count, null);
@@ -141,6 +185,22 @@ fn select_device() bool {
 
     std.debug.print("[VulkanZig] Selected: vendorID=0x{X:0>4}\n", .{state.vendor_id});
     return true;
+}
+
+// ── check_instance_extension_available ───────────────────────────────────────
+
+fn check_instance_extension_available(name: [*:0]const u8) bool {
+    var count: u32 = 0;
+    _ = vk.vkEnumerateInstanceExtensionProperties(null, &count, null);
+    var props: [128]vk.VkExtensionProperties = undefined;
+    var actual: u32 = @min(count, 128);
+    _ = vk.vkEnumerateInstanceExtensionProperties(null, &actual, &props);
+    for (props[0..actual]) |p| {
+        if (std.mem.eql(u8,
+            std.mem.sliceTo(&p.extensionName, 0),
+            std.mem.sliceTo(name, 0))) return true;
+    }
+    return false;
 }
 
 // ── check_extension_available ─────────────────────────────────────────────────
