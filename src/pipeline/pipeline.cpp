@@ -43,11 +43,13 @@
 #include <algorithm>
 #include <atomic>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <thread>
 
 //  FFI struct size verification 
 // Natural alignment (no pack pragma) matches Rust #[repr(C)].
@@ -62,6 +64,7 @@ static_assert(sizeof(RjAction)       == 20, "RjAction ABI drift — expected 20 
 // Global pipeline pointer — set during Pipeline::init(), used by rj_ws_command.
 // Atomic to ensure safe read from Tokio worker thread.
 static std::atomic<rj::Pipeline*> g_pipeline{nullptr};
+static std::atomic<bool>           g_pipeline_alive{false};
 
 namespace {
 
@@ -599,6 +602,7 @@ bool Pipeline::init(const Config& cfg_in) {
 
     s.initialized.store(true, std::memory_order_release);
     g_pipeline.store(this, std::memory_order_release);
+    g_pipeline_alive.store(true, std::memory_order_release);
     dbglog("[Pipeline] init OK %ux%u@%u fps %u kbps audio=%d loopback=%d",
            s.cfg.width, s.cfg.height, cfg_in.fps, cfg_in.bitrate_kbps,
            cfg_in.audio_enabled ? 1 : 0, cfg_in.loopback ? 1 : 0);
@@ -906,10 +910,13 @@ bool Pipeline::run_frame() {
 
 bool Pipeline::shutdown() {
     if (!impl_) return true;
-    g_pipeline.store(nullptr, std::memory_order_release);
 
     bool ok = true;
     std::call_once(shutdown_once_, [this, &ok]() {
+        g_pipeline_alive.store(false, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        g_pipeline.store(nullptr, std::memory_order_release);
+
         auto& s = *impl_;
 
         s.streaming.store(false, std::memory_order_release);
@@ -1047,6 +1054,7 @@ bool Pipeline::apply_action(const RjAction& action) {
 // Reverse FFI: Rust WS bridge → C++ pipeline control.
 // Called from a Tokio worker thread; Pipeline::start/stop_stream use atomics internally.
 extern "C" void rj_ws_command(int cmd) {
+    if (!g_pipeline_alive.load(std::memory_order_acquire)) return;
     auto* p = g_pipeline.load(std::memory_order_acquire);
     if (!p) return;
     switch (cmd) {
