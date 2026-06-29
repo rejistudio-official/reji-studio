@@ -34,6 +34,10 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
         return false;
     }
 
+    for (auto& layout : target_layouts_)  layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    for (auto& layout : staging_layouts_) layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    for (auto& sig : slot_gl_signaled_)   sig = false;
+
     try {  // C++ exceptions only; Vulkan returns error codes
         device_ = device;
         queue_ = queue;
@@ -463,6 +467,10 @@ void GpuCopyOptimizer::shutdown() {
         fprintf(stderr, "[GpuCopyOptimizer] Shutdown complete\n");
         fflush(stderr);
     }
+
+    for (auto& layout : target_layouts_)  layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    for (auto& layout : staging_layouts_) layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    for (auto& sig : slot_gl_signaled_)   sig = false;
 }
 
 void GpuCopyOptimizer::cleanup_pipeline() {
