@@ -23,6 +23,12 @@ use crate::event_bus::{EventBus, HealingEvent, MediaEvent, SystemEvent};
 use crate::healing::{HealingMode, HealingMonitor, HealingThresholds};
 use crate::metrics::{MetricSample, MetricState};
 use crate::rules::RuleEngine;
+use crate::ws_server::{self, WsState};
+
+// Reverse FFI: Rust → C++ (implemented in pipeline.cpp, resolved at link time)
+extern "C" {
+    fn rj_ws_command(cmd: i32);
+}
 
 /// Rust tarafı RjCommand — `ffi_bridge.h`'daki RjCommand ile #[repr(C)] eşleşmeli.
 #[repr(C)]
@@ -73,6 +79,7 @@ struct FfiState {
     _runtime:       Runtime,
     media_tx:       broadcast::Sender<MediaEvent>,
     rule_engine:    Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
+    _ws_state:      Arc<WsState>,                  // WebSocket sunucu durumu
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
@@ -197,6 +204,42 @@ fn rj_start_monitor_impl() {
             });
         }
 
+        // WebSocket kontrol sunucusu — port 7070
+        let ws_state = Arc::new(WsState {
+            cmd_tx: broadcast::channel(64).0,
+            evt_rx: broadcast::channel(64).0,
+        });
+        {
+            // Spawn öncesi log
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true).append(true)
+                .open("C:\\reji-studio\\ws_debug.log")
+            {
+                use std::io::Write;
+                let _ = writeln!(f, "[FFI] rj_start_monitor_impl: spawning WS server task");
+            }
+            let ws_state_clone = ws_state.clone();
+            runtime.spawn(async move {
+                ws_server::serve(7070, ws_state_clone).await;
+            });
+
+            // WS komutu → C++ pipeline köprüsü
+            let mut cmd_rx = ws_state.cmd_tx.subscribe();
+            runtime.spawn(async move {
+                while let Ok(cmd) = cmd_rx.recv().await {
+                    let code: i32 = match cmd.as_str() {
+                        "stream_start" => 1,
+                        "stream_stop"  => 2,
+                        "scene_cut"    => 3,
+                        "scene_fade"   => 4,
+                        _              => continue,
+                    };
+                    // SAFETY: rj_ws_command güvenli atomik pipeline çağrısı yapar
+                    unsafe { rj_ws_command(code) };
+                }
+            });
+        }
+
         // Initialize RuleEngine with default rules.json path (~/.reji/rules.json)
         let rules_path = {
             if let Ok(home) = std::env::var("USERPROFILE") {
@@ -223,6 +266,7 @@ fn rj_start_monitor_impl() {
             _runtime: runtime,
             media_tx: event_bus.media.clone(),
             rule_engine,
+            _ws_state: ws_state,
         }
     });
 }

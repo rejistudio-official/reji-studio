@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reji Studio</title>
+<style>
+  body { font-family: sans-serif; max-width: 400px; margin: 40px auto; padding: 16px; background: #1a1a1a; color: #fff; }
+  h1 { font-size: 1.4em; margin-bottom: 24px; }
+  button { width: 100%; padding: 16px; margin: 8px 0; font-size: 1.1em; border: none; border-radius: 8px; cursor: pointer; }
+  #btn-start { background: #227722; color: white; }
+  #btn-stop  { background: #CC3333; color: white; }
+  #btn-cut   { background: #CC3333; color: white; }
+  #btn-fade  { background: #3355CC; color: white; }
+  #status { margin-top: 16px; padding: 12px; background: #333; border-radius: 8px; font-size: 0.9em; }
+  .connected { color: #4CAF50; }
+  .disconnected { color: #f44336; }
+</style>
+</head>
+<body>
+<h1>🎬 Reji Studio</h1>
+<div id="conn" class="disconnected">● Bağlantı yok</div>
+<br>
+<button id="btn-start">▶ YAYIN BAŞLAT</button>
+<button id="btn-stop">■ YAYIN DURDUR</button>
+<br><br>
+<button id="btn-cut">CUT</button>
+<button id="btn-fade">FADE</button>
+<div id="status">Bekleniyor...</div>
+<script>
+  const host = location.hostname;
+  const ws = new WebSocket(`ws://${host}:7070/ws`);
+  const conn = document.getElementById('conn');
+  const status = document.getElementById('status');
+
+  ws.onopen = () => {
+    conn.textContent = '● Bağlı';
+    conn.className = 'connected';
+  };
+  ws.onclose = () => {
+    conn.textContent = '● Bağlantı yok';
+    conn.className = 'disconnected';
+  };
+  ws.onmessage = (e) => {
+    status.textContent = e.data;
+  };
+
+  function send(cmd) { ws.send(JSON.stringify({cmd})); }
+
+  document.getElementById('btn-start').onclick = () => send('stream_start');
+  document.getElementById('btn-stop').onclick  = () => send('stream_stop');
+  document.getElementById('btn-cut').onclick   = () => send('scene_cut');
+  document.getElementById('btn-fade').onclick  = () => send('scene_fade');
+</script>
+</body>
+</html>
