@@ -27,6 +27,8 @@ pub enum SystemEvent {
     MemUsage    { ratio: f32 },
     /// Disk dolmak üzere
     DiskWarning { free_mb: u64 },
+    /// Ağ istatistikleri
+    NetworkStats { rtt_ms: u32, loss_pct: f32 },
 }
 
 /// Kullanıcı eylemleri

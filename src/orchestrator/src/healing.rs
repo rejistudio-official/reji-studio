@@ -13,7 +13,11 @@ use tokio::sync::broadcast::{error::RecvError, Receiver, Sender};
 use tokio::time::{interval, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
 
+use std::sync::Arc;
+
 use crate::event_bus::{HealingEvent, MediaEvent, SystemEvent};
+use crate::metrics::MetricState;
+use crate::rules::RuleMetrics;
 
 /// Self-healing katmanları.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +158,7 @@ impl CooldownTracker {
 struct TrendState {
     cpu_high_since: Option<Instant>,
     recent_frame_drops: u32,
+    last_cpu: f32,
 }
 
 impl TrendState {
@@ -161,6 +166,7 @@ impl TrendState {
         Self {
             cpu_high_since: None,
             recent_frame_drops: 0,
+            last_cpu: 0.0,
         }
     }
 }
@@ -175,6 +181,8 @@ pub struct HealingMonitor {
     cooldown: CooldownTracker,
     mode: AtomicCell<HealingMode>,
     trend: TrendState,
+    metric_state: Arc<MetricState>,
+    current_metrics: RuleMetrics,
 }
 
 impl HealingMonitor {
@@ -184,6 +192,7 @@ impl HealingMonitor {
         healing_tx: Sender<HealingEvent>,
         mode: HealingMode,
         thresholds: HealingThresholds,
+        metric_state: Arc<MetricState>,
     ) -> Self {
         Self {
             system_rx,
@@ -193,6 +202,8 @@ impl HealingMonitor {
             cooldown: CooldownTracker::new(),
             mode: AtomicCell::new(mode),
             trend: TrendState::new(),
+            metric_state,
+            current_metrics: RuleMetrics::default(),
         }
     }
 
@@ -242,6 +253,8 @@ impl HealingMonitor {
         match event {
             SystemEvent::CpuUsage { ratio } => {
                 debug!(cpu = ratio, "SystemEvent::CpuUsage");
+                self.trend.last_cpu = ratio;
+                self.current_metrics.cpu_load_pct = (ratio * 100.0) as u32;
                 if ratio >= thresholds.cpu_critical {
                     if self.cooldown.can_fire(HealingLayer::Reactive) {
                         self.emit(HealingEvent::LightenCodec, HealingLayer::Reactive);
@@ -257,6 +270,7 @@ impl HealingMonitor {
             }
             SystemEvent::GpuUsage { ratio } => {
                 debug!(gpu = ratio, "SystemEvent::GpuUsage");
+                self.current_metrics.gpu_load_pct = (ratio * 100.0) as u32;
                 if ratio >= 0.98 && self.cooldown.can_fire(HealingLayer::Predictive) {
                     self.emit(HealingEvent::ReduceBitrate { target_kbps: 4000 }, HealingLayer::Predictive);
                     self.cooldown.record(HealingLayer::Predictive);
@@ -264,6 +278,7 @@ impl HealingMonitor {
             }
             SystemEvent::MemUsage { ratio } => {
                 debug!(mem = ratio, "SystemEvent::MemUsage");
+                self.current_metrics.memory_usage_pct = (ratio * 100.0) as u32;
                 if ratio >= 0.96 && self.cooldown.can_fire(HealingLayer::Predictive) {
                     self.emit(HealingEvent::ReducePreviewFps { target_fps: 24 }, HealingLayer::Predictive);
                     self.cooldown.record(HealingLayer::Predictive);
@@ -275,6 +290,11 @@ impl HealingMonitor {
                     self.emit(HealingEvent::ActivateFallback { reason: "Disk pressure".into() }, HealingLayer::Adaptive);
                     self.cooldown.record(HealingLayer::Adaptive);
                 }
+            }
+            SystemEvent::NetworkStats { rtt_ms, loss_pct } => {
+                debug!(rtt_ms, loss_pct, "SystemEvent::NetworkStats");
+                self.current_metrics.network_rtt_ms = rtt_ms.min(u16::MAX as u32) as u16;
+                self.current_metrics.network_loss_pct = loss_pct.clamp(0.0, 100.0) as u8;
             }
         }
     }
@@ -356,8 +376,10 @@ impl HealingMonitor {
             return;
         }
 
+        let current_cpu = self.trend.last_cpu;
+        let current_bitrate = self.metric_state.bitrate();
         let thresholds = self.thresholds.load();
-        let adjusted = thresholds.adjust_for_session(0.92, 5000);
+        let adjusted = thresholds.adjust_for_session(current_cpu, current_bitrate);
         if adjusted.cpu_high < thresholds.cpu_high {
             let log_event = HealingEvent::RestoreNormal;
             if self.cooldown.can_fire(HealingLayer::Adaptive) {
@@ -379,6 +401,7 @@ impl HealingMonitor {
 mod tests {
     use super::*;
     use crate::event_bus::EventBus;
+    use crate::metrics::MetricState;
 
     #[test]
     fn test_healing_thresholds_default() {
@@ -403,7 +426,7 @@ mod tests {
         let media_rx = bus.media.subscribe();
         let mut healing_rx = bus.healing.subscribe();
 
-        let monitor = HealingMonitor::subscribe(system_rx, media_rx, bus.healing.clone(), HealingMode::AutoPilot, HealingThresholds::new());
+        let monitor = HealingMonitor::subscribe(system_rx, media_rx, bus.healing.clone(), HealingMode::AutoPilot, HealingThresholds::new(), MetricState::new());
         let handle = tokio::spawn(async move {
             tokio::select! {
                 _ = monitor.run() => {}

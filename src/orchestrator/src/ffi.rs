@@ -146,6 +146,12 @@ fn rj_start_monitor_impl() {
                                 count: sample.frame_drops,
                             });
                         }
+                        if sample.network_rtt_ms > 0 || sample.network_loss_pct > 0 {
+                            let _ = bus_system.send(SystemEvent::NetworkStats {
+                                rtt_ms: sample.network_rtt_ms as u32,
+                                loss_pct: sample.network_loss_pct as f32,
+                            });
+                        }
                     }
                 }
             });
@@ -162,6 +168,7 @@ fn rj_start_monitor_impl() {
                 healing_tx,
                 HealingMode::AutoPilot,
                 HealingThresholds::new(),
+                metric_state.clone(),
             );
             runtime.spawn(monitor.run());
         }

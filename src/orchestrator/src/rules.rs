@@ -83,6 +83,8 @@ pub struct RuleEngine {
     file_path: PathBuf,
     last_reload: Arc<Mutex<Instant>>,
     last_file_mtime: Arc<Mutex<Option<std::time::SystemTime>>>,
+    hysteresis_ms: Arc<Mutex<u64>>,
+    last_trigger: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl RuleEngine {
@@ -94,6 +96,8 @@ impl RuleEngine {
             file_path: path,
             last_reload: Arc::new(Mutex::new(Instant::now())),
             last_file_mtime: Arc::new(Mutex::new(None)),
+            hysteresis_ms: Arc::new(Mutex::new(0)),
+            last_trigger: Arc::new(Mutex::new(HashMap::new())),
         };
 
         engine.hot_reload()?;
@@ -132,12 +136,12 @@ impl RuleEngine {
             .map_err(|e| format!("Cannot read rules file: {}", e))?;
 
         // Try JSON first, then TOML
-        let new_rules = match serde_json::from_str::<RuleFileJson>(&content) {
-            Ok(rf) => rf.rules,
+        let (new_rules, new_hysteresis) = match serde_json::from_str::<RuleFileJson>(&content) {
+            Ok(rf) => (rf.rules, rf.hysteresis_ms),
             Err(_) => {
                 let toml_data = toml::from_str::<RuleFileTOML>(&content)
                     .map_err(|e| format!("Cannot parse rules as JSON or TOML: {}", e))?;
-                toml_data.rules
+                (toml_data.rules, toml_data.metadata.hysteresis_ms.unwrap_or(0))
             }
         };
 
@@ -151,6 +155,7 @@ impl RuleEngine {
         // Rollback: keep old rules on error
         let mut rules = self.rules.lock().unwrap();
         *rules = new_rules;
+        *self.hysteresis_ms.lock().unwrap() = new_hysteresis;
 
         info!(
             file = ?self.file_path,
@@ -167,8 +172,11 @@ impl RuleEngine {
         mode: &str,
     ) -> Result<Vec<Action>, Box<dyn std::error::Error>> {
         let rules = self.rules.lock().unwrap();
+        let hysteresis_ms = *self.hysteresis_ms.lock().unwrap();
+        let mut last_trigger = self.last_trigger.lock().unwrap();
         let mut actions = Vec::new();
         let mut action_id = 1u32;
+        let now = Instant::now();
 
         for rule in rules.iter() {
             // Mode check
@@ -176,9 +184,20 @@ impl RuleEngine {
                 continue;
             }
 
+            // Hysteresis: aynı kural hysteresis_ms geçmeden tekrar tetiklenemez
+            if hysteresis_ms > 0 {
+                if let Some(&last) = last_trigger.get(&rule.id) {
+                    if now.duration_since(last).as_millis() < hysteresis_ms as u128 {
+                        debug!(rule_id = %rule.id, "hysteresis suppressed rule");
+                        continue;
+                    }
+                }
+            }
+
             // Condition evaluation
             if self.eval_condition(&rule.condition, metrics)? {
                 let action = self.create_action(&rule, action_id, metrics)?;
+                last_trigger.insert(rule.id.clone(), now);
                 actions.push(action);
                 action_id = action_id.wrapping_add(1);
             }
@@ -290,6 +309,7 @@ impl RuleEngine {
 
         let is_critical = rule.action == "bitrate_reduce" || rule.action == "scale_resolution";
         let require_approval = !is_critical;
+        let log_only = matches!(action_type, ActionType::LogOnly);
 
         Ok(Action {
             id: action_id,
@@ -298,7 +318,7 @@ impl RuleEngine {
             param2,
             timestamp: Instant::now(),
             require_approval,
-            log_only: false,
+            log_only,
             is_critical,
         })
     }
@@ -339,6 +359,8 @@ mod tests {
             file_path: PathBuf::from("/tmp/rules.json"),
             last_reload: Arc::new(Mutex::new(Instant::now())),
             last_file_mtime: Arc::new(Mutex::new(None)),
+            hysteresis_ms: Arc::new(Mutex::new(0)),
+            last_trigger: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let metrics = RuleMetrics {
@@ -357,6 +379,8 @@ mod tests {
             file_path: PathBuf::from("/tmp/rules.json"),
             last_reload: Arc::new(Mutex::new(Instant::now())),
             last_file_mtime: Arc::new(Mutex::new(None)),
+            hysteresis_ms: Arc::new(Mutex::new(0)),
+            last_trigger: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let metrics = RuleMetrics {
@@ -375,6 +399,8 @@ mod tests {
             file_path: PathBuf::from("/tmp/rules.json"),
             last_reload: Arc::new(Mutex::new(Instant::now())),
             last_file_mtime: Arc::new(Mutex::new(None)),
+            hysteresis_ms: Arc::new(Mutex::new(0)),
+            last_trigger: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let mut params = HashMap::new();
