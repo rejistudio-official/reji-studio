@@ -66,6 +66,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // v0.2: Pipeline init + preview callback
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
+    strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host), "127.0.0.1", _TRUNCATE);
+    pcfg.srt_port = 9000;
     if (!pipeline_.init(pcfg)) {
         qDebug() << "Pipeline init failed";
         lbl_status_->setText(tr("Pipeline init başarısız — NVENC SDK eksik olabilir"));

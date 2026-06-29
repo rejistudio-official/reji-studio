@@ -181,16 +181,32 @@ if(WIN32)
             set(VCPKG_ROOT "C:/vcpkg")
         endif()
 
+        # Eski NOTFOUND cache değerlerini temizle ki yeniden arama yapılsın.
+        unset(SRT_LIBRARY CACHE)
+        unset(SRT_INCLUDE_DIR CACHE)
+
+        # Tüm olası vcpkg konumlarını topla (VS bundled + standalone + argüman).
+        set(_srt_lib_hints
+            "${VCPKG_ROOT}/installed/x64-windows/lib"
+            "${VCPKG_ROOT}/installed/x64-windows-static/lib"
+            "C:/vcpkg/installed/x64-windows/lib"
+            "C:/vcpkg/installed/x64-windows-static/lib"
+        )
+        set(_srt_inc_hints
+            "${VCPKG_ROOT}/installed/x64-windows/include"
+            "${VCPKG_ROOT}/installed/x64-windows-static/include"
+            "C:/vcpkg/installed/x64-windows/include"
+            "C:/vcpkg/installed/x64-windows-static/include"
+        )
+
         find_library(SRT_LIBRARY
             NAMES srt srt_static
-            PATHS
-                "${VCPKG_ROOT}/installed/x64-windows/lib"
-                "${VCPKG_ROOT}/installed/x64-windows-static/lib"
+            PATHS ${_srt_lib_hints}
+            NO_DEFAULT_PATH
         )
         find_path(SRT_INCLUDE_DIR srt/srt.h
-            PATHS
-                "${VCPKG_ROOT}/installed/x64-windows/include"
-                "${VCPKG_ROOT}/installed/x64-windows-static/include"
+            PATHS ${_srt_inc_hints}
+            NO_DEFAULT_PATH
         )
 
         if(SRT_LIBRARY AND SRT_INCLUDE_DIR)
@@ -204,17 +220,13 @@ if(WIN32)
         endif()
     endif()
 
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/output/srt_output_stub.cpp)
-        target_sources(reji_pipeline PRIVATE output/srt_output_stub.cpp)
-        message(STATUS "SRT output: stub module")
-    else()
-        target_sources(reji_pipeline PRIVATE output/srt_output.cpp)
-        message(STATUS "SRT output: real module")
-    endif()
-
     if(SRT_FOUND OR TARGET SRT::srt)
-        message(STATUS "SRT library found — real SRT output may be linked")
+        target_sources(reji_pipeline PRIVATE output/srt_output.cpp)
         target_compile_definitions(reji_pipeline PRIVATE RJ_SRT_AVAILABLE)
         target_link_libraries(reji_pipeline PUBLIC SRT::srt ws2_32.lib)
+        message(STATUS "SRT output: real module (SRT SDK bulundu)")
+    else()
+        target_sources(reji_pipeline PRIVATE output/srt_output_stub.cpp)
+        message(STATUS "SRT output: stub module (SRT SDK bulunamadi)")
     endif()
 endif()

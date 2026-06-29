@@ -21,6 +21,9 @@
 #include "include/frame_profiler.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
+#ifndef REJI_VULKAN_MOCK
+#include <vulkan/vulkan.h>
+#endif
 
 #ifdef _WIN32
 #include "capture/capture_dxgi.h"

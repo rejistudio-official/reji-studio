@@ -62,6 +62,7 @@ static int run_headless(int frames) {
 #endif
 
 int main(int argc, char* argv[]) {
+    freopen("C:\\reji-studio\\run.log", "w", stderr);
     // --headless / --frames argümanlarını Qt başlamadan önce ayrıştır
     bool headless = false;
     int  frames   = 10;
