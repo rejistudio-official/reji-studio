@@ -72,6 +72,10 @@ public:
     QImage pending_frame;
     bool   frame_dirty{false};
 
+    QImage frame_buf_;       // pre-allocated, reuse across frames
+    int    frame_buf_w_{0};
+    int    frame_buf_h_{0};
+
     Transition active_transition{Transition::Cut};
     float      fade_alpha{1.f};   // 0.0 → full A, 1.0 → full B (transition done)
     float      fade_step{0.f};    // alpha increment per 16 ms tick
@@ -101,12 +105,17 @@ void ProgramWidget::uploadFrame(const void* bgra_pixels, int width, int height, 
     // v0.1 CPU staging-buffer path.
     // v0.2: replace with WGL_NV_DX_INTEROP (wglDXRegisterObjectNV) for zero-copy.
     QMutexLocker lock(&d_->frame_mutex);
-    d_->pending_frame = QImage(
-        static_cast<const uchar*>(bgra_pixels),
-        width, height, row_pitch,
-        QImage::Format_ARGB32
-    ).copy();
-    d_->frame_dirty = true;
+    if (width != d_->frame_buf_w_ || height != d_->frame_buf_h_) {
+        d_->frame_buf_   = QImage(width, height, QImage::Format_ARGB32);
+        d_->frame_buf_w_ = width;
+        d_->frame_buf_h_ = height;
+    }
+    const uchar* src = static_cast<const uchar*>(bgra_pixels);
+    for (int y = 0; y < height; ++y)
+        memcpy(d_->frame_buf_.scanLine(y), src + static_cast<ptrdiff_t>(y) * row_pitch,
+               static_cast<size_t>(width) * 4);
+    d_->pending_frame = d_->frame_buf_;
+    d_->frame_dirty   = true;
     QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
 }
 

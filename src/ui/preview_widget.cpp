@@ -73,6 +73,9 @@ public:
     int        cpu_pitch       = 0;
     bool       cpu_frame_dirty = false;
 
+    QByteArray cpu_bgra_buf_;      // pre-allocated, reuse across frames
+    int        cpu_buf_capacity_ = 0;
+
     // Timeline semaphore tracking (per submit, non-blocking poll).
     VkSemaphore timeline_semaphore = VK_NULL_HANDLE;
     uint64_t   expected_value      = 0;
@@ -177,8 +180,15 @@ void PreviewWidget::setBridge(rj::pipeline::gpu::ExternalMemoryBridge* b) noexce
 }
 
 void PreviewWidget::uploadCpuFrame(const void* bgra, int w, int h, int pitch) {
+    const int needed = pitch * h;
     QMutexLocker lk(&d_->frame_mutex);
-    d_->cpu_bgra        = QByteArray(static_cast<const char*>(bgra), pitch * h);
+
+    if (needed > d_->cpu_buf_capacity_) {
+        d_->cpu_bgra_buf_.resize(needed);
+        d_->cpu_buf_capacity_ = needed;
+    }
+    memcpy(d_->cpu_bgra_buf_.data(), bgra, needed);
+    d_->cpu_bgra        = d_->cpu_bgra_buf_;  // shallow copy (QByteArray COW)
     d_->cpu_w           = w;
     d_->cpu_h           = h;
     d_->cpu_pitch       = pitch;
