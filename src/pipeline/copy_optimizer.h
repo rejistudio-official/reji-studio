@@ -79,7 +79,7 @@ private:
     VkSemaphore timeline_semaphore_ = VK_NULL_HANDLE;
     uint64_t timeline_counter_ = 0;
 
-    uint32_t    frame_counter_ = 0;
+    std::atomic<uint32_t> frame_counter_{0};
 
     // D2: Per-slot layout tracking — staging always UNDEFINED (D3D11 externally written each frame)
     static constexpr uint32_t POOL_SIZE = 3;

@@ -124,7 +124,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      VkDeviceMemory d3d11_staging_memory) {
 #ifdef RJ_DEBUG_VERBOSE
     fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu\n",
-            (void*)device_, (void*)command_buffers_[frame_counter_ % POOL_SIZE], (void*)queue_,
+            (void*)device_, (void*)command_buffers_[frame_counter_.load(std::memory_order_relaxed) % POOL_SIZE], (void*)queue_,
             (void*)timeline_semaphore_, (unsigned long long)timeline_counter_);
 #endif
 
@@ -150,7 +150,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 
         // D2/D3: Compute round-robin slot once — shared by layout tracking, GL semaphore, keyed mutex.
         // frame_counter_ incremented after use (at submit time).
-        const uint32_t slot = frame_counter_ % POOL_SIZE;
+        const uint32_t slot = frame_counter_.load(std::memory_order_relaxed) % POOL_SIZE;
 
         // Wait for previous submit to complete before reusing the command buffer.
         // signal_value_for_submit_ holds the timeline value from the last submit.
@@ -357,7 +357,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             slot_gl_signaled_[slot].store(true, std::memory_order_release);
         }
         last_used_slot_.store(slot, std::memory_order_release);
-        ++frame_counter_;
+        frame_counter_.fetch_add(1, std::memory_order_relaxed);
 
         // Return outputs
         *out_timeline_semaphore = timeline_semaphore_;
@@ -431,7 +431,7 @@ void GpuCopyOptimizer::shutdown() {
             vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
             timeline_semaphore_ = VK_NULL_HANDLE;
         }
-        frame_counter_ = 0;
+        frame_counter_.store(0, std::memory_order_relaxed);
         if (command_buffers_[0] != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
             vkFreeCommandBuffers(device_, command_pool_, 3, command_buffers_);
             for (auto& cb : command_buffers_) cb = VK_NULL_HANDLE;
