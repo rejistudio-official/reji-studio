@@ -321,7 +321,31 @@ struct Pipeline::Impl {
     // MUST NOT be called from within a __try block (uses C++ objects).
     // Only applicable to the DXGI capture path; WGC path returns false immediately.
     bool handle_device_lost() {
-        if (!capture_dxgi_) return false;
+        if (!capture_dxgi_) {
+            // WGC path — capture device lost kontrolü
+            ID3D11Device* dev = capture ? capture->d3d_device() : nullptr;
+            if (!dev) return false;
+            HRESULT reason = dev->GetDeviceRemovedReason();
+            if (reason == S_OK) return false;
+
+            dbglog("[Pipeline] WGC device lost: 0x%08lX — reinit",
+                   static_cast<unsigned long>(reason));
+            seh_connection_lost("wgc-device-lost");
+
+            capture.reset();
+            capture = rj::IScreenCapture::create();
+            rj::IScreenCapture::Config cap_cfg;
+            cap_cfg.timeout_ms          = kCaptureTimeout;
+            cap_cfg.allow_cross_adapter = true;
+            if (!capture || !capture->init(cap_cfg)) {
+                dbglog("[Pipeline] WGC reinit failed");
+                capture.reset();
+                return false;
+            }
+            dbglog("[Pipeline] WGC reinit OK");
+            return true;
+        }
+
         ID3D11Device* dev = capture_dxgi_->encode_gpu()
                             ? capture_dxgi_->encode_gpu()->d3d_device()
                             : nullptr;
@@ -698,7 +722,10 @@ bool Pipeline::run_frame() {
             tex = static_cast<ID3D11Texture2D*>(frame.handle);
         }
 
+        static std::atomic<int> null_streak{0};
+
         if (tex) {
+            null_streak.store(0, std::memory_order_relaxed);
             const int64_t pts_us =
                 ticks_to_us(frame_start - s.pts_origin, s.qpc_freq);
             if (s.encoder && !s.encoder->encode_frame(tex, pts_us)) {
@@ -788,7 +815,14 @@ bool Pipeline::run_frame() {
             }
 
         } else {
+            int streak = ++null_streak;
             s.frame_drops.fetch_add(1, std::memory_order_relaxed);
+
+            if (streak >= 60) {
+                dbglog("[Pipeline] Capture loss detected (%d frames) — reinit", streak);
+                null_streak.store(0, std::memory_order_relaxed);
+                (void)s.handle_device_lost();
+            }
         }
     }
 
