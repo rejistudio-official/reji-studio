@@ -75,6 +75,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     }
 
     // v0.2: Pipeline init + preview callback
+    pipeline_ = std::make_shared<rj::Pipeline>();
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
     // SRT ayarları — SettingsDialog'dan al, yoksa varsayılan
     if (settings_dialog_) {
@@ -85,17 +86,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host), "127.0.0.1", _TRUNCATE);
         pcfg.srt_port = 9000;
     }
-    if (!pipeline_.init(pcfg)) {
+    if (!pipeline_->init(pcfg)) {
         qDebug() << "Pipeline init failed";
         lbl_status_->setText(tr("Pipeline init başarısız — NVENC SDK eksik olabilir"));
     } else {
-        preview_widget_->setPipeline(&pipeline_);
-        preview_widget_->selectRenderPath(pipeline_.display_vendor_id());
+        preview_widget_->setPipeline(pipeline_.get());
+        preview_widget_->selectRenderPath(pipeline_->display_vendor_id());
         // v0.5.1: Vulkan device handle late-binding
         {
             auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
             if (vk && vk->device()) {
-                pipeline_.notify_vulkan_ready(vk->device(), vk->physical_device());
+                pipeline_->notify_vulkan_ready(vk->device(), vk->physical_device());
                 fprintf(stderr, "[MainWindow] notify_vulkan_ready\n");
                 fflush(stderr);
 
@@ -107,7 +108,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                         copy_optimizer_initialized_ = true;
                         preview_widget_->setCopyOptimizer(&copy_optimizer_);
                         // v0.5.2: Wire GL interop bridge for NT handle import
-                        auto* bridge = pipeline_.get_external_memory_bridge();
+                        auto* bridge = pipeline_->get_external_memory_bridge();
                         preview_widget_->setBridge(bridge);
                         fprintf(stderr, "[MainWindow] GpuCopyOptimizer initialized, bridge=%p\n", (void*)bridge);
                         fflush(stderr);
@@ -118,18 +119,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             }
         }
         // Wire profiler to preview widget
-        if (pipeline_.profiler()) {
-            preview_widget_->setProfiler(pipeline_.profiler());
+        if (pipeline_->profiler()) {
+            preview_widget_->setProfiler(pipeline_->profiler());
         }
 
         // v0.5.1: Zero-copy D3D11 frame callback → PreviewWidget::submitD3D11Frame
         // Pipeline calls this for each captured frame (D3D11→VkImage)
-        pipeline_.set_d3d11_frame_callback(
+        pipeline_->set_d3d11_frame_callback(
             [this](void* staging_texture, uint32_t width, uint32_t height) {
                 // v0.5.1: Get cached frame images from ExternalMemoryBridge
                 VkImage staging_vk = VK_NULL_HANDLE;
                 VkImage target_vk = VK_NULL_HANDLE;
-                bool got = pipeline_.get_last_frame_images(&staging_vk, &target_vk);
+                bool got = pipeline_->get_last_frame_images(&staging_vk, &target_vk);
                 if (got) {
                     preview_widget_->submitD3D11Frame(staging_vk, target_vk, width, height);
                 }
@@ -138,7 +139,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         );
 
         // CPU staging path: WGC → PreviewWidget (left panel) + ProgramWidget (right panel)
-        pipeline_.set_preview_callback(
+        pipeline_->set_preview_callback(
             [this](const void* bgra, int width, int height, int pitch) {
                 preview_widget_->uploadCpuFrame(bgra, width, height, pitch);
                 program_widget_->uploadFrame(bgra, width, height, pitch);
@@ -146,7 +147,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         );
 
         // WebSocket scene commands → GUI thread via QueuedConnection
-        pipeline_.set_scene_command_callback([this](int cmd) {
+        pipeline_->set_scene_command_callback([this](int cmd) {
             QMetaObject::invokeMethod(this, [this, cmd]() {
                 if (cmd == 3) onCutTransition();
                 if (cmd == 4) onFadeTransition();
@@ -160,7 +161,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     worker->moveToThread(frame_thread_);
     connect(frame_thread_, &QThread::started, worker, [this, worker] {
         while (!frame_thread_->isInterruptionRequested()) {
-            pipeline_.run_frame();
+            pipeline_->run_frame();
             // D10b: AcquireNextFrame timeout_ms=17>0 — DXGI zaten pacing yapar, msleep gereksiz
         }
         delete worker;
@@ -189,7 +190,7 @@ void MainWindow::stopFrameThread() {
 
 bool MainWindow::initPipeline(const rj::Pipeline::Config& cfg) {
     pipeline_cfg_ = cfg;
-    return pipeline_.init(cfg);
+    return pipeline_->init(cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +408,7 @@ void MainWindow::loadWindowState() {
 // ---------------------------------------------------------------------------
 void MainWindow::startStream() {
     if (stream_active_) return;
-    if (!pipeline_.start_stream()) {
+    if (!pipeline_->start_stream()) {
         lbl_status_->setText(tr("Yayın başlatılamadı — pipeline hazır değil"));
         return;
     }
@@ -423,7 +424,7 @@ void MainWindow::startStream() {
 
 void MainWindow::stopStream() {
     if (!stream_active_) return;
-    (void)pipeline_.stop_stream();
+    (void)pipeline_->stop_stream();
     stream_active_ = false;
     btn_start_->setEnabled(true);
     btn_stop_ ->setEnabled(false);
@@ -549,7 +550,8 @@ void MainWindow::closeEvent(QCloseEvent* ev) {
 
 bool MainWindow::initPipeline(const rj::Pipeline::Config& cfg) {
     pipeline_cfg_ = cfg;
-    return pipeline_.init(cfg);
+    if (!pipeline_) pipeline_ = std::make_shared<rj::Pipeline>();
+    return pipeline_->init(cfg);
 }
 
 #endif // QT6_AVAILABLE

@@ -125,8 +125,8 @@ private:
     QTimer*               metrics_timer_{nullptr};
 
     // ── Pipeline ───────────────────────────────────────────────────────────
-    rj::Pipeline         pipeline_;
-    rj::Pipeline::Config pipeline_cfg_{};
+    std::shared_ptr<rj::Pipeline> pipeline_;
+    rj::Pipeline::Config          pipeline_cfg_{};
     bool                 stream_active_{false};
     GpuCopyOptimizer     copy_optimizer_;              // v0.5.1: GPU-only blit + timeline sem
     bool                 copy_optimizer_initialized_{false};
@@ -157,8 +157,8 @@ public:
     void onHealingNotification(const char*) noexcept {}
 
 private:
-    rj::Pipeline         pipeline_;
-    rj::Pipeline::Config pipeline_cfg_{};
+    std::shared_ptr<rj::Pipeline> pipeline_;
+    rj::Pipeline::Config          pipeline_cfg_{};
 };
 
 #endif // QT6_AVAILABLE
