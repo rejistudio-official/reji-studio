@@ -101,9 +101,15 @@ fn now_us() -> u64 {
 
 /// C++ Pipeline::init() tarafından çağrılır — registry handle'ı Rust'a bildirir.
 /// rj_ws_command her çağrısında bu handle'ı C++'a geri geçirir.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_register_pipeline_handle(handle: u64) {
-    PIPELINE_HANDLE.store(handle, Ordering::Release);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        PIPELINE_HANDLE.store(handle, Ordering::Release);
+    }));
+    if let Err(e) = result {
+        eprintln!("[FFI] panic caught in rj_register_pipeline_handle: {:?}", e);
+    }
 }
 
 /// Tokio runtime, ring buffer drainer ve HealingMonitor'u başlatır.
@@ -454,17 +460,25 @@ pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
 }
 
 /// v0.4+: Set healing mode (0=AutoPilot, 1=CoPilot, 2=Manual)
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
-    if mode > 3 { return false; }
-    HEALING_MODE.store(mode, Ordering::SeqCst);
-    true
+    catch_unwind(AssertUnwindSafe(|| {
+        if mode > 3 { return false; }
+        HEALING_MODE.store(mode, Ordering::SeqCst);
+        true
+    }))
+    .unwrap_or(false)
 }
 
 /// v0.4+: Get current healing mode (0=AutoPilot, 1=CoPilot, 2=Manual)
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_get_healing_mode() -> u32 {
-    HEALING_MODE.load(Ordering::SeqCst)
+    catch_unwind(AssertUnwindSafe(|| {
+        HEALING_MODE.load(Ordering::SeqCst)
+    }))
+    .unwrap_or(0)
 }
 
 /// Reload rules from file (async hot-reload)
