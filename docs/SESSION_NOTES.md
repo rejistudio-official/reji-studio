@@ -81,3 +81,15 @@ ABI güvenli (offsetof assert + otomatik cbindgen), performans güvenli (throttl
 - C++: pipeline_integration_test.cpp — 5 test (init/shutdown cycle, double shutdown safety, pre-init guards)
 - FFI: RjActionType enum değer eşleşmesi için 7 static_assert
 - Önceden var olan FrameProfilerTest/ShaderCacheTest başarısızlıkları dokunulmadı (kapsam dışı, ayrı incelenmeli)
+
+### Madde 2 Tam Vizyon — FFI'dan Sadece Veri Geçişi
+- rj_ws_command(handle, cmd) reverse FFI tamamen kaldırıldı
+- ws_command_queue: ArrayQueue<(i32,i32)> — lock-free SPSC kuyruk, Rust yazar, C++ run_frame()'de drain eder
+- PipelineRegistry sınıfı tamamen silindi — artık hiçbir taraf diğerinin pointer/handle'ına erişmiyor
+- enable_shared_from_this<Pipeline> kaldırıldı (gereksiz hale geldi)
+- Sonuç: FFI sınırı artık tamamen "sadece veri" prensibine uygun — pointer, handle, nesne referansı yok
+
+### Ek Düzeltme — WS Port Fallback
+- AnyDesk gibi araçlar 7070'i tutabiliyor — otomatik fallback eklendi (7070→7071→7072→7073)
+- rj_get_ws_port() ile gerçek port C++'a bildiriliyor, loglanıyor
+- control.html zaten location.port kullandığı için otomatik doğru porta bağlanıyor
