@@ -62,6 +62,37 @@ static_assert(sizeof(RjMetricSample) == 64, "RjMetricSample ABI drift — expect
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI drift");
 static_assert(sizeof(RjAction)       == 20, "RjAction ABI drift — expected 20 bytes (v0.4)");
 
+// RjCommand field offsets
+static_assert(offsetof(RjCommand, cmd_type)     ==  0, "RjCommand::cmd_type offset");
+static_assert(offsetof(RjCommand, timestamp_us) ==  8, "RjCommand::timestamp_us offset");
+static_assert(offsetof(RjCommand, param_u32)    == 16, "RjCommand::param_u32 offset");
+static_assert(offsetof(RjCommand, param_f32)    == 20, "RjCommand::param_f32 offset");
+
+// RjAction field offsets
+static_assert(offsetof(RjAction, id)          ==  0, "RjAction::id offset");
+static_assert(offsetof(RjAction, action_type) ==  4, "RjAction::action_type offset");
+static_assert(offsetof(RjAction, param1)      ==  8, "RjAction::param1 offset");
+static_assert(offsetof(RjAction, param2)      == 12, "RjAction::param2 offset");
+static_assert(offsetof(RjAction, canary)      == 16, "RjAction::canary offset");
+
+// RjMetricSample field offsets
+static_assert(offsetof(RjMetricSample, magic_head)       ==  0, "RjMetricSample::magic_head offset");
+static_assert(offsetof(RjMetricSample, timestamp_us)     ==  8, "RjMetricSample::timestamp_us offset");
+static_assert(offsetof(RjMetricSample, bitrate_kbps)     == 16, "RjMetricSample::bitrate_kbps offset");
+static_assert(offsetof(RjMetricSample, fps_actual)       == 20, "RjMetricSample::fps_actual offset");
+static_assert(offsetof(RjMetricSample, cpu_percent)      == 24, "RjMetricSample::cpu_percent offset");
+static_assert(offsetof(RjMetricSample, frame_drops)      == 28, "RjMetricSample::frame_drops offset");
+static_assert(offsetof(RjMetricSample, frame_drop_pct)   == 32, "RjMetricSample::frame_drop_pct offset");
+static_assert(offsetof(RjMetricSample, gpu_temp_c)       == 36, "RjMetricSample::gpu_temp_c offset");
+static_assert(offsetof(RjMetricSample, cpu_temp_c)       == 38, "RjMetricSample::cpu_temp_c offset");
+static_assert(offsetof(RjMetricSample, memory_usage_pct) == 40, "RjMetricSample::memory_usage_pct offset");
+static_assert(offsetof(RjMetricSample, cpu_load_pct)     == 44, "RjMetricSample::cpu_load_pct offset");
+static_assert(offsetof(RjMetricSample, gpu_load_pct)     == 48, "RjMetricSample::gpu_load_pct offset");
+static_assert(offsetof(RjMetricSample, network_rtt_ms)   == 52, "RjMetricSample::network_rtt_ms offset");
+static_assert(offsetof(RjMetricSample, network_loss_pct) == 54, "RjMetricSample::network_loss_pct offset");
+static_assert(offsetof(RjMetricSample, source_id)        == 55, "RjMetricSample::source_id offset");
+static_assert(offsetof(RjMetricSample, magic_tail)       == 56, "RjMetricSample::magic_tail offset");
+
 namespace {
 
 class PipelineRegistry {
