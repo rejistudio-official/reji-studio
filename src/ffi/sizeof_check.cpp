@@ -37,12 +37,30 @@ static_assert(offsetof(RjMetricSample, network_loss_pct) == 54, "RjMetricSample:
 static_assert(offsetof(RjMetricSample, source_id)        == 55, "RjMetricSample::source_id offset");
 static_assert(offsetof(RjMetricSample, magic_tail)       == 56, "RjMetricSample::magic_tail offset");
 
+// RjActionType enum değerleri — Rust ffi.rs:RjActionType #[repr(u32)] ile eşleşmeli.
+// cbindgen C++ modunda enum değerleri kaynak sırasıyla 0'dan başlar.
+static_assert(static_cast<uint32_t>(BitrateReduce)     == 0u, "RjActionType::BitrateReduce = 0");
+static_assert(static_cast<uint32_t>(BitrateRecover)    == 1u, "RjActionType::BitrateRecover = 1");
+static_assert(static_cast<uint32_t>(ScaleResolution)   == 2u, "RjActionType::ScaleResolution = 2");
+static_assert(static_cast<uint32_t>(RestoreResolution) == 3u, "RjActionType::RestoreResolution = 3");
+static_assert(static_cast<uint32_t>(CapFps)            == 4u, "RjActionType::CapFps = 4");
+static_assert(static_cast<uint32_t>(RestoreFps)        == 5u, "RjActionType::RestoreFps = 5");
+static_assert(static_cast<uint32_t>(LogOnly)           == 6u, "RjActionType::LogOnly = 6");
+
 int main() {
     printf("=== RjMetricSample ABI Check ===\n");
     printf("sizeof(RjMetricSample) = %zu bytes\n", sizeof(RjMetricSample));
     printf("sizeof(RjAction) = %zu bytes\n", sizeof(RjAction));
     printf("sizeof(RjCommand) = %zu bytes\n", sizeof(RjCommand));
     printf("sizeof(RjHealingMode) = %zu bytes\n", sizeof(RjHealingMode));
+    printf("\n=== RjActionType enum değerleri ===\n");
+    printf("BitrateReduce     = %u\n", static_cast<uint32_t>(BitrateReduce));
+    printf("BitrateRecover    = %u\n", static_cast<uint32_t>(BitrateRecover));
+    printf("ScaleResolution   = %u\n", static_cast<uint32_t>(ScaleResolution));
+    printf("RestoreResolution = %u\n", static_cast<uint32_t>(RestoreResolution));
+    printf("CapFps            = %u\n", static_cast<uint32_t>(CapFps));
+    printf("RestoreFps        = %u\n", static_cast<uint32_t>(RestoreFps));
+    printf("LogOnly           = %u\n", static_cast<uint32_t>(LogOnly));
     printf("\n=== Offsets ===\n");
 
     RjMetricSample sample = {};

@@ -66,6 +66,21 @@ pub struct Action {
     pub is_critical: bool,
 }
 
+impl Default for Action {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            action_type: ActionType::LogOnly,
+            param1: 0,
+            param2: 0,
+            timestamp: Instant::now(),
+            require_approval: false,
+            log_only: false,
+            is_critical: false,
+        }
+    }
+}
+
 /// Kural — condition + action + modes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
@@ -77,6 +92,74 @@ pub struct Rule {
     #[serde(default)]
     pub params: HashMap<String, serde_json::Value>,
     pub modes: Vec<String>,
+}
+
+/// Condition string'i özyinelemeli olarak değerlendirir.
+///
+/// Operatör önceliği (düşükten yükseğe): || → && → tek koşul.
+/// Bilinmeyen metrik veya parse hatasında `false` döner.
+pub fn eval_condition(condition: &str, metrics: &RuleMetrics) -> bool {
+    let condition = condition.trim();
+
+    if condition.contains("||") {
+        for part in condition.split("||") {
+            if eval_condition(part.trim(), metrics) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if condition.contains("&&") {
+        for part in condition.split("&&") {
+            if !eval_condition(part.trim(), metrics) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    eval_single_condition(condition, metrics).unwrap_or(false)
+}
+
+fn eval_single_condition(
+    cond: &str,
+    metrics: &RuleMetrics,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    for op in &[">=", "<=", ">", "<", "=="] {
+        if let Some(idx) = cond.find(op) {
+            let metric_name = cond[..idx].trim();
+            let threshold_str = cond[idx + op.len()..].trim();
+            let threshold = threshold_str
+                .parse::<i32>()
+                .map_err(|_| format!("Invalid threshold: {}", threshold_str))?;
+
+            let metric_value = match metric_name {
+                "frame_drop_pct"   => metrics.frame_drop_pct as i32,
+                "gpu_temp_c"       => metrics.gpu_temp_c as i32,
+                "cpu_temp_c"       => metrics.cpu_temp_c as i32,
+                "memory_usage_pct" => metrics.memory_usage_pct as i32,
+                "cpu_load_pct"     => metrics.cpu_load_pct as i32,
+                "gpu_load_pct"     => metrics.gpu_load_pct as i32,
+                "network_rtt_ms"   => metrics.network_rtt_ms as i32,
+                "network_loss_pct" => metrics.network_loss_pct as i32,
+                _ => return Err(format!("Unknown metric: {}", metric_name).into()),
+            };
+
+            let result = match *op {
+                ">"  => metric_value > threshold,
+                "<"  => metric_value < threshold,
+                ">=" => metric_value >= threshold,
+                "<=" => metric_value <= threshold,
+                "==" => metric_value == threshold,
+                _    => false,
+            };
+
+            return Ok(result);
+        }
+    }
+
+    Err(format!("Cannot parse condition: {}", cond).into())
 }
 
 /// Kural motoru — JSON/TOML kuralları yükler, hot-reload desteği.
@@ -198,7 +281,7 @@ impl RuleEngine {
             }
 
             // Condition evaluation
-            if self.eval_condition(&rule.condition, metrics)? {
+            if eval_condition(&rule.condition, metrics) {
                 let action = self.create_action(&rule, action_id, metrics)?;
                 last_trigger.insert(rule.id.clone(), now);
                 actions.push(action);
@@ -208,89 +291,6 @@ impl RuleEngine {
 
         let actions = resolve_conflicts(actions);
         Ok(actions)
-    }
-
-    /// Condition string'i özyinelemeli olarak değerlendir.
-    ///
-    /// Operatör önceliği (düşükten yükseğe): || → && → tek koşul
-    ///
-    /// Örnekler:
-    ///   "frame_drop_pct > 10"
-    ///   "gpu_temp_c > 85 && cpu_load_pct > 90"
-    ///   "frame_drop_pct > 10 || network_loss_pct > 5"
-    ///   "cpu_load_pct > 80 && gpu_load_pct > 80 || frame_drop_pct > 15"
-    fn eval_condition(
-        &self,
-        condition: &str,
-        metrics: &RuleMetrics,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        let condition = condition.trim();
-
-        // || en düşük öncelik — önce böl
-        if condition.contains("||") {
-            for part in condition.split("||") {
-                if self.eval_condition(part.trim(), metrics)? {
-                    return Ok(true);
-                }
-            }
-            return Ok(false);
-        }
-
-        // && ikinci öncelik
-        if condition.contains("&&") {
-            for part in condition.split("&&") {
-                if !self.eval_condition(part.trim(), metrics)? {
-                    return Ok(false);
-                }
-            }
-            return Ok(true);
-        }
-
-        // Tek koşul
-        self.eval_single_condition(condition, metrics)
-    }
-
-    fn eval_single_condition(
-        &self,
-        cond: &str,
-        metrics: &RuleMetrics,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        // Parse: metric_name operator value
-        // e.g., "frame_drop_pct > 10"
-
-        for op in &[">=", "<=", ">", "<", "=="] {
-            if let Some(idx) = cond.find(op) {
-                let metric_name = cond[..idx].trim();
-                let threshold_str = cond[idx + op.len()..].trim();
-                let threshold = threshold_str.parse::<i32>()
-                    .map_err(|_| format!("Invalid threshold: {}", threshold_str))?;
-
-                let metric_value = match metric_name {
-                    "frame_drop_pct" => metrics.frame_drop_pct as i32,
-                    "gpu_temp_c" => metrics.gpu_temp_c as i32,
-                    "cpu_temp_c" => metrics.cpu_temp_c as i32,
-                    "memory_usage_pct" => metrics.memory_usage_pct as i32,
-                    "cpu_load_pct" => metrics.cpu_load_pct as i32,
-                    "gpu_load_pct" => metrics.gpu_load_pct as i32,
-                    "network_rtt_ms" => metrics.network_rtt_ms as i32,
-                    "network_loss_pct" => metrics.network_loss_pct as i32,
-                    _ => return Err(format!("Unknown metric: {}", metric_name).into()),
-                };
-
-                let result = match *op {
-                    ">" => metric_value > threshold,
-                    "<" => metric_value < threshold,
-                    ">=" => metric_value >= threshold,
-                    "<=" => metric_value <= threshold,
-                    "==" => metric_value == threshold,
-                    _ => false,
-                };
-
-                return Ok(result);
-            }
-        }
-
-        Err(format!("Cannot parse condition: {}", cond).into())
     }
 
     fn create_action(
@@ -352,7 +352,7 @@ impl RuleEngine {
 /// BitrateReduce + BitrateRecover     → sadece BitrateReduce
 /// CapFps        + RestoreFps         → sadece CapFps
 /// ScaleResolution + RestoreResolution → sadece ScaleResolution
-fn resolve_conflicts(actions: Vec<Action>) -> Vec<Action> {
+pub fn resolve_conflicts(actions: Vec<Action>) -> Vec<Action> {
     let has_reduce  = actions.iter().any(|a| a.action_type == ActionType::BitrateReduce);
     let has_cap_fps = actions.iter().any(|a| a.action_type == ActionType::CapFps);
     let has_scale   = actions.iter().any(|a| a.action_type == ActionType::ScaleResolution);
@@ -403,6 +403,21 @@ struct TomlMetadata {
     default_mode: Option<String>,
 }
 
+impl RuleEngine {
+    /// Dosyasız test kurucusu — integration testlerinde kullanılır.
+    #[doc(hidden)]
+    pub fn new_test(rules: Vec<Rule>, hysteresis_ms: u64) -> Self {
+        Self {
+            rules: Arc::new(Mutex::new(rules)),
+            file_path: PathBuf::from("/nonexistent"),
+            last_reload: Arc::new(Mutex::new(Instant::now())),
+            last_file_mtime: Arc::new(Mutex::new(None)),
+            hysteresis_ms: Arc::new(Mutex::new(hysteresis_ms)),
+            last_trigger: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,42 +450,16 @@ mod tests {
 
     #[test]
     fn test_condition_parse_simple() {
-        let engine = RuleEngine {
-            rules: Arc::new(Mutex::new(vec![])),
-            file_path: PathBuf::from("/tmp/rules.json"),
-            last_reload: Arc::new(Mutex::new(Instant::now())),
-            last_file_mtime: Arc::new(Mutex::new(None)),
-            hysteresis_ms: Arc::new(Mutex::new(0)),
-            last_trigger: Arc::new(Mutex::new(HashMap::new())),
-        };
-
-        let metrics = RuleMetrics {
-            frame_drop_pct: 12,
-            ..Default::default()
-        };
-
-        assert!(engine.eval_single_condition("frame_drop_pct > 10", &metrics).unwrap());
-        assert!(!engine.eval_single_condition("frame_drop_pct > 15", &metrics).unwrap());
+        let metrics = RuleMetrics { frame_drop_pct: 12, ..Default::default() };
+        assert!(eval_condition("frame_drop_pct > 10", &metrics));
+        assert!(!eval_condition("frame_drop_pct > 15", &metrics));
     }
 
     #[test]
     fn test_condition_thermal() {
-        let engine = RuleEngine {
-            rules: Arc::new(Mutex::new(vec![])),
-            file_path: PathBuf::from("/tmp/rules.json"),
-            last_reload: Arc::new(Mutex::new(Instant::now())),
-            last_file_mtime: Arc::new(Mutex::new(None)),
-            hysteresis_ms: Arc::new(Mutex::new(0)),
-            last_trigger: Arc::new(Mutex::new(HashMap::new())),
-        };
-
-        let metrics = RuleMetrics {
-            gpu_temp_c: 87,
-            ..Default::default()
-        };
-
-        assert!(engine.eval_single_condition("gpu_temp_c > 85", &metrics).unwrap());
-        assert!(!engine.eval_single_condition("gpu_temp_c < 85", &metrics).unwrap());
+        let metrics = RuleMetrics { gpu_temp_c: 87, ..Default::default() };
+        assert!(eval_condition("gpu_temp_c > 85", &metrics));
+        assert!(!eval_condition("gpu_temp_c < 85", &metrics));
     }
 
     #[test]

@@ -42,3 +42,41 @@ target_link_libraries(test_shader_cache
 )
 
 add_test(NAME ShaderCacheTest COMMAND test_shader_cache)
+
+# Pipeline entegrasyon testi (headless — REJI_VULKAN_MOCK etkin)
+add_executable(test_pipeline_integration
+    pipeline_integration_test.cpp
+)
+
+target_compile_definitions(test_pipeline_integration PRIVATE
+    REJI_VULKAN_MOCK=1
+)
+
+# Pipeline::init() → rj_start_monitor/rj_metrics_push/… gibi Rust FFI sembollerine
+# ve Zig Vulkan wrapper'larına bağlanır. reji_pipeline bunları PRIVATE bağımlılık
+# olarak tanımlar; static link'te geçişli aktarım olmaz — açıkça eklenmeli.
+#
+# Rust orchestrator lib: release varsa kullan, yoksa debug'a düş.
+if(EXISTS "${CMAKE_SOURCE_DIR}/target/release/reji_orchestrator.lib")
+    set(_RUST_ORCH "${CMAKE_SOURCE_DIR}/target/release/reji_orchestrator.lib")
+else()
+    set(_RUST_ORCH "${CMAKE_SOURCE_DIR}/target/debug/reji_orchestrator.lib")
+endif()
+
+target_link_libraries(test_pipeline_integration
+    gtest gtest_main
+    reji_pipeline
+    ${CMAKE_SOURCE_DIR}/zig-out/lib/vulkan_init_zig.lib
+    ${CMAKE_SOURCE_DIR}/zig-out/lib/ext_bridge_zig.lib
+    ${_RUST_ORCH}   # rj_* FFI fonksiyonları + Rust compiler-rt (__divti3 vb.)
+    ntdll.lib       # Zig runtime NT API: RtlFreeHeap, NtCreateThreadEx vb.
+    userenv.lib     # Rust std::env::home_dir → GetUserProfileDirectoryW
+)
+
+add_test(NAME PipelineIntegration COMMAND test_pipeline_integration)
+
+# SRT DLL'leri (srt.dll, libcrypto-3-x64.dll, libssl-3-x64.dll) ve diğer
+# çalışma zamanı bağımlılıkları build/src/ui/ altında; ctest'e PATH ekle.
+set_tests_properties(PipelineIntegration PROPERTIES
+    ENVIRONMENT "PATH=${CMAKE_BINARY_DIR}/src/ui;$ENV{PATH}"
+)
