@@ -6,6 +6,7 @@ extern "C" { __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include "../pipeline/include/pipeline.h"
 #include "../pipeline/gpu/vulkan_initializer.h"
 
@@ -25,28 +26,26 @@ static int run_headless(int frames) {
         return 0;
     }
 
-    rj::Pipeline pipeline;
+    auto pipeline = std::make_shared<rj::Pipeline>();
     rj::Pipeline::Config cfg;
     cfg.audio_enabled = false;
 
-    if (!pipeline.init(cfg)) {
+    if (!pipeline->init(cfg)) {
         fprintf(stderr, "[headless] Pipeline::init failed, exiting 0\n");
         fflush(stderr);
         return 0;
     }
 
-    pipeline.notify_vulkan_ready(vk->device(), vk->physical_device());
+    pipeline->notify_vulkan_ready(vk->device(), vk->physical_device());
 
     for (int i = 0; i < frames; ++i) {
-        pipeline.run_frame();
+        pipeline->run_frame();
     }
 
     // H20: Shutdown order matters — pipeline MUST be torn down before
     // VulkanInitializer so ExternalMemoryBridge can call vkDestroyImage
     // while the Zig-owned VkDevice is still alive.
-    // pipeline is a stack variable, so its destructor also runs at scope
-    // exit; explicit shutdown() here makes the ordering visible in code.
-    pipeline.shutdown();
+    pipeline->shutdown();
     // Explicit shutdown before the function-local static destructor fires
     // at program exit, enforcing: pipeline → VulkanInitializer.
     vk->shutdown();
