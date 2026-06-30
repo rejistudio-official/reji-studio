@@ -8,7 +8,28 @@ use axum::{
 };
 use serde_json::Value;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use tokio::sync::broadcast;
+
+/// Gerçek bağlanan port — `rj_get_ws_port()` FFI ile C++ tarafına sunulur.
+static ACTUAL_PORT: AtomicU16 = AtomicU16::new(0);
+
+/// Bağlanan portu döndürür; sunucu henüz bind olmadıysa 0.
+pub fn actual_port() -> u16 {
+    ACTUAL_PORT.load(Ordering::Acquire)
+}
+
+/// Port listesini sırayla dener; başarılı bağlanmayı döndürür.
+pub async fn try_bind(bind_addr: &str, ports: &[u16]) -> Option<(tokio::net::TcpListener, u16)> {
+    for &port in ports {
+        let addr = format!("{}:{}", bind_addr, port);
+        if let Ok(listener) = tokio::net::TcpListener::bind(&addr).await {
+            return Some((listener, port));
+        }
+        eprintln!("[WS] Port {} kullanımda, deneniyor: sonraki", port);
+    }
+    None
+}
 
 #[derive(Clone)]
 pub struct WsState {
@@ -58,28 +79,28 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>) {
     }
 }
 
-pub async fn serve(port: u16, bind_addr: &str, state: Arc<WsState>) {
+/// `ports` sırasıyla denenir; ilk başarılı adrese bağlanılır.
+/// Gerçek port `actual_port()` ile okunabilir.
+pub async fn serve(ports: Vec<u16>, bind_addr: &str, state: Arc<WsState>) {
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/", get(|| async { axum::response::Html(include_str!("control.html")) }))
         .with_state(state);
 
-    let host = std::env::var("REJI_WS_BIND").unwrap_or_else(|_| bind_addr.to_owned());
-    let addr = format!("{}:{}", host, port);
-
-    let listener = match tokio::net::TcpListener::bind(&addr).await {
-        Ok(l) => {
-            log_to_file(&format!("[WS] Listening on ws://{}/ws", addr));
-            l
+    match try_bind(bind_addr, &ports).await {
+        Some((listener, port)) => {
+            ACTUAL_PORT.store(port, Ordering::Release);
+            log_to_file(&format!("[WS] Listening on ws://{}:{}/ws", bind_addr, port));
+            if let Err(e) = axum::serve(listener, app).await {
+                log_to_file(&format!("[WS] serve error: {}", e));
+            }
         }
-        Err(e) => {
-            log_to_file(&format!("[WS] BIND FAILED {}: {}", addr, e));
-            return;
+        None => {
+            log_to_file(&format!(
+                "[WS] Tüm portlar meşgul ({:?}), WS sunucusu başlatılamadı",
+                ports
+            ));
         }
-    };
-
-    if let Err(e) = axum::serve(listener, app).await {
-        log_to_file(&format!("[WS] serve error: {}", e));
     }
 }
 

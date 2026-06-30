@@ -57,10 +57,9 @@ typedef enum {
 __declspec(noinline) extern int rj_metrics_poll(RjMetricSample* out);
 uint32_t rj_ffi_version(void);
 
-/* ── Reverse FFI: called from Rust WS bridge → C++ pipeline ─────────────── */
+/* ── WS command queue: Rust → C++ (data-driven, no handle/registry) ─────── */
 /* cmd=1 stream_start  cmd=2 stream_stop  cmd=3 scene_cut  cmd=4 scene_fade  */
-/* handle: PipelineRegistry ID — obtained via rj_register_pipeline_handle()  */
-/* rj_ws_command and rj_register_pipeline_handle are declared in ffi_auto.h  */
+/* rj_ws_command_v2 / rj_ws_command_dequeue declared in ffi_auto.h           */
 
 #ifdef __cplusplus
 }

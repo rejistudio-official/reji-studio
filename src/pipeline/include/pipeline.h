@@ -32,7 +32,7 @@ namespace rj {
 /// Thread safety: run_frame() is single-threaded; start/stop_stream()
 /// may be called from another thread.
 /// All public methods return bool (void return is prohibited per project rules).
-class Pipeline : public std::enable_shared_from_this<Pipeline> {
+class Pipeline {
 public:
     struct Config {
         uint32_t width             = 1920;
@@ -78,12 +78,12 @@ public:
     bool set_d3d11_frame_callback(D3D11FrameCallback cb);
 
     /// WebSocket scene command callback — fired for cmd=3 (scene_cut) and cmd=4 (scene_fade).
-    /// Called from rj_ws_command on a Tokio worker thread; use QMetaObject::invokeMethod for UI.
+    /// Called from run_frame() via ws_command_queue drain; use QMetaObject::invokeMethod for UI.
     using SceneCommandCallback = std::function<void(int cmd)>;
     bool set_scene_command_callback(SceneCommandCallback cb);
 
-    /// Invoked by rj_ws_command (extern "C" free function) to dispatch cmd=3/4.
-    /// Public because rj_ws_command cannot access private members.
+    /// Dispatches cmd=3 (scene_cut) / cmd=4 (scene_fade) to the registered callback.
+    /// Called from run_frame() on the frame thread.
     void invoke_scene_cmd_(int cmd) noexcept;
 
     /// Late Vulkan device binding — updates ExternalMemoryBridge with real device handles.
@@ -125,7 +125,6 @@ private:
     bool apply_action(const RjAction& action);
 
     std::once_flag shutdown_once_;
-    uint64_t       registry_id_ = 0;
 };
 
 } // namespace rj

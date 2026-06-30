@@ -3,12 +3,6 @@ use reji_orchestrator::rules::{
 };
 use std::collections::HashMap;
 
-// Integration test binary'si C++ pipeline'ı link edemez.
-// ffi.rs, cfg(not(test)) ile extern "C" { fn rj_ws_command } tanımlar;
-// bu stub linker'ın sembolü çözmesini sağlar.
-#[no_mangle]
-pub unsafe extern "C" fn rj_ws_command(_handle: u64, _cmd: i32) {}
-
 #[test]
 fn test_or_condition() {
     let metrics = RuleMetrics { cpu_load_pct: 90, gpu_load_pct: 10, ..Default::default() };

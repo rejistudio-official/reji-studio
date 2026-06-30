@@ -50,7 +50,6 @@
 #include <functional>
 #include <memory>
 #include <thread>
-#include <unordered_map>
 
 //  FFI struct size verification 
 // Natural alignment (no pack pragma) matches Rust #[repr(C)].
@@ -95,38 +94,6 @@ static_assert(offsetof(RjMetricSample, magic_tail)       == 56, "RjMetricSample:
 
 namespace {
 
-class PipelineRegistry {
-public:
-    static PipelineRegistry& instance() {
-        static PipelineRegistry reg;
-        return reg;
-    }
-
-    uint64_t register_pipeline(std::shared_ptr<rj::Pipeline> p) {
-        std::lock_guard<std::mutex> lk(mutex_);
-        uint64_t id = next_id_++;
-        pipelines_[id] = p;
-        return id;
-    }
-
-    void unregister(uint64_t id) {
-        std::lock_guard<std::mutex> lk(mutex_);
-        pipelines_.erase(id);
-    }
-
-    std::shared_ptr<rj::Pipeline> get(uint64_t id) {
-        std::lock_guard<std::mutex> lk(mutex_);
-        auto it = pipelines_.find(id);
-        if (it == pipelines_.end()) return nullptr;
-        return it->second.lock();
-    }
-
-private:
-    std::mutex mutex_;
-    std::unordered_map<uint64_t, std::weak_ptr<rj::Pipeline>> pipelines_;
-    std::atomic<uint64_t> next_id_{1};
-};
-
 //  Constants
 constexpr uint32_t kMetricMagic    = RJ_METRIC_MAGIC;
 constexpr int      kCmdDrainMax    = 8;
@@ -166,6 +133,18 @@ __declspec(noinline)
 static void seh_start_monitor() noexcept {
     __try   { rj_start_monitor(); }
     __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+__declspec(noinline)
+static int seh_ws_command_dequeue(int* cmd, int* param) noexcept {
+    __try   { return rj_ws_command_dequeue(cmd, param); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+__declspec(noinline)
+static uint16_t seh_get_ws_port() noexcept {
+    __try   { return rj_get_ws_port(); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
 __declspec(noinline)
@@ -274,6 +253,7 @@ struct Pipeline::Impl {
 
     std::atomic<bool>    initialized{false};
     std::atomic<bool>    streaming{false};
+    bool                 ws_port_logged_{false};
     std::atomic<bool>    com_owned{false};
     std::atomic<bool>    timer_set{false};
 
@@ -334,7 +314,7 @@ struct Pipeline::Impl {
     // v0.5.1: D3D11 zero-copy callback - called from run_frame() with staging texture
     Pipeline::D3D11FrameCallback     d3d11_frame_cb;
 
-    // WebSocket scene command callback — invoked by rj_ws_command for cmd=3/4
+    // WebSocket scene command callback — invoked from run_frame() ws_command drain for cmd=3/4
     Pipeline::SceneCommandCallback   scene_cmd_cb;
 
     // v0.5.1: Cache last frame images for get_last_frame_images() getter
@@ -660,8 +640,6 @@ bool Pipeline::init(const Config& cfg_in) {
     s.action_processor = std::thread([this] { action_processor_main(); });
 
     s.initialized.store(true, std::memory_order_release);
-    registry_id_ = PipelineRegistry::instance().register_pipeline(shared_from_this());
-    rj_register_pipeline_handle(registry_id_);
     dbglog("[Pipeline] init OK %ux%u@%u fps %u kbps audio=%d loopback=%d",
            s.cfg.width, s.cfg.height, cfg_in.fps, cfg_in.bitrate_kbps,
            cfg_in.audio_enabled ? 1 : 0, cfg_in.loopback ? 1 : 0);
@@ -773,6 +751,16 @@ bool Pipeline::run_frame() {
 
     const int64_t frame_start = qpc_ticks();
 
+    // 0) İlk frame'de gerçek WS portunu logla (Tokio bind'ı async — init() anında henüz hazır olmayabilir)
+    if (!s.ws_port_logged_) {
+        uint16_t ws_port = seh_get_ws_port();
+        if (ws_port != 0) {
+            dbglog("[Pipeline] WS listening on ws://127.0.0.1:%u/ws (control: http://127.0.0.1:%u/)",
+                   (unsigned)ws_port, (unsigned)ws_port);
+            s.ws_port_logged_ = true;
+        }
+    }
+
     // 1) Command drain  clamp [0,8]; log negative
     int n = seh_command_drain(s.cmd_buf.data(), kCmdDrainMax);
     if (n < 0) {
@@ -782,6 +770,20 @@ bool Pipeline::run_frame() {
         n = kCmdDrainMax;
     }
     for (int i = 0; i < n; ++i) s.apply_command(s.cmd_buf[i]);
+
+    // 1a) WS command drain — rj_ws_command_queue (Rust) → run_frame() thread
+    {
+        int ws_cmd = 0, ws_param = 0;
+        while (seh_ws_command_dequeue(&ws_cmd, &ws_param)) {
+            switch (ws_cmd) {
+                case 1: (void)start_stream();      break;
+                case 2: (void)stop_stream();       break;
+                case 3: invoke_scene_cmd_(3);      break;  // scene_cut
+                case 4: invoke_scene_cmd_(4);      break;  // scene_fade
+                default: dbglog("[Pipeline] unknown ws_cmd=%d", ws_cmd); break;
+            }
+        }
+    }
 
     // 1b) C6: Drain SPSC frame commands from action_processor (no lock needed)
     {
@@ -982,8 +984,6 @@ bool Pipeline::shutdown() {
 
     bool ok = true;
     std::call_once(shutdown_once_, [this, &ok]() {
-        PipelineRegistry::instance().unregister(registry_id_);
-
         auto& s = *impl_;
 
         s.streaming.store(false, std::memory_order_release);
@@ -1117,17 +1117,3 @@ bool Pipeline::apply_action(const RjAction& action) {
 #endif // _WIN32
 
 } // namespace rj
-
-// Reverse FFI: Rust WS bridge → C++ pipeline control.
-// Called from a Tokio worker thread; shared_ptr lock() ensures no UAF.
-extern "C" void rj_ws_command(uint64_t handle, int cmd) {
-    auto p = PipelineRegistry::instance().get(handle);
-    if (!p) return;
-    switch (cmd) {
-        case 1: (void)p->start_stream(); break;
-        case 2: (void)p->stop_stream();  break;
-        case 3: p->invoke_scene_cmd_(3); break;  // scene_cut
-        case 4: p->invoke_scene_cmd_(4); break;  // scene_fade
-        default: break;
-    }
-}

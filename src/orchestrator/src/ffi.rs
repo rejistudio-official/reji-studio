@@ -10,7 +10,7 @@ use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Mutex};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossbeam::queue::ArrayQueue;
@@ -25,15 +25,6 @@ use crate::metrics::{MetricSample, MetricState};
 use crate::rules::RuleEngine;
 use crate::ws_server::{self, WsState};
 
-// Reverse FFI: Rust → C++ (implemented in pipeline.cpp, resolved at link time)
-#[cfg(not(test))]
-extern "C" {
-    fn rj_ws_command(handle: u64, cmd: i32);
-}
-
-// Test binary'si C++ tarafını link edemez — no-op stub kullan
-#[cfg(test)]
-unsafe fn rj_ws_command(_handle: u64, _cmd: i32) {}
 
 /// Rust tarafı RjCommand — `ffi_bridge.h`'daki RjCommand ile #[repr(C)] eşleşmeli.
 #[repr(C)]
@@ -77,40 +68,27 @@ const _: () = assert!(core::mem::size_of::<RjAction>() == 20);
 const _: () = assert!(core::mem::size_of::<RjCommand>() == 24);
 
 struct FfiState {
-    metric_ring:    Arc<ArrayQueue<MetricSample>>,
-    command_queue:  Arc<ArrayQueue<RjCommand>>,
-    action_queue:   Arc<ArrayQueue<RjAction>>,     // v0.4+ Runtime Adaptation
-    _metric_state:  Arc<MetricState>,
-    _runtime:       Runtime,
-    media_tx:       broadcast::Sender<MediaEvent>,
-    ws_evt_tx:      broadcast::Sender<String>,     // Metrik eventleri → WS istemcileri
-    rule_engine:    Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
-    _ws_state:      Arc<WsState>,                  // WebSocket sunucu durumu
-    ws_json_buf:    Mutex<String>,                  // Tekrarlanan format! yerine reuse buffer
+    metric_ring:       Arc<ArrayQueue<MetricSample>>,
+    command_queue:     Arc<ArrayQueue<RjCommand>>,
+    action_queue:      Arc<ArrayQueue<RjAction>>,      // v0.4+ Runtime Adaptation
+    ws_command_queue:  Arc<ArrayQueue<(i32, i32)>>,    // (cmd_type, param) — WS → C++ kuyruk
+    _metric_state:     Arc<MetricState>,
+    _runtime:          Runtime,
+    media_tx:          broadcast::Sender<MediaEvent>,
+    ws_evt_tx:         broadcast::Sender<String>,      // Metrik eventleri → WS istemcileri
+    rule_engine:       Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
+    _ws_state:         Arc<WsState>,                   // WebSocket sunucu durumu
+    ws_json_buf:       Mutex<String>,                  // Tekrarlanan format! yerine reuse buffer
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
 pub(crate) static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
-static PIPELINE_HANDLE: AtomicU64 = AtomicU64::new(0);
 
 fn now_us() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_micros() as u64)
         .unwrap_or(0)
-}
-
-/// C++ Pipeline::init() tarafından çağrılır — registry handle'ı Rust'a bildirir.
-/// rj_ws_command her çağrısında bu handle'ı C++'a geri geçirir.
-/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
-#[no_mangle]
-pub extern "C" fn rj_register_pipeline_handle(handle: u64) {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        PIPELINE_HANDLE.store(handle, Ordering::Release);
-    }));
-    if let Err(e) = result {
-        eprintln!("[FFI] panic caught in rj_register_pipeline_handle: {:?}", e);
-    }
 }
 
 /// Tokio runtime, ring buffer drainer ve HealingMonitor'u başlatır.
@@ -130,9 +108,10 @@ fn rj_start_monitor_impl() {
     FFI_STATE.get_or_init(|| {
         let runtime = Runtime::new().expect("Tokio runtime olusturulamadi");
 
-        let metric_ring   = Arc::new(ArrayQueue::<MetricSample>::new(256));
-        let command_queue = Arc::new(ArrayQueue::<RjCommand>::new(64));
-        let action_queue  = Arc::new(ArrayQueue::<RjAction>::new(64));     // v0.4+ Runtime Adaptation
+        let metric_ring       = Arc::new(ArrayQueue::<MetricSample>::new(256));
+        let command_queue     = Arc::new(ArrayQueue::<RjCommand>::new(64));
+        let action_queue      = Arc::new(ArrayQueue::<RjAction>::new(64));  // v0.4+ Runtime Adaptation
+        let ws_command_queue  = Arc::new(ArrayQueue::<(i32, i32)>::new(32)); // WS → C++ kuyruk
         let event_bus     = EventBus::new();
         let metric_state  = MetricState::new();
 
@@ -232,7 +211,7 @@ fn rj_start_monitor_impl() {
             });
         }
 
-        // WebSocket kontrol sunucusu — port 7070
+        // WebSocket kontrol sunucusu — 7070 öncelikli, meşgulse 7071/7072/7073'e düşer.
         let ws_state = Arc::new(WsState {
             cmd_tx: broadcast::channel(64).0,
             evt_rx: broadcast::channel(64).0,
@@ -248,11 +227,12 @@ fn rj_start_monitor_impl() {
             }
             let ws_state_clone = ws_state.clone();
             runtime.spawn(async move {
-                ws_server::serve(7070, "127.0.0.1", ws_state_clone).await;
+                ws_server::serve(vec![7070, 7071, 7072, 7073], "127.0.0.1", ws_state_clone).await;
             });
 
-            // WS komutu → C++ pipeline köprüsü
+            // WS komutu → ws_command_queue (lock-free, C++ run_frame() tarafından drain edilir)
             let mut cmd_rx = ws_state.cmd_tx.subscribe();
+            let ws_cmd_q = ws_command_queue.clone();
             runtime.spawn(async move {
                 while let Ok(cmd) = cmd_rx.recv().await {
                     let code: i32 = match cmd.as_str() {
@@ -262,11 +242,7 @@ fn rj_start_monitor_impl() {
                         "scene_fade"   => 4,
                         _              => continue,
                     };
-                    let handle = PIPELINE_HANDLE.load(Ordering::Acquire);
-                    if handle != 0 {
-                        // SAFETY: PipelineRegistry::get(handle) null-check yapar — UAF yok
-                        unsafe { rj_ws_command(handle, code) };
-                    }
+                    let _ = ws_cmd_q.push((code, 0));
                 }
             });
         }
@@ -292,7 +268,8 @@ fn rj_start_monitor_impl() {
         FfiState {
             metric_ring,
             command_queue,
-            action_queue,    // v0.4+ Runtime Adaptation
+            action_queue,       // v0.4+ Runtime Adaptation
+            ws_command_queue,   // WS → C++ kuyruk
             _metric_state: metric_state,
             _runtime: runtime,
             media_tx: event_bus.media.clone(),
@@ -439,6 +416,55 @@ pub extern "C" fn rj_action_dequeue(out: *mut RjAction) -> i32 {
         eprintln!("[PANIC] rj_action_dequeue caught panic");
         0
     })
+}
+
+/// Gerçek WS port'unu döndürür (sunucu henüz bind olmadıysa 0).
+/// C++ pipeline init sonrası çağrılmalı — run_frame() ilk iterasyonunda hazır olur.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_get_ws_port() -> u16 {
+    catch_unwind(AssertUnwindSafe(|| {
+        crate::ws_server::actual_port()
+    }))
+    .unwrap_or(0)
+}
+
+/// WS komutunu ws_command_queue'ya yazar (non-blocking).
+/// C++ run_frame() tarafından rj_ws_command_dequeue ile drain edilir.
+/// Handle gerektirmez — PipelineRegistry bağımlılığı yoktur.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_ws_command_v2(cmd: i32, param: i32) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if let Some(state) = FFI_STATE.get() {
+            return state.ws_command_queue.push((cmd, param)).is_ok();
+        }
+        false
+    }))
+    .unwrap_or(false)
+}
+
+/// ws_command_queue'dan bir komut çıkarır.
+/// Döndürür: 1 = komut var (cmd/param yazıldı), 0 = kuyruk boş veya hata.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_ws_command_dequeue(cmd: *mut i32, param: *mut i32) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if cmd.is_null() || param.is_null() {
+            return 0;
+        }
+        if let Some(state) = FFI_STATE.get() {
+            if let Some((c, p)) = state.ws_command_queue.pop() {
+                unsafe {
+                    *cmd   = c;
+                    *param = p;
+                }
+                return 1;
+            }
+        }
+        0
+    }))
+    .unwrap_or(0)
 }
 
 /// v0.4+: Enqueue an action from Rust rule engine to C++

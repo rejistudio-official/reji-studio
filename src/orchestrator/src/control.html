@@ -29,7 +29,8 @@
 <div id="status">Bekleniyor...</div>
 <script>
   const host = location.hostname;
-  const ws = new WebSocket(`ws://${host}:7070/ws`);
+  const port = location.port || 7070;  // sayfa gerçek porttan servis edilir
+  const ws = new WebSocket(`ws://${host}:${port}/ws`);
   const conn = document.getElementById('conn');
   const status = document.getElementById('status');
 
