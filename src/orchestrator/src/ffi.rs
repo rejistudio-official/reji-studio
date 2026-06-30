@@ -86,6 +86,7 @@ struct FfiState {
     ws_evt_tx:      broadcast::Sender<String>,     // Metrik eventleri → WS istemcileri
     rule_engine:    Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
     _ws_state:      Arc<WsState>,                  // WebSocket sunucu durumu
+    ws_json_buf:    Mutex<String>,                  // Tekrarlanan format! yerine reuse buffer
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
@@ -298,6 +299,7 @@ fn rj_start_monitor_impl() {
             ws_evt_tx: ws_state.evt_rx.clone(),
             rule_engine,
             _ws_state: ws_state,
+            ws_json_buf: Mutex::new(String::with_capacity(128)),
         }
     });
 }
@@ -318,16 +320,17 @@ pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
         }
         if let Some(state) = FFI_STATE.get() {
             let _ = state.metric_ring.push(s);
-            let json = format!(
-                r#"{{"fps":{:.1},"kbps":{},"drop":{},"cpu":{},"gpu":{},"mem":{}}}"#,
-                s.fps_actual,
-                s.bitrate_kbps,
-                s.frame_drops,
-                s.cpu_load_pct,
-                s.gpu_load_pct,
-                s.memory_usage_pct
-            );
-            let _ = state.ws_evt_tx.send(json);
+            {
+                let mut buf = state.ws_json_buf.lock().unwrap();
+                buf.clear();
+                use std::fmt::Write as _;
+                let _ = write!(buf,
+                    r#"{{"fps":{:.1},"kbps":{},"drop":{},"cpu":{},"gpu":{},"mem":{}}}"#,
+                    s.fps_actual, s.bitrate_kbps, s.frame_drops,
+                    s.cpu_load_pct, s.gpu_load_pct, s.memory_usage_pct
+                );
+                let _ = state.ws_evt_tx.send(buf.clone());
+            }
         }
     }))
     .map_err(|_| {

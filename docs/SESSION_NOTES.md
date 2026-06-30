@@ -50,11 +50,20 @@
 - cbindgen.toml: explicit RjCommand export, parse_deps=false, include guard ismi düzeltildi
 
 ### Açık Kalemler (FFI sağlamlaştırma devamı)
-- catch_unwind eksik — Rust panic C++ tarafına sızabilir (extern "C" fn'lerin çoğunda yok)
-- offsetof static_assert — sadece sizeof kontrol ediliyor, alan offsetleri değil
-- rj_metrics_push (WebSocket): format!() her frame alloc, throttle yok
-- srt_output.cpp: her SRT paketinde metrik push, throttle yok (P5 bulgusu)
+- ~~catch_unwind eksik — Rust panic C++ tarafına sızabilir (extern "C" fn'lerin çoğunda yok)~~ ✅
+- ~~offsetof static_assert — sadece sizeof kontrol ediliyor, alan offsetleri değil~~ ✅
+- ~~rj_metrics_push (WebSocket): format!() her frame alloc, throttle yok~~ ✅
+- ~~srt_output.cpp: her SRT paketinde metrik push, throttle yok (P5 bulgusu)~~ ✅
 - FFI_CONTRACT.md dokümantasyonu yok
+
+### Güncelleme — Tüm FFI Sağlamlaştırma Kalemleri Tamamlandı
+- catch_unwind: 11/11 extern "C" fonksiyon korunuyor ✅
+- offsetof static_assert: 25 alan, 3 struct, derleme zamanı doğrulandı ✅
+- rj_metrics_push: format!() → pre-allocated buffer + write! ✅
+- SRT metrik push: per-packet → 1 saniyede bir throttle, gerçek bitrate hesabı ✅
+
+FFI sınırı artık: lifetime güvenli (weak_ptr registry), panic güvenli (catch_unwind),
+ABI güvenli (offsetof assert + otomatik cbindgen), performans güvenli (throttle + buffer reuse).
 
 ### Düzeltilmemiş/Ertelenen Bulgular (review'lardan)
 - GPU preview path (cross-vendor Vulkan transfer) — extension'lar mevcut (doğrulandı), implementasyon ayrı branch

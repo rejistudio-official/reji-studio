@@ -391,23 +391,39 @@ struct SrtOutput::Impl {
             return false;
         }
 
-        // Başarılı gönderim — anlık bitrate metriğini Rust ring buffer'a ilet.
+        // Başarılı gönderim — metrik push'u saniyede bir throttle et; aradaki baytları biriktir.
         {
+            static int64_t  last_metric_push_us   = 0;
+            static uint64_t bytes_since_last_push  = 0;
+
             FILETIME ft;
             GetSystemTimePreciseAsFileTime(&ft);
             constexpr uint64_t kWindowsToUnix = 116444736000000000ULL; // 100ns birimleri
             uint64_t raw   = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
             uint64_t ts_us = raw > kWindowsToUnix ? (raw - kWindowsToUnix) / 10ULL : 0ULL;
 
-            RjMetricSample m{};
-            m.magic_head   = RJ_METRIC_MAGIC;
-            m.timestamp_us = ts_us;
-            m.bitrate_kbps = bitrate_kbps.load(std::memory_order_relaxed);
-            m.fps_actual   = 0.0f;
-            m.cpu_percent  = 0.0f;
-            m.frame_drops  = 0;
-            m.magic_tail   = RJ_METRIC_MAGIC;
-            rj_metrics_push(&m);
+            bytes_since_last_push += size;
+
+            int64_t elapsed_us = static_cast<int64_t>(ts_us) - last_metric_push_us;
+            if (elapsed_us >= 1'000'000) {
+                uint32_t kbps = (elapsed_us > 0)
+                    ? static_cast<uint32_t>((bytes_since_last_push * 8000ULL)
+                                            / static_cast<uint64_t>(elapsed_us))
+                    : bitrate_kbps.load(std::memory_order_relaxed);
+
+                RjMetricSample m{};
+                m.magic_head   = RJ_METRIC_MAGIC;
+                m.timestamp_us = ts_us;
+                m.bitrate_kbps = kbps;
+                m.fps_actual   = 0.0f;
+                m.cpu_percent  = 0.0f;
+                m.frame_drops  = 0;
+                m.magic_tail   = RJ_METRIC_MAGIC;
+                rj_metrics_push(&m);
+
+                last_metric_push_us   = static_cast<int64_t>(ts_us);
+                bytes_since_last_push = 0;
+            }
         }
         return true;
     }
