@@ -59,7 +59,8 @@ uint32_t rj_ffi_version(void);
 
 /* ── Reverse FFI: called from Rust WS bridge → C++ pipeline ─────────────── */
 /* cmd=1 stream_start  cmd=2 stream_stop  cmd=3 scene_cut  cmd=4 scene_fade  */
-void rj_ws_command(int cmd);
+/* handle: PipelineRegistry ID — obtained via rj_register_pipeline_handle()  */
+/* rj_ws_command and rj_register_pipeline_handle are declared in ffi_auto.h  */
 
 #ifdef __cplusplus
 }

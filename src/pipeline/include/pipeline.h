@@ -32,7 +32,7 @@ namespace rj {
 /// Thread safety: run_frame() is single-threaded; start/stop_stream()
 /// may be called from another thread.
 /// All public methods return bool (void return is prohibited per project rules).
-class Pipeline {
+class Pipeline : public std::enable_shared_from_this<Pipeline> {
 public:
     struct Config {
         uint32_t width             = 1920;
@@ -125,6 +125,7 @@ private:
     bool apply_action(const RjAction& action);
 
     std::once_flag shutdown_once_;
+    uint64_t       registry_id_ = 0;
 };
 
 } // namespace rj

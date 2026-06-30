@@ -10,7 +10,7 @@ use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Mutex};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossbeam::queue::ArrayQueue;
@@ -28,12 +28,12 @@ use crate::ws_server::{self, WsState};
 // Reverse FFI: Rust → C++ (implemented in pipeline.cpp, resolved at link time)
 #[cfg(not(test))]
 extern "C" {
-    fn rj_ws_command(cmd: i32);
+    fn rj_ws_command(handle: u64, cmd: i32);
 }
 
 // Test binary'si C++ tarafını link edemez — no-op stub kullan
 #[cfg(test)]
-unsafe fn rj_ws_command(_cmd: i32) {}
+unsafe fn rj_ws_command(_handle: u64, _cmd: i32) {}
 
 /// Rust tarafı RjCommand — `ffi_bridge.h`'daki RjCommand ile #[repr(C)] eşleşmeli.
 #[repr(C)]
@@ -90,12 +90,20 @@ struct FfiState {
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
 pub(crate) static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
+static PIPELINE_HANDLE: AtomicU64 = AtomicU64::new(0);
 
 fn now_us() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_micros() as u64)
         .unwrap_or(0)
+}
+
+/// C++ Pipeline::init() tarafından çağrılır — registry handle'ı Rust'a bildirir.
+/// rj_ws_command her çağrısında bu handle'ı C++'a geri geçirir.
+#[no_mangle]
+pub extern "C" fn rj_register_pipeline_handle(handle: u64) {
+    PIPELINE_HANDLE.store(handle, Ordering::Release);
 }
 
 /// Tokio runtime, ring buffer drainer ve HealingMonitor'u başlatır.
@@ -247,8 +255,11 @@ fn rj_start_monitor_impl() {
                         "scene_fade"   => 4,
                         _              => continue,
                     };
-                    // SAFETY: rj_ws_command güvenli atomik pipeline çağrısı yapar
-                    unsafe { rj_ws_command(code) };
+                    let handle = PIPELINE_HANDLE.load(Ordering::Acquire);
+                    if handle != 0 {
+                        // SAFETY: PipelineRegistry::get(handle) null-check yapar — UAF yok
+                        unsafe { rj_ws_command(handle, code) };
+                    }
                 }
             });
         }

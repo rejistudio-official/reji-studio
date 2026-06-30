@@ -50,6 +50,7 @@
 #include <functional>
 #include <memory>
 #include <thread>
+#include <unordered_map>
 
 //  FFI struct size verification 
 // Natural alignment (no pack pragma) matches Rust #[repr(C)].
@@ -61,12 +62,39 @@ static_assert(sizeof(RjMetricSample) == 64, "RjMetricSample ABI drift — expect
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI drift");
 static_assert(sizeof(RjAction)       == 20, "RjAction ABI drift — expected 20 bytes (v0.4)");
 
-// Global pipeline pointer — set during Pipeline::init(), used by rj_ws_command.
-// Atomic to ensure safe read from Tokio worker thread.
-static std::atomic<rj::Pipeline*> g_pipeline{nullptr};
-static std::atomic<bool>           g_pipeline_alive{false};
-
 namespace {
+
+class PipelineRegistry {
+public:
+    static PipelineRegistry& instance() {
+        static PipelineRegistry reg;
+        return reg;
+    }
+
+    uint64_t register_pipeline(std::shared_ptr<rj::Pipeline> p) {
+        std::lock_guard<std::mutex> lk(mutex_);
+        uint64_t id = next_id_++;
+        pipelines_[id] = p;
+        return id;
+    }
+
+    void unregister(uint64_t id) {
+        std::lock_guard<std::mutex> lk(mutex_);
+        pipelines_.erase(id);
+    }
+
+    std::shared_ptr<rj::Pipeline> get(uint64_t id) {
+        std::lock_guard<std::mutex> lk(mutex_);
+        auto it = pipelines_.find(id);
+        if (it == pipelines_.end()) return nullptr;
+        return it->second.lock();
+    }
+
+private:
+    std::mutex mutex_;
+    std::unordered_map<uint64_t, std::weak_ptr<rj::Pipeline>> pipelines_;
+    std::atomic<uint64_t> next_id_{1};
+};
 
 //  Constants
 constexpr uint32_t kMetricMagic    = RJ_METRIC_MAGIC;
@@ -601,8 +629,8 @@ bool Pipeline::init(const Config& cfg_in) {
     s.action_processor = std::thread([this] { action_processor_main(); });
 
     s.initialized.store(true, std::memory_order_release);
-    g_pipeline.store(this, std::memory_order_release);
-    g_pipeline_alive.store(true, std::memory_order_release);
+    registry_id_ = PipelineRegistry::instance().register_pipeline(shared_from_this());
+    rj_register_pipeline_handle(registry_id_);
     dbglog("[Pipeline] init OK %ux%u@%u fps %u kbps audio=%d loopback=%d",
            s.cfg.width, s.cfg.height, cfg_in.fps, cfg_in.bitrate_kbps,
            cfg_in.audio_enabled ? 1 : 0, cfg_in.loopback ? 1 : 0);
@@ -923,9 +951,7 @@ bool Pipeline::shutdown() {
 
     bool ok = true;
     std::call_once(shutdown_once_, [this, &ok]() {
-        g_pipeline_alive.store(false, std::memory_order_release);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        g_pipeline.store(nullptr, std::memory_order_release);
+        PipelineRegistry::instance().unregister(registry_id_);
 
         auto& s = *impl_;
 
@@ -1062,10 +1088,9 @@ bool Pipeline::apply_action(const RjAction& action) {
 } // namespace rj
 
 // Reverse FFI: Rust WS bridge → C++ pipeline control.
-// Called from a Tokio worker thread; Pipeline::start/stop_stream use atomics internally.
-extern "C" void rj_ws_command(int cmd) {
-    if (!g_pipeline_alive.load(std::memory_order_acquire)) return;
-    auto* p = g_pipeline.load(std::memory_order_acquire);
+// Called from a Tokio worker thread; shared_ptr lock() ensures no UAF.
+extern "C" void rj_ws_command(uint64_t handle, int cmd) {
+    auto p = PipelineRegistry::instance().get(handle);
     if (!p) return;
     switch (cmd) {
         case 1: (void)p->start_stream(); break;
