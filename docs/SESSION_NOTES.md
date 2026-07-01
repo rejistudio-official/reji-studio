@@ -172,3 +172,23 @@ tek nokta arızaları.
   initialized bool guard eklendi, ikinci init() çağrısında uyarı basıyor
   ⚠️ Bu geçici önlem — gerçek çözüm state'i global'den instance-level struct'a taşımak
   (API imza değişikliği gerektirir, ayrı büyük refactor olarak not edildi)
+
+## Oturum: 1 Temmuz 2026
+
+### Modülerlik ve Endüstri Uyumluluğu — Strateji Belirlendi
+Uygulamanın uzun vadeli hedefi netleştirildi: modüler, ölçeklenebilir, sektör
+standardı araç/donanımlarla uyumlu (resmi destek olmasa bile uyumluluk zemini).
+
+docs/ROADMAP.md oluşturuldu — 5 fazlı plan:
+- Faz 0: Temel hazırlık (FFI_CONTRACT.md ✅ tamamlandı, Pipeline::Impl God Object
+  refactoring — henüz başlanmadı, Opus ile yapılmalı)
+- Faz 1: OBS-WebSocket protokol uyumluluğu (Stream Deck/Companion ekosistemi)
+- Faz 2: RTMP çıkışı (ITransport üzerinden — gerçek platform yayını için)
+- Faz 3: Çoklu kaynak mimarisi (ISource — webcam/capture card/NDI girişi)
+- Faz 4: NDI desteği (profesyonel yayıncılık standardı)
+- Faz 5: Zig global state tam çözümü (çoklu instance senaryosunda gerçek ihtiyaç doğunca)
+
+docs/FFI_CONTRACT.md oluşturuldu — 13 extern "C" fonksiyonun resmi sözleşmesi:
+- Her fonksiyon için thread-safety, panic davranışı, çağıran thread dokümante edildi
+- Düzeltme: rj_start_monitor OnceLock kullandığı için gerçekte idempotent
+- Struct ABI: RjCommand=24, RjAction=20, RjMetricSample=64 byte — offsetof tablosu eklendi
