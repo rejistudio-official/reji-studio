@@ -192,3 +192,24 @@ docs/FFI_CONTRACT.md oluşturuldu — 13 extern "C" fonksiyonun resmi sözleşme
 - Her fonksiyon için thread-safety, panic davranışı, çağıran thread dokümante edildi
 - Düzeltme: rj_start_monitor OnceLock kullandığı için gerçekte idempotent
 - Struct ABI: RjCommand=24, RjAction=20, RjMetricSample=64 byte — offsetof tablosu eklendi
+
+## Oturum: 1 Temmuz 2026 — Pipeline::Impl Refactoring Başlangıcı
+
+### Pipeline::Impl Refactoring — Aşama 0 Tamamlandı
+Opus ile detaylı analiz: 9 alt sistem tespit edildi (Capture/Encode/Audio/Output/Metrics/
+GpuInterop/Command/Timing/Lifecycle), 2 sıkı düğüm (on_packet, handle_device_lost)
+orkestratörde kalacak şekilde planlandı. 9 aşamalı, en izole parçadan en düğümlüye
+giden bir sıra belirlendi.
+
+Aşama 0 (güvenlik ağı) bulguları:
+- NVENC callback tamamen senkron, frame thread'de çalışıyor — EncodeSubsystem çıkarımı
+  öngörülenden daha basit olacak
+- Karakterizasyon test harness'i kuruldu (tests/pipeline_characterization_test.cpp,
+  baseline_metrics.txt) — her aşama sonrası regresyon kontrolü için
+- Gerçek bug bulundu ve düzeltildi: width/height cfg üzerinden formal veri yarışı
+  (handle_device_lost frame thread'de yazıyor, notify_vulkan_ready başka thread'den
+  okuyor, senkronizasyon yoktu) → atomic<uint32_t> width/height eklendi
+- cfg.bitrate_kbps ölü kod tespit edildi (hiç okunmuyordu, sadece gölge yazım) → kaldırıldı,
+  tek gerçek kaynak atomic bitrate_kbps
+
+Sıradaki: Aşama 1 — FramePacer alt sistemini çıkar (en izole, en düşük riskli)
