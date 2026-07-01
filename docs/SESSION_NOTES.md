@@ -98,3 +98,13 @@ ABI güvenli (offsetof assert + otomatik cbindgen), performans güvenli (throttl
 - init(): vkGetPhysicalDeviceFormatProperties ile VK_FORMAT_B8G8R8A8_UNORM için blit_src/blit_dst desteği sorgulanıyor
 - execute_copy(): use_blit_ false ise vkCmdCopyImage fallback devreye giriyor
 - AMD 780M sonucu: src=1 dst=1 linear=1 — mevcut donanımda sorun yoktu ama capability check artık kalıcı güvenlik ağı
+
+### Cross-Adapter DXGI Fallback Düzeltmesi (Code Review — 4 model ortak bulgu)
+- Sorun: DXGI capture path'te (WGC desteklenmezse fallback) cross-adapter NT handle sharing
+  AMD+NVIDIA'da E_INVALIDARG ile başarısız oluyordu, transfer() sessizce nullptr dönüyordu —
+  encode kalıcı ve sessizce bozuluyordu
+- Düzeltme: create_cpu_fallback_staging() eklendi — NT handle başarısız olursa CPU üzerinden
+  display→encode GPU transfer devreye giriyor
+- Production etkisi: WGC aktifken (mevcut durum) bu kod hiç tetiklenmiyor, sadece WGC
+  desteklenmeyen ortamlarda güvenlik ağı olarak duruyor
+- Doğrulama: run.log'da [GpuRM] satırı yok (beklenen), pipeline WGC ile sorunsuz çalışıyor
