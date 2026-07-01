@@ -88,6 +88,8 @@ private slots:
     void removeScene();
     /// Opens Settings dialog
     void onSettingsClicked();
+    /// 200 ms poll: drains rj_action_dequeue and feeds HealingOverlay.
+    void pollHealingActions();
 
 private:
     void buildMenuBar();

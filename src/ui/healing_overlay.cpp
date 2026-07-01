@@ -150,16 +150,19 @@ void HealingOverlay::onActionEvent(const ActionEvent& event) {
             if (d_->settings_dialog) {
                 switch (event.type) {
                     case ActionType::BitrateReduce:
+                    case ActionType::BitrateRecover:
                         is_auto = d_->settings_dialog->isBitrateAuto();
                         break;
-                    case ActionType::SourceReconnect:
-                        is_auto = d_->settings_dialog->isSourceAuto();
-                        break;
                     case ActionType::ResolutionScale:
+                    case ActionType::ResolutionRestore:
                         is_auto = d_->settings_dialog->isResolutionAuto();
                         break;
                     case ActionType::FpsLimit:
+                    case ActionType::FpsRestore:
                         is_auto = d_->settings_dialog->isFpsAuto();
+                        break;
+                    case ActionType::LogOnly:
+                        is_auto = true;  // log-only: onay gerektirmez
                         break;
                 }
             }

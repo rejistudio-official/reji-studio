@@ -20,10 +20,13 @@ enum class HealingMode {
 
 // Action type enum
 enum class ActionType {
-    BitrateReduce = 0,
-    SourceReconnect = 1,
-    ResolutionScale = 2,
-    FpsLimit = 3
+    BitrateReduce,
+    BitrateRecover,       // bitrate normale dönerken
+    ResolutionScale,
+    ResolutionRestore,    // çözünürlük normale dönerken
+    FpsLimit,
+    FpsRestore,           // fps sınırı kaldırılırken
+    LogOnly               // yalnızca kayıt, kullanıcıya eylem gerekmez
 };
 
 // Action structure for display

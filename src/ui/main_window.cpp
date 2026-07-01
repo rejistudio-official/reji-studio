@@ -27,6 +27,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QThread>
+#include <QDateTime>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -54,6 +55,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(metrics_timer_, &QTimer::timeout,
             this, &MainWindow::pollMetrics);
     metrics_timer_->start(1000);
+
+    auto* action_timer = new QTimer(this);
+    connect(action_timer, &QTimer::timeout, this, &MainWindow::pollHealingActions);
+    action_timer->start(200);
 
     // Vulkan init — pipeline ve VK Caps logu için önce yapılmalı
     {
@@ -313,6 +318,8 @@ void MainWindow::buildCentralWidget() {
     healing_overlay_->hide();
     connect(healing_overlay_, &reji::HealingOverlay::undoRequested,
             this, [this] { lbl_status_->setText(tr("Geri alma isteği gönderildi")); });
+    connect(healing_overlay_, &reji::HealingOverlay::actionApproved,
+            this, [](uint32_t action_id) { rj_action_approve(action_id); });
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +507,58 @@ void MainWindow::pollMetrics() {
     if (sample.frame_drop_pct > 0) {
         lbl_status_->setText(
             QString("Drop: %1%").arg(sample.frame_drop_pct));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Healing action poll — drains rj_action_dequeue every 200 ms and feeds
+// HealingOverlay.  Non-blocking: returns immediately when queue is empty.
+// ---------------------------------------------------------------------------
+void MainWindow::pollHealingActions() {
+    RjAction action{};
+    if (rj_action_dequeue(&action) == 0) return;
+
+    reji::ActionEvent event{};
+    event.id              = action.id;
+    event.require_approval = false;  // overlay kendi healing_mode'una göre karar verir
+    event.timestamp       = QDateTime::currentDateTime().toString("HH:mm:ss");
+
+    switch (action.action_type) {
+        case RJ_ACTION_BITRATE_REDUCE:
+            event.type        = reji::ActionType::BitrateReduce;
+            event.description = tr("Bitrate düşürülüyor → %1 kbps").arg(action.param1);
+            break;
+        case RJ_ACTION_BITRATE_RECOVER:
+            event.type        = reji::ActionType::BitrateRecover;
+            event.description = tr("Bitrate normale döndürülüyor → %1 kbps").arg(action.param1);
+            break;
+        case RJ_ACTION_SCALE_RESOLUTION:
+            event.type        = reji::ActionType::ResolutionScale;
+            event.description = tr("Çözünürlük düşürülüyor (%1%)").arg(action.param1);
+            break;
+        case RJ_ACTION_RESTORE_RESOLUTION:
+            event.type        = reji::ActionType::ResolutionRestore;
+            event.description = tr("Çözünürlük normale döndürülüyor");
+            break;
+        case RJ_ACTION_CAP_FPS:
+            event.type        = reji::ActionType::FpsLimit;
+            event.description = tr("FPS sınırlanıyor → %1 fps").arg(action.param1);
+            break;
+        case RJ_ACTION_RESTORE_FPS:
+            event.type        = reji::ActionType::FpsRestore;
+            event.description = tr("FPS sınırı kaldırılıyor");
+            break;
+        default:
+            event.type        = reji::ActionType::LogOnly;
+            event.description = tr("Kayıt (log-only)");
+            break;
+    }
+
+    if (healing_overlay_) {
+        healing_overlay_->move(
+            width() - healing_overlay_->width() - 16,
+            menuBar()->height() + 8);
+        healing_overlay_->onActionEvent(event);
     }
 }
 
