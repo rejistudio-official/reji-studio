@@ -910,9 +910,59 @@ v1.0 sonunda:
 
 
 
-\*Bu belge C:\\reji-studio\\docs\\ROADMAP.md olarak kaydedilmeli.\*  
+*Bu belge C:\reji-studio\docs\ROADMAP.md olarak kaydedilmeli.*
+*Her major versiyon sonrası güncellenmeli.*
 
-\*Her major versiyon sonrası güncellenmeli.\*
+---
 
+# Modülerlik ve Endüstri Uyumluluğu Yol Haritası
 
+Bu bölüm, Reji Studio'yu tek-kullanımlık bir araçtan modüler, genişlemeye açık
+ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını tanımlar.
 
+## Faz 0 — Temel Hazırlık
+
+- [x] docs/FFI_CONTRACT.md tamamlandı (2026-07-01)
+- [ ] Pipeline::Impl God Object refactoring — 7 alt sistemi ayır,
+      run_frame()/paintGL() fonksiyonlarını böl (Opus ile yapılmalı, yüksek risk)
+
+## Faz 1 — OBS-WebSocket Protokol Uyumluluğu
+
+- [ ] obs-websocket v5 protokol alt kümesi araştırması (hangi request/response tipleri gerekli)
+- [ ] Mevcut ws_server.rs üzerine protokol adaptör katmanı
+- [ ] Temel komutlar: GetSceneList, SetCurrentProgramScene, StartStream, StopStream, GetStreamStatus
+- [ ] Test: Stream Deck veya Companion ile bağlantı doğrulama
+
+## Faz 2 — RTMP Çıkışı
+
+- [ ] ITransport implementasyonu: RtmpTransport
+- [ ] librtmp veya benzeri kütüphane entegrasyonu
+- [ ] SettingsDialog'a RTMP URL/key alanları
+- [ ] Test: Twitch/YouTube'a gerçek yayın testi
+
+## Faz 3 — Çoklu Kaynak Mimarisi (ISource)
+
+- [ ] ISource interface tasarımı (next_frame, metadata, lifecycle)
+- [ ] Scene composition — birden fazla ISource'un tek frame'e birleştirilmesi
+- [ ] İlk implementasyonlar: WebcamSource (DirectShow/Media Foundation),
+      ExistingDesktopSource (mevcut WGC/DXGI'nin ISource'a uyarlanması)
+- [ ] UI: Sahne düzenleyici, kaynak ekleme/kaldırma
+
+## Faz 4 — NDI Desteği
+
+- [ ] NDI SDK entegrasyonu
+- [ ] NdiInputSource (ISource implementasyonu)
+- [ ] NdiOutputTransport (ITransport implementasyonu)
+- [ ] Test: vMix/OBS ile NDI üzerinden karşılıklı görüntü alışverişi
+
+## Faz 5 — Zig Global State Tam Çözümü
+
+- [ ] external_memory_bridge.zig — state'i instance-level struct'a taşı
+- [ ] vulkan_initializer.zig — aynı
+- [ ] C++ tarafında opak pointer API'sine geçiş
+- [ ] Çoklu ISource/ITransport senaryosunda test
+
+## Durum Takibi
+
+Her faz tamamlandığında docs/SESSION_NOTES.md'ye özet eklenir, bu dosyada
+ilgili checkbox işaretlenir.
