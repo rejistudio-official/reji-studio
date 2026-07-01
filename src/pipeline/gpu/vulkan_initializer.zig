@@ -292,7 +292,11 @@ fn create_device() bool {
 // ── Export'lar ────────────────────────────────────────────────────────────────
 
 pub export fn vulkan_init_initialize() bool {
-    if (state.initialized) return true;
+    if (state.initialized) {
+        std.debug.print("[VulkanInitializer] WARNING: initialize() called twice — " ++
+            "global state will be overwritten, this is not multi-instance safe\n", .{});
+        return true; // mevcut idempotency korunuyor
+    }
     if (!create_instance()) return false;
     if (!select_device()) return false;
     if (!create_device()) return false;

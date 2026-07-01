@@ -71,6 +71,7 @@ const State = struct {
 };
 
 var state: State = .{};
+var ext_bridge_initialized: bool = false;
 
 const PFN_glDeleteMemoryObjects = ?*const fn(
     u32, [*]const u32) callconv(.c) void;
@@ -194,7 +195,12 @@ pub export fn ext_bridge_init(
     phys:   vk.VkPhysicalDevice,
 ) bool {
     if (device == null or phys == null) return false;
-    if (state.device != null) return true; // zaten başlatıldı
+    if (ext_bridge_initialized) {
+        std.debug.print("[ExternalMemoryBridge] WARNING: init() called twice — " ++
+            "global state will be overwritten, this is not multi-instance safe\n", .{});
+        return true; // mevcut idempotency korunuyor
+    }
+    ext_bridge_initialized = true;
     state.device          = device;
     state.physical_device = phys;
     return true;

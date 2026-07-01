@@ -10,7 +10,7 @@ use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Mutex};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossbeam::queue::ArrayQueue;
@@ -84,6 +84,11 @@ struct FfiState {
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
 pub(crate) static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
+
+/// Kaç action_queue mesajının kapasitede doluluk nedeniyle düşürüldüğünü sayar.
+pub(crate) static DROPPED_ACTIONS_COUNT: AtomicU64 = AtomicU64::new(0);
+/// Kaç ws_command_queue mesajının kapasitede doluluk nedeniyle düşürüldüğünü sayar.
+pub(crate) static DROPPED_WS_CMDS_COUNT: AtomicU64 = AtomicU64::new(0);
 
 fn now_us() -> u64 {
     SystemTime::now()
@@ -243,7 +248,13 @@ fn rj_start_monitor_impl() {
                         "scene_fade"   => 4,
                         _              => continue,
                     };
-                    let _ = ws_cmd_q.push((code, 0));
+                    match ws_cmd_q.push((code, 0)) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            let total = DROPPED_WS_CMDS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                            eprintln!("[WsCmdQueue] FULL — ws command dropped: code={code} (total dropped: {total})");
+                        }
+                    }
                 }
             });
         }
@@ -448,7 +459,14 @@ pub extern "C" fn rj_ws_command_v2(cmd: i32, param: i32) -> bool {
             eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_ws_command_v2 ignored");
             return false;
         };
-        state.ws_command_queue.push((cmd, param)).is_ok()
+        match state.ws_command_queue.push((cmd, param)) {
+            Ok(_) => true,
+            Err(_) => {
+                let total = DROPPED_WS_CMDS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                eprintln!("[WsCmdQueue] FULL — rj_ws_command_v2 dropped: cmd={cmd} param={param} (total dropped: {total})");
+                false
+            }
+        }
     }))
     .unwrap_or(false)
 }
@@ -484,7 +502,14 @@ pub fn enqueue_action(action: RjAction) -> bool {
         eprintln!("[FFI] WARNING: FFI_STATE not initialized — enqueue_action ignored");
         return false;
     };
-    state.action_queue.push(action).is_ok()
+    match state.action_queue.push(action) {
+        Ok(_) => true,
+        Err(_) => {
+            let total = DROPPED_ACTIONS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!("[ActionQueue] FULL — action dropped: {:?}  (total dropped: {})", action, total);
+            false
+        }
+    }
 }
 
 /// v0.4+: Approve pending action (Co-Pilot mode)
