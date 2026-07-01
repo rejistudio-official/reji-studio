@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include "reji_constants.h"
 #include "frame_profiler.h"
 #include "metrics_collector.h"
 #include "../ffi/ffi_bridge.h"  // RjAction
@@ -38,7 +39,7 @@ public:
         uint32_t width             = 1920;
         uint32_t height            = 1080;
         uint32_t fps               = 60;
-        uint32_t bitrate_kbps          = 6000;
+        uint32_t bitrate_kbps          = rj::constants::kDefaultBitrateKbps;
         uint32_t min_bitrate_kbps      = 1000;
         uint32_t original_bitrate_kbps = 0;    // init() tarafından set edilir, recovery ceiling
         bool     audio_enabled     = false;

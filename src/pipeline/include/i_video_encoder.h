@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include "reji_constants.h"
 
 namespace rj {
 
@@ -11,7 +12,7 @@ public:
         uint32_t width        = 1920;
         uint32_t height       = 1080;
         uint32_t fps          = 60;
-        uint32_t bitrate_kbps = 6000;
+        uint32_t bitrate_kbps = rj::constants::kDefaultBitrateKbps;
         uint32_t max_bitrate_kbps = 8000;
     };
 

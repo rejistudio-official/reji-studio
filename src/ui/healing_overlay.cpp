@@ -95,7 +95,7 @@ HealingOverlay::HealingOverlay(QWidget* parent)
     connect(d_->timer, &QTimer::timeout, this, &HealingOverlay::onTick);
 
     d_->co_pilot_timeout = new QTimer(this);
-    d_->co_pilot_timeout->setInterval(30000);
+    d_->co_pilot_timeout->setInterval(rj::constants::kCoPilotApprovalTimeoutMs);
     connect(d_->co_pilot_timeout, &QTimer::timeout, this, &HealingOverlay::onCoPilotTimeout);
 }
 

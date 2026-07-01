@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <d3d11.h>
+#include "reji_constants.h"
 
 namespace reji {
 
@@ -34,7 +35,7 @@ public:
         uint32_t height           = 1080;
         uint32_t fps_num          = 60;
         uint32_t fps_den          = 1;
-        uint32_t bitrate_kbps     = 6000;
+        uint32_t bitrate_kbps     = rj::constants::kDefaultBitrateKbps;
         uint32_t max_bitrate_kbps = 8000;   ///< peak cap (CBR ceiling)
         uint32_t gop_size         = 120;    ///< 2 s at 60 fps
         enum class Codec { H264, HEVC } codec = Codec::H264;

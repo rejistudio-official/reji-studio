@@ -18,6 +18,7 @@ use tokio::sync::broadcast;
 use tokio::runtime::Runtime;
 use tokio::time::MissedTickBehavior;
 use tracing::{warn, debug, info};
+use crate::constants;
 
 use crate::event_bus::{EventBus, HealingEvent, MediaEvent, SystemEvent};
 use crate::healing::{HealingMode, HealingMonitor, HealingThresholds};
@@ -295,19 +296,21 @@ pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
         if !s.is_valid() {
             return;
         }
-        if let Some(state) = FFI_STATE.get() {
-            let _ = state.metric_ring.push(s);
-            {
-                let mut buf = state.ws_json_buf.lock().unwrap();
-                buf.clear();
-                use std::fmt::Write as _;
-                let _ = write!(buf,
-                    r#"{{"fps":{:.1},"kbps":{},"drop":{},"cpu":{},"gpu":{},"mem":{}}}"#,
-                    s.fps_actual, s.bitrate_kbps, s.frame_drops,
-                    s.cpu_load_pct, s.gpu_load_pct, s.memory_usage_pct
-                );
-                let _ = state.ws_evt_tx.send(buf.clone());
-            }
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_metrics_push ignored");
+            return;
+        };
+        let _ = state.metric_ring.push(s);
+        {
+            let mut buf = state.ws_json_buf.lock().unwrap();
+            buf.clear();
+            use std::fmt::Write as _;
+            let _ = write!(buf,
+                r#"{{"fps":{:.1},"kbps":{},"drop":{},"cpu":{},"gpu":{},"mem":{}}}"#,
+                s.fps_actual, s.bitrate_kbps, s.frame_drops,
+                s.cpu_load_pct, s.gpu_load_pct, s.memory_usage_pct
+            );
+            let _ = state.ws_evt_tx.send(buf.clone());
         }
     }))
     .map_err(|_| {
@@ -338,6 +341,7 @@ pub extern "C" fn rj_command_drain(out: *mut RjCommand, max: i32) -> i32 {
             return 0;
         }
         let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_command_drain ignored");
             return 0;
         };
         let mut count = 0i32;
@@ -373,9 +377,11 @@ pub extern "C" fn rj_connection_lost(reason: *const c_char) {
                 .into_owned()
         };
         warn!(target: "rj_srt", "connection_lost reason={}", msg);
-        if let Some(state) = FFI_STATE.get() {
-            let _ = state.media_tx.send(MediaEvent::SourceDisconnected { source_id: 0 });
-        }
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_connection_lost ignored");
+            return;
+        };
+        let _ = state.media_tx.send(MediaEvent::SourceDisconnected { source_id: 0 });
     }))
     .map_err(|_| {
         eprintln!("[PANIC] rj_connection_lost caught panic");
@@ -404,11 +410,13 @@ pub extern "C" fn rj_action_dequeue(out: *mut RjAction) -> i32 {
         if out.is_null() {
             return 0;
         }
-        if let Some(state) = FFI_STATE.get() {
-            if let Some(action) = state.action_queue.pop() {
-                unsafe { *out = action; }
-                return 1;
-            }
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_action_dequeue ignored");
+            return 0;
+        };
+        if let Some(action) = state.action_queue.pop() {
+            unsafe { *out = action; }
+            return 1;
         }
         0
     }))
@@ -436,10 +444,11 @@ pub extern "C" fn rj_get_ws_port() -> u16 {
 #[no_mangle]
 pub extern "C" fn rj_ws_command_v2(cmd: i32, param: i32) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
-        if let Some(state) = FFI_STATE.get() {
-            return state.ws_command_queue.push((cmd, param)).is_ok();
-        }
-        false
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_ws_command_v2 ignored");
+            return false;
+        };
+        state.ws_command_queue.push((cmd, param)).is_ok()
     }))
     .unwrap_or(false)
 }
@@ -453,14 +462,16 @@ pub extern "C" fn rj_ws_command_dequeue(cmd: *mut i32, param: *mut i32) -> i32 {
         if cmd.is_null() || param.is_null() {
             return 0;
         }
-        if let Some(state) = FFI_STATE.get() {
-            if let Some((c, p)) = state.ws_command_queue.pop() {
-                unsafe {
-                    *cmd   = c;
-                    *param = p;
-                }
-                return 1;
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_ws_command_dequeue ignored");
+            return 0;
+        };
+        if let Some((c, p)) = state.ws_command_queue.pop() {
+            unsafe {
+                *cmd   = c;
+                *param = p;
             }
+            return 1;
         }
         0
     }))
@@ -469,10 +480,11 @@ pub extern "C" fn rj_ws_command_dequeue(cmd: *mut i32, param: *mut i32) -> i32 {
 
 /// v0.4+: Enqueue an action from Rust rule engine to C++
 pub fn enqueue_action(action: RjAction) -> bool {
-    if let Some(state) = FFI_STATE.get() {
-        return state.action_queue.push(action).is_ok();
-    }
-    false
+    let Some(state) = FFI_STATE.get() else {
+        eprintln!("[FFI] WARNING: FFI_STATE not initialized — enqueue_action ignored");
+        return false;
+    };
+    state.action_queue.push(action).is_ok()
 }
 
 /// v0.4+: Approve pending action (Co-Pilot mode)
@@ -516,7 +528,7 @@ pub extern "C" fn rj_get_healing_mode() -> u32 {
 pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
     catch_unwind(AssertUnwindSafe(move || {
         let Some(state) = FFI_STATE.get() else {
-            debug!("rj_reload_rules: FFI_STATE not initialized");
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_reload_rules ignored");
             return 0;
         };
 
@@ -589,7 +601,7 @@ mod tests {
         let sample = MetricSample {
             magic_head:       MetricSample::MAGIC,
             timestamp_us:     1_000_000,
-            bitrate_kbps:     6000,
+            bitrate_kbps:     constants::DEFAULT_BITRATE_KBPS,
             fps_actual:       60.0,
             cpu_percent:      40.0,
             frame_drops:      0,

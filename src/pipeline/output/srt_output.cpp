@@ -1,5 +1,6 @@
 #include "srt_output.h"
 #include "ffi_bridge.h"
+#include "reji_constants.h"
 
 #include <srt/srt.h>
 
@@ -196,7 +197,7 @@ struct SrtOutput::Impl {
 
         int     no    = 0;
         int     yes   = 1;
-        int     lat   = static_cast<int>(cfg.latency_ms ? cfg.latency_ms : 200);
+        int     lat   = static_cast<int>(cfg.latency_ms ? cfg.latency_ms : rj::constants::kSrtLatencyMs);
         int     ttype = SRTT_LIVE;
         int     pload = kPayloadSize;
         int     stout = kSendTimeoutMs;

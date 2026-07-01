@@ -5,6 +5,7 @@
 #include <QListWidget>
 #include <memory>
 #include <queue>
+#include "reji_constants.h"
 
 namespace reji {
 
@@ -49,7 +50,7 @@ public:
     ~HealingOverlay() override;
 
     // Legacy API (kept for compatibility)
-    void showMessage(const QString& msg, int timeout_ms = 10000);
+    void showMessage(const QString& msg, int timeout_ms = rj::constants::kHealingBannerTimeoutMs);
 
     // New API: action event notification (thread-safe via Qt::QueuedConnection)
     void onActionEvent(const ActionEvent& event);

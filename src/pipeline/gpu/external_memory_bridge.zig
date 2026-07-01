@@ -19,6 +19,9 @@ const w32 = @cImport({
 
 // ── Sabitler ──────────────────────────────────────────────────────────────────
 
+// UYARI: Bu değer src/pipeline/include/reji_constants.h içindeki
+// REJI_POOL_SIZE ve rj::constants::kGpuPoolSize ile senkron olmalı.
+// Değiştirirsen copy_optimizer.h ve external_memory_bridge.h'ı da güncelle.
 const POOL_SIZE: u32 = 3;
 
 const ImageResult = struct {

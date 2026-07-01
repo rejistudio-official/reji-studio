@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include "reji_constants.h"
 
 namespace rj {
 
@@ -9,7 +10,7 @@ public:
     struct Config {
         std::string host;
         uint16_t    port          = 9000;
-        uint32_t    latency_ms    = 200;
+        uint32_t    latency_ms    = rj::constants::kSrtLatencyMs;
         bool        caller_mode   = true;
     };
 

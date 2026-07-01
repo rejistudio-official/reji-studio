@@ -14,6 +14,7 @@ use tokio::time::{interval, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
 
 use std::sync::Arc;
+use crate::constants;
 
 use crate::event_bus::{HealingEvent, MediaEvent, SystemEvent};
 use crate::metrics::MetricState;
@@ -364,7 +365,7 @@ impl HealingMonitor {
         if self.trend.recent_frame_drops >= thresholds.event_count_threshold {
             if self.cooldown.can_fire(HealingLayer::Predictive) {
                 info!(drops = self.trend.recent_frame_drops, "predictive frame drop trend detected");
-                self.emit(HealingEvent::ReduceBitrate { target_kbps: 3500 }, HealingLayer::Predictive);
+                self.emit(HealingEvent::ReduceBitrate { target_kbps: constants::REDUCED_BITRATE_KBPS }, HealingLayer::Predictive);
                 self.cooldown.record(HealingLayer::Predictive);
             }
             self.trend.recent_frame_drops = 0;

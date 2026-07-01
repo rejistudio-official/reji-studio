@@ -2,6 +2,7 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use crate::constants;
 
 /// Anlık metrik snapshot — C++ RjMetricSample ile birebir ABI uyumlu (#[repr(C)], 60 byte)
 ///
@@ -141,7 +142,7 @@ mod tests {
         MetricSample {
             magic_head:       MetricSample::MAGIC,
             timestamp_us:     1_000_000,
-            bitrate_kbps:     6000,
+            bitrate_kbps:     constants::DEFAULT_BITRATE_KBPS,
             fps_actual:       59.97,
             cpu_percent:      32.5,
             frame_drops:      0,
@@ -170,7 +171,7 @@ mod tests {
         let sample = valid_sample();
         assert!(sample.is_valid());
         state.update(&sample);
-        assert_eq!(state.bitrate(), 6000);
+        assert_eq!(state.bitrate(), constants::DEFAULT_BITRATE_KBPS);
         assert!((state.fps() - 59.97).abs() < 0.01);
         assert!((state.cpu() - 32.5).abs() < 0.01);
     }

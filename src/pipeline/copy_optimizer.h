@@ -1,5 +1,6 @@
 #pragma once
 
+#include "include/reji_constants.h"
 #include <vulkan/vulkan.h>
 #include <cstdint>
 #include <array>
@@ -51,19 +52,19 @@ public:
 
     // D12: GL semaphore tüketildi — paintGL() içinde glWaitSemaphoreEXT sonrası çağır
     void clear_gl_signal(uint32_t slot) {
-        if (slot < 3) slot_gl_signaled_[slot].store(false, std::memory_order_release);
+        if (slot < rj::constants::kGpuPoolSize) slot_gl_signaled_[slot].store(false, std::memory_order_release);
     }
 
     // E3: true ise bu slot'ta Vulkan sinyal attı, GL henüz tüketmedi — wait güvenli
     bool is_slot_signaled(uint32_t slot) const {
-        return slot < 3 && slot_gl_signaled_[slot].load(std::memory_order_acquire);
+        return slot < rj::constants::kGpuPoolSize && slot_gl_signaled_[slot].load(std::memory_order_acquire);
     }
 
     // F8: execute_copy'nin başarıyla kullandığı son slot
     uint32_t last_used_slot() const { return last_used_slot_.load(std::memory_order_acquire); }
 
     // G2: execute_copy'nin kullanacağı bir sonraki slot (fence wait için)
-    uint32_t next_slot() const { return (last_used_slot_.load(std::memory_order_relaxed) + 1) % POOL_SIZE; }
+    uint32_t next_slot() const { return (last_used_slot_.load(std::memory_order_relaxed) + 1) % rj::constants::kGpuPoolSize; }
 
     // Shutdown and cleanup
     void shutdown();
@@ -82,12 +83,12 @@ private:
     std::atomic<uint32_t> frame_counter_{0};
 
     // D2: Per-slot layout tracking — staging always UNDEFINED (D3D11 externally written each frame)
-    static constexpr uint32_t POOL_SIZE = 3;
+    static constexpr uint32_t POOL_SIZE = rj::constants::kGpuPoolSize;
     std::array<VkImageLayout, POOL_SIZE> staging_layouts_{};  // always UNDEFINED; D3D11 owns between frames
     std::array<VkImageLayout, POOL_SIZE> target_layouts_{};   // UNDEFINED → SHADER_READ_ONLY per slot
 
     // D12: binary semaphore re-signal koruması — true: GL henüz bu slot'u tüketmedi
-    std::array<std::atomic<bool>, 3> slot_gl_signaled_{};
+    std::array<std::atomic<bool>, POOL_SIZE> slot_gl_signaled_{};
     uint64_t signal_value_for_submit_ = 0;  // Must persist for async vkQueueSubmit (not stack-local)
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info_ = {};  // Must persist (submit_info.pNext)
     VkSubmitInfo submit_info_ = {};  // Must persist for reuse

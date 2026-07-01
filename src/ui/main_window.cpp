@@ -5,6 +5,7 @@
 // ===========================================================================
 
 #include "healing_overlay.h"
+#include "reji_constants.h"
 #include "preview_widget.h"
 #include "program_widget.h"
 #include "rust_bridge.h"    // also pulls in ffi_bridge.h (RjCommand, rj_command_drain, …)
@@ -58,7 +59,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     auto* action_timer = new QTimer(this);
     connect(action_timer, &QTimer::timeout, this, &MainWindow::pollHealingActions);
-    action_timer->start(200);
+    action_timer->start(rj::constants::kActionPollIntervalMs);
 
     // Vulkan init — pipeline ve VK Caps logu için önce yapılmalı
     {
@@ -589,7 +590,7 @@ void MainWindow::onHealingNotification(const QString& message) {
         healing_overlay_->move(
             width() - healing_overlay_->width() - 16,
             menuBar()->height() + 8);
-        healing_overlay_->showMessage(message, 10000);
+        healing_overlay_->showMessage(message, rj::constants::kHealingBannerTimeoutMs);
     }
     lbl_status_->setText(message);
 }

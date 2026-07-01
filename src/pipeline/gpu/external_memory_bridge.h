@@ -28,12 +28,13 @@ const int VK_SUCCESS = 0;
 #include <array>
 #include <atomic>
 #include <vector>
+#include "../include/reji_constants.h"
 
 namespace rj::pipeline::gpu {
 
 class ExternalMemoryBridge {
  public:
-  static constexpr int POOL_SIZE = 3;
+  static constexpr int POOL_SIZE = rj::constants::kGpuPoolSize;
 
   ExternalMemoryBridge(VkDevice device, VkPhysicalDevice physical_device);
   ~ExternalMemoryBridge();
@@ -73,7 +74,7 @@ class ExternalMemoryBridge {
     VkImage* out_target
   );
 
-  // B5/C7: GL/Vulkan semaphore sync — 3-slot binary semaphore pool (prevents re-signal)
+  // B5/C7: GL/Vulkan semaphore sync — POOL_SIZE-slot binary semaphore pool (prevents re-signal)
   bool        create_gl_sync_semaphore();
   HANDLE      get_gl_sync_semaphore_handle(uint32_t slot) const;
   VkSemaphore get_gl_sync_semaphore(uint32_t slot) const;
@@ -108,12 +109,12 @@ class ExternalMemoryBridge {
   // GL interop için export edilebilir target image pool
   std::vector<VkImage>           gl_target_pool_;
   std::vector<VkDeviceMemory>    gl_target_memory_;
-  HANDLE                         gl_target_handles_[POOL_SIZE]{};
-  std::array<VkDeviceSize, 3>    gl_target_sizes_{};
+  HANDLE                              gl_target_handles_[POOL_SIZE]{};
+  std::array<VkDeviceSize, POOL_SIZE> gl_target_sizes_{};
 
-  // B5/C7: GL/Vulkan semaphore sync — 3-slot pool (round-robin, no re-signal)
-  VkSemaphore gl_sync_sem_pool_[3]    = {};
-  HANDLE      gl_sync_sem_handles_[3] = {};
+  // B5/C7: GL/Vulkan semaphore sync — POOL_SIZE-slot pool (round-robin, no re-signal)
+  VkSemaphore gl_sync_sem_pool_[POOL_SIZE]    = {};
+  HANDLE      gl_sync_sem_handles_[POOL_SIZE] = {};
 
   // B16: GL-side memory object cleanup (call before NT handle close)
   PFN_glDeleteMemoryObjects pfn_delete_memory_objects_ = nullptr;
