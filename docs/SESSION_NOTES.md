@@ -213,3 +213,19 @@ Aşama 0 (güvenlik ağı) bulguları:
   tek gerçek kaynak atomic bitrate_kbps
 
 Sıradaki: Aşama 1 — FramePacer alt sistemini çıkar (en izole, en düşük riskli)
+
+### Pipeline::Impl Refactoring — Aşama 1-5 Tamamlandı
+- Aşama 1: FramePacer (timing/pacing) — davranış korundu
+- Aşama 2: MetricsSubsystem (CpuMeter+MetricsCollector+fps) — last_frame_ticks buraya taşındı
+- Aşama 3: AudioSubsystem (WasapiCapture lifecycle) — SEH raw() accessor pattern kuruldu
+- Aşama 4: OutputSubsystem (SRT+srt_atomic) — send() üç-yollu semantik korundu
+- Aşama 5: CommandRouter (cmd/ws drain + SPSC ring + action thread) — en riskli aşama,
+  callback-tabanlı bağımlılık çözümü ile Encode/Impl'e sıkı bağ olmadan çalışıyor
+
+Her aşamada: build temiz + PipelineIntegration + PipelineCharacterization testleri PASS +
+baseline_metrics.txt karşılaştırması (fps~60, bitrate 6000→3500 geçişi 60. frame'de,
+frame_drops 0-1 gürültü bandı) — davranışsal regresyon yok.
+
+Kalan aşamalar: 6 (EncodeSubsystem), 7 (GpuInteropSubsystem), 8 (CaptureSubsystem),
+9 (RecoveryCoordinator + Impl'i ince orkestratöre indirme) — bunlar en düğümlü/riskli
+kısımlar, ayrı oturumda dikkatle ele alınacak.
