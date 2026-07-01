@@ -80,3 +80,32 @@ add_test(NAME PipelineIntegration COMMAND test_pipeline_integration)
 set_tests_properties(PipelineIntegration PROPERTIES
     ENVIRONMENT "PATH=${CMAKE_BINARY_DIR}/src/ui;$ENV{PATH}"
 )
+
+# ── Aşama-0 karakterizasyon harness'i (refactoring regresyon güvenlik ağı) ──
+# test_pipeline_integration ile aynı link bağımlılıkları — Pipeline::run_frame()
+# rj_* FFI sembollerine ve Zig Vulkan/ext_bridge wrapper'larına bağlanır.
+add_executable(test_pipeline_characterization
+    pipeline_characterization_test.cpp
+)
+
+target_compile_definitions(test_pipeline_characterization PRIVATE
+    REJI_VULKAN_MOCK=1
+    # baseline_metrics.txt kaynak tests/ dizinine yazılır (build cwd'ye değil).
+    REJI_BASELINE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/baseline_metrics.txt"
+)
+
+target_link_libraries(test_pipeline_characterization
+    gtest gtest_main
+    reji_pipeline
+    ${CMAKE_SOURCE_DIR}/zig-out/lib/vulkan_init_zig.lib
+    ${CMAKE_SOURCE_DIR}/zig-out/lib/ext_bridge_zig.lib
+    ${_RUST_ORCH}   # rj_* FFI fonksiyonları + Rust compiler-rt
+    ntdll.lib       # Zig runtime NT API
+    userenv.lib     # Rust std::env::home_dir
+)
+
+add_test(NAME PipelineCharacterization COMMAND test_pipeline_characterization)
+
+set_tests_properties(PipelineCharacterization PROPERTIES
+    ENVIRONMENT "PATH=${CMAKE_BINARY_DIR}/src/ui;$ENV{PATH}"
+)

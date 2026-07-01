@@ -264,8 +264,18 @@ struct Pipeline::Impl {
     int64_t  last_frame_ticks = 0;
     std::atomic<uint32_t> bitrate_kbps{0};
 
+    // Authoritative frame dims — capture'dan gelir; recovery (frame thread) yazar,
+    // notify_vulkan_ready (başka thread) okur → veri yarışını kapatmak için atomic.
+    // cfg.width/height init snapshot olarak kalır; runtime kaynağı bunlardır.
+    std::atomic<uint32_t> width{0};
+    std::atomic<uint32_t> height{0};
+
     std::atomic<uint32_t> frame_drops{0};
     std::array<RjCommand, kCmdDrainMax> cmd_buf{};
+
+    // Aşama-0 test seam: son run_frame() metrik örneği (get_last_metric_sample).
+    // Yalnızca frame thread yazar/okur; rj_metrics_poll stub olduğu için gerekli.
+    RjMetricSample last_sample_{};
 
     // C6: SPSC ring buffer — action_processor (producer) → run_frame (consumer)
     struct FrameCmd { int action_type; int32_t param1; };
@@ -291,7 +301,6 @@ struct Pipeline::Impl {
                 if (cmd.param1 > 0) {
                     (void)encoder->set_bitrate(static_cast<uint32_t>(cmd.param1));
                     bitrate_kbps.store(static_cast<uint32_t>(cmd.param1), std::memory_order_relaxed);
-                    cfg.bitrate_kbps = static_cast<uint32_t>(cmd.param1);
                 }
                 break;
             case RJ_ACTION_SCALE_RESOLUTION:
@@ -331,7 +340,6 @@ struct Pipeline::Impl {
                 if (encoder && c.param_u32 > 0) {
                     (void)encoder->set_bitrate(c.param_u32);
                     bitrate_kbps.store(c.param_u32, std::memory_order_relaxed);
-                    cfg.bitrate_kbps = c.param_u32;
                 }
                 break;
             case RJ_CMD_SCENE_SWITCH: break;  // v0.1 no-op
@@ -421,8 +429,8 @@ struct Pipeline::Impl {
         }
         auto* dsc = dynamic_cast<reji::DxgiScreenCapture*>(capture.get());
         capture_dxgi_ = dsc ? dsc->pipeline() : nullptr;
-        cfg.width  = capture->width();
-        cfg.height = capture->height();
+        width.store(capture->width(), std::memory_order_release);
+        height.store(capture->height(), std::memory_order_release);
 
         ID3D11Device* encode_device = nullptr;
         if (capture_dxgi_ && capture_dxgi_->encode_gpu()) {
@@ -436,8 +444,8 @@ struct Pipeline::Impl {
         }
 
         reji::NvencEncoder::Config enc_cfg;
-        enc_cfg.width            = cfg.width;
-        enc_cfg.height           = cfg.height;
+        enc_cfg.width            = width.load(std::memory_order_acquire);
+        enc_cfg.height           = height.load(std::memory_order_acquire);
         enc_cfg.fps_num          = cfg.fps;
         enc_cfg.fps_den          = 1;
         const uint32_t bps       = bitrate_kbps.load(std::memory_order_relaxed);
@@ -549,6 +557,8 @@ bool Pipeline::init(const Config& cfg_in) {
     // Authoritative dimensions come from the actual display output.
     s.cfg.width  = s.capture->width();
     s.cfg.height = s.capture->height();
+    s.width.store(s.cfg.width,  std::memory_order_release);   // atomic = runtime kaynağı
+    s.height.store(s.cfg.height, std::memory_order_release);
 
     //  ExternalMemoryBridge (v0.5.1 zero-copy D3D11↔Vulkan — DXGI path only)
     if (s.capture_dxgi_) {
@@ -733,8 +743,8 @@ bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device
 
         impl_->ext_bridge->initialize_gl_target_pool(
             VK_FORMAT_B8G8R8A8_UNORM,
-            (uint32_t)impl_->cfg.width,
-            (uint32_t)impl_->cfg.height
+            impl_->width.load(std::memory_order_acquire),
+            impl_->height.load(std::memory_order_acquire)
         );
         if (!impl_->ext_bridge->create_gl_sync_semaphore()) {
             fprintf(stderr, "[Pipeline] GL sync semaphore oluşturulamadı\n");
@@ -956,6 +966,7 @@ bool Pipeline::run_frame() {
 
         m.source_id = 0;  // video
         seh_metrics_push(&m);
+        s.last_sample_ = m;  // Aşama-0 test seam — frame-thread only
     }
     s.last_frame_ticks = frame_start;
 
@@ -1037,6 +1048,12 @@ bool Pipeline::get_last_frame_images(VkImage* out_staging, VkImage* out_target) 
     *out_staging = impl_->last_staging_vk.load(std::memory_order_acquire);
     *out_target  = impl_->last_target_vk.load(std::memory_order_acquire);
     return *out_staging != nullptr && *out_target != nullptr;
+}
+
+bool Pipeline::get_last_metric_sample(RjMetricSample* out) const {
+    if (!impl_ || !out) return false;
+    *out = impl_->last_sample_;
+    return impl_->last_sample_.magic_head == kMetricMagic;
 }
 
 uint32_t Pipeline::display_vendor_id() const {
