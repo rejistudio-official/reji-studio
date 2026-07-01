@@ -32,6 +32,7 @@
 #include "capture/capture_dxgi_screen.h"
 #include "encode/encode_nvenc.h"
 #include "audio/wasapi_capture.h"
+#include "include/audio_subsystem.h"
 #include "output/srt_output.h"
 #include "ffi_bridge.h"
 
@@ -195,7 +196,7 @@ struct Pipeline::Impl {
     std::unique_ptr<rj::IScreenCapture>                      capture;
     reji::DxgiCapturePipeline*                               capture_dxgi_ = nullptr;
     std::unique_ptr<reji::NvencEncoder>                     encoder;
-    std::unique_ptr<reji::pipeline::audio::WasapiCapture>   audio;
+    AudioSubsystem                                          audio_sub_;   // Aşama 3
     std::unique_ptr<rj::pipeline::output::SrtOutput>        srt;
 
     // v0.5.1: ExternalMemoryBridge for zero-copy D3D11↔Vulkan interop
@@ -327,10 +328,6 @@ struct Pipeline::Impl {
         if (rc != 0)
             self->frame_drops.fetch_add(1, std::memory_order_relaxed);
     }
-
-    // Audio callback  v0.1 stub; SRT mux not yet implemented.
-    static void on_audio(const float*, uint32_t, uint32_t, uint32_t,
-                         int64_t, void*) noexcept {}
 
     // GPU TDR recovery: query GetDeviceRemovedReason; reinit if device was lost.
     // MUST NOT be called from within a __try block (uses C++ objects).
@@ -560,19 +557,17 @@ bool Pipeline::init(const Config& cfg_in) {
         }
     }
 
-    //  WasapiCapture (optional) 
+    //  WasapiCapture (optional) — AudioSubsystem alt sistemi
     if (cfg_in.audio_enabled) {
-        reji::pipeline::audio::WasapiCapture::Config acfg{};
+        AudioSubsystem::Config acfg{};
         acfg.exclusive_mode = false;
         acfg.sample_rate    = 48000;
         acfg.channels       = 2;
         acfg.bit_depth      = 32;
         acfg.buffer_ms      = 50;
         acfg.loopback       = cfg_in.loopback;
-        s.audio = std::make_unique<reji::pipeline::audio::WasapiCapture>();
-        if (!s.audio->init(acfg, &Impl::on_audio)) {
+        if (!s.audio_sub_.init(acfg, &AudioSubsystem::on_audio)) {
             dbglog("[Pipeline] WasapiCapture::init failed  audio disabled");
-            s.audio.reset();
         }
     }
 
@@ -620,7 +615,7 @@ bool Pipeline::start_stream() {
 
     // Publish SRT pointer before any packet callback can observe it.
     impl_->srt_atomic.store(impl_->srt.get(), std::memory_order_release);
-    if (impl_->audio) (void)impl_->audio->start();
+    (void)impl_->audio_sub_.start();
     dbglog("[Pipeline] streaming started");
     return true;
 }
@@ -631,7 +626,7 @@ bool Pipeline::stop_stream() {
 
     // Null the atomic pointer before any further packets can be sent.
     impl_->srt_atomic.store(nullptr, std::memory_order_release);
-    if (impl_->audio) (void)impl_->audio->stop();
+    (void)impl_->audio_sub_.stop();
     dbglog("[Pipeline] streaming stopped");
     return true;
 }
@@ -927,10 +922,10 @@ bool Pipeline::shutdown() {
 
         // SEH-protected teardown  raw pointers only, no C++ destructors in scope.
         ok = seh_shutdown_subsystems(
-            s.audio.get(), s.encoder.get(), s.srt.get());
+            s.audio_sub_.raw(), s.encoder.get(), s.srt.get());
 
         // RAII reset outside __try  destructors run safely here.
-        s.audio.reset();
+        s.audio_sub_.shutdown();   // audio_ reset (SEH-leaf DIŞINDA)
         s.srt.reset();
         s.encoder.reset();
         s.capture.reset();

@@ -163,7 +163,7 @@ endif()
 # WASAPI audio capture — Windows only
 # ---------------------------------------------------------------------------
 if(WIN32)
-    target_sources(reji_pipeline PRIVATE audio/wasapi_capture.cpp)
+    target_sources(reji_pipeline PRIVATE audio/wasapi_capture.cpp audio_subsystem.cpp)
     message(STATUS "WASAPI audio capture modülü etkinleştirildi")
 endif()
 
