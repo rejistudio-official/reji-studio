@@ -127,3 +127,30 @@ ABI güvenli (offsetof assert + otomatik cbindgen), performans güvenli (throttl
   bloğuna sahipti — kaldırıldı
 - Stack canary: __stack_chk_guard sabit 0xDEADBEEF değerindeydi (SSP etkisiz) — BCryptGenRandom
   ile .CRT$XCU section üzerinden main() öncesi rastgele değer atanıyor artık
+
+### Karmaşıklık ve Kırılganlık Taraması (Yeni Değerlendirme Turu)
+Punktüel bug avlamak yerine sistematik kırılganlık taraması yapıldı: dosya boyutları,
+fonksiyon uzunlukları, God Object adayları, sihirli sayılar, döngüsel FFI veri akışı,
+tek nokta arızaları.
+
+**Bulunan kritik sorunlar:**
+- pipeline.cpp 986 satır (proje kuralı: 800 satır sınırı) — %23 aşım
+- run_frame() 234 satır, paintGL() 272 satır — tek fonksiyonda çok fazla sorumluluk
+- Pipeline::Impl God Object — 7 alt sistem (capture/encode/audio/srt/metrics/ext_bridge/thread)
+  + ~25 alan tek struct'ta
+- POOL_SIZE=3 üç bağımsız yerde tanımlıydı (senkron riski)
+- 6000/3500 kbps ve 200ms gibi sabitler 5+ farklı dosyada hardcoded
+- FFI_STATE (Rust OnceLock) — restart mekanizması yok, sessiz hata
+- action_queue/ws_command_queue kapasitesi dolduğunda sessizce mesaj kaybı riski
+
+**Bu turda düzeltilenler (düşük risk, yüksek değer):**
+- reji_constants.h oluşturuldu — POOL_SIZE tek kaynaktan (kGpuPoolSize)
+- Bitrate/timeout sabitleri C++ (reji_constants.h) ve Rust (constants.rs) tarafında merkezi hale geldi
+- FFI_STATE.get() başarısız olduğunda artık 8 fonksiyonda loglanıyor (önceden sessizdi)
+
+**Ertelenen, yüksek riskli (ayrı oturum gerektiriyor):**
+- Pipeline::Impl God Object refactoring — alt sistemlere bölme
+- run_frame()/paintGL() fonksiyon bölme
+- action_queue/ws_command_queue backpressure/overflow handling
+- Zig modül-global state (external_memory_bridge.zig, vulkan_initializer.zig) —
+  çoklu instance senaryosu için hazır değil
