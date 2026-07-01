@@ -108,3 +108,13 @@ ABI güvenli (offsetof assert + otomatik cbindgen), performans güvenli (throttl
 - Production etkisi: WGC aktifken (mevcut durum) bu kod hiç tetiklenmiyor, sadece WGC
   desteklenmeyen ortamlarda güvenlik ağı olarak duruyor
 - Doğrulama: run.log'da [GpuRM] satırı yok (beklenen), pipeline WGC ile sorunsuz çalışıyor
+
+### HealingOverlay Bağlantısı Kuruldu (GLM 5.2 özgün bulgusu)
+- Sorun: onActionEvent() tamamen implement edilmişti ama hiçbir yerden çağrılmıyordu —
+  Co-Pilot modunda kullanıcı onay akışı tamamen kopuktu
+- Düzeltme: 200ms poll timer eklendi, rj_action_dequeue → ActionEvent dönüşümü kuruldu,
+  actionApproved signal → rj_action_approve bağlandı
+- Ek düzeltme: ActionType enum'ına Recover/Restore/LogOnly değerleri eklendi —
+  önceden Recover aksiyonları yanlışlıkla "Reduce" olarak gösteriliyordu (yanıltıcı UI)
+- Doğrulama: rules.json eşiği cpu>80% — test yükü 50%'de kaldı, aksiyon tetiklenmedi (beklenen);
+  pipeline drop=0% ile sorunsuz çalışıyor
