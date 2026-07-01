@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include <wrl/client.h>
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
@@ -109,6 +110,7 @@ public:
 private:
     bool create_same_adapter_staging(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     bool create_cross_adapter_shared(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
+    bool create_cpu_fallback_staging(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
 
     /// Spin-wait for the display GPU to finish executing pending commands.
     /// Required before releasing the keyed mutex to the encode GPU.
@@ -128,12 +130,20 @@ private:
     // GPU event query for CopyResource completion tracking (cross-adapter only)
     Microsoft::WRL::ComPtr<ID3D11Query> copy_fence_;
 
+    // CPU staging fallback path (cross-adapter NT handle sharing unsupported on AMD+NVIDIA)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> cpu_staging_display_;  // display GPU'da CPU-readable staging
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> cpu_upload_encode_;    // encode GPU'da CPU-writable texture
+    std::vector<uint8_t> cpu_transfer_buf_;
+
     GpuInfo display_info_{};
     GpuInfo encode_info_{};
 
-    HANDLE shared_handle_ = nullptr;
-    bool   same_adapter_  = false;
-    bool   initialized_   = false;
+    HANDLE   shared_handle_    = nullptr;
+    uint32_t width_            = 0;
+    uint32_t height_           = 0;
+    bool     same_adapter_     = false;
+    bool     use_cpu_fallback_ = false;
+    bool     initialized_      = false;
 };
 
 } // namespace reji

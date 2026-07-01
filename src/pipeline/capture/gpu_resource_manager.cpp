@@ -140,6 +140,38 @@ bool GpuResourceManager::create_cross_adapter_shared(uint32_t w, uint32_t h,
     return true;
 }
 
+bool GpuResourceManager::create_cpu_fallback_staging(uint32_t width, uint32_t height,
+                                                      DXGI_FORMAT format) {
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width            = width;
+    desc.Height           = height;
+    desc.MipLevels        = 1;
+    desc.ArraySize        = 1;
+    desc.Format           = format;
+    desc.SampleDesc.Count = 1;
+    desc.Usage            = D3D11_USAGE_STAGING;
+    desc.CPUAccessFlags   = D3D11_CPU_ACCESS_READ;
+
+    HRESULT hr = display_gpu_->d3d_device()->CreateTexture2D(&desc, nullptr, &cpu_staging_display_);
+    if (FAILED(hr)) {
+        fprintf(stderr, "[GpuRM] CPU fallback staging (display) failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    desc.Usage          = D3D11_USAGE_DYNAMIC;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    desc.BindFlags      = D3D11_BIND_SHADER_RESOURCE;
+
+    hr = encode_gpu_->d3d_device()->CreateTexture2D(&desc, nullptr, &cpu_upload_encode_);
+    if (FAILED(hr)) {
+        fprintf(stderr, "[GpuRM] CPU fallback staging (encode) failed: 0x%08lX\n", hr);
+        return false;
+    }
+
+    fprintf(stderr, "[GpuRM] CPU fallback staging created: %ux%u\n", width, height);
+    return true;
+}
+
 void GpuResourceManager::wait_display_gpu_idle() {
     if (!copy_fence_) return;  // B11: cross-adapter path only; same-adapter has no fence
     auto* ctx = display_gpu_->d3d_context();
@@ -211,9 +243,18 @@ bool GpuResourceManager::init(
         encode_gpu_ = display_gpu_;
     }
 
+    width_  = width;
+    height_ = height;
+
     bool ok = same_adapter_
         ? create_same_adapter_staging(width, height, format)
         : create_cross_adapter_shared(width, height, format);
+
+    if (!ok && !same_adapter_) {
+        fprintf(stderr, "[GpuRM] Cross-adapter NT handle sharing failed — falling back to CPU staging path\n");
+        ok = create_cpu_fallback_staging(width, height, format);
+        use_cpu_fallback_ = ok;
+    }
 
     if (!ok) { return false; }
 
@@ -227,6 +268,26 @@ bool GpuResourceManager::init(
 
 ID3D11Texture2D* GpuResourceManager::transfer(ID3D11Texture2D* src) {
     if (!initialized_ || !src) { return nullptr; }
+
+    if (use_cpu_fallback_) {
+        // Display GPU'dan CPU'ya map
+        display_gpu_->d3d_context()->CopyResource(cpu_staging_display_.Get(), src);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        HRESULT hr = display_gpu_->d3d_context()->Map(
+            cpu_staging_display_.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(hr)) return nullptr;
+
+        // Encode GPU'ya upload
+        D3D11_MAPPED_SUBRESOURCE dst_mapped{};
+        HRESULT hr2 = encode_gpu_->d3d_context()->Map(
+            cpu_upload_encode_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &dst_mapped);
+        if (SUCCEEDED(hr2)) {
+            memcpy(dst_mapped.pData, mapped.pData, mapped.RowPitch * height_);
+            encode_gpu_->d3d_context()->Unmap(cpu_upload_encode_.Get(), 0);
+        }
+        display_gpu_->d3d_context()->Unmap(cpu_staging_display_.Get(), 0);
+        return hr2 == S_OK ? cpu_upload_encode_.Get() : nullptr;
+    }
 
     if (same_adapter_) {
         // Both GPUs are the same device; plain CopyResource suffices.
@@ -244,12 +305,16 @@ ID3D11Texture2D* GpuResourceManager::transfer(ID3D11Texture2D* src) {
 }
 
 void GpuResourceManager::shutdown() {
-    initialized_ = false;
+    initialized_      = false;
+    use_cpu_fallback_ = false;
     copy_fence_.Reset();
     keyed_mutex_encode_.Reset();
     keyed_mutex_display_.Reset();
     encode_tex_.Reset();
     shared_tex_display_.Reset();
+    cpu_staging_display_.Reset();
+    cpu_upload_encode_.Reset();
+    cpu_transfer_buf_.clear();
     if (shared_handle_ && shared_handle_ != INVALID_HANDLE_VALUE) {
         CloseHandle(shared_handle_);
         shared_handle_ = nullptr;
