@@ -20,6 +20,7 @@
 #include "include/i_screen_capture.h"
 #include "include/frame_profiler.h"
 #include "include/frame_pacer.h"
+#include "include/metrics_subsystem.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
 #ifndef REJI_VULKAN_MOCK
@@ -104,9 +105,6 @@ constexpr uint32_t kCaptureTimeout = 17;   // ms  60 Hz budget
 inline int64_t qpc_ticks() noexcept {
     LARGE_INTEGER c{}; QueryPerformanceCounter(&c); return c.QuadPart;
 }
-inline int64_t ticks_to_us(int64_t t, int64_t freq) noexcept {
-    return (t * 1'000'000LL) / freq;
-}
 inline void dbglog(const char* fmt, ...) noexcept {
     char buf[256]; va_list ap; va_start(ap, fmt);
     _vsnprintf_s(buf, sizeof(buf), _TRUNCATE, fmt, ap); va_end(ap);
@@ -121,12 +119,6 @@ __declspec(noinline)
 static int seh_command_drain(RjCommand* buf, int max) noexcept {
     __try   { return rj_command_drain(buf, max); }
     __except(EXCEPTION_EXECUTE_HANDLER) { return -1; }
-}
-
-__declspec(noinline)
-static void seh_metrics_push(const RjMetricSample* s) noexcept {
-    __try   { rj_metrics_push(s); }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
 
 __declspec(noinline)
@@ -187,37 +179,6 @@ static bool seh_shutdown_subsystems(
     return ok;
 }
 
-//  CPU meter 
-class CpuMeter {
-public:
-    CpuMeter() noexcept {
-        SYSTEM_INFO si{}; GetSystemInfo(&si);
-        ncpus_ = si.dwNumberOfProcessors ? si.dwNumberOfProcessors : 1u;
-    }
-    float sample() noexcept {
-        FILETIME c, e, k, u, now;
-        if (!GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u)) return last_;
-        GetSystemTimeAsFileTime(&now);
-        uint64_t wall = ft64(now), busy = ft64(k) + ft64(u);
-        if (prev_wall_) {
-            uint64_t dwall = wall - prev_wall_, dbusy = busy - prev_busy_;
-            if (dwall) {
-                float pct = float(dbusy) / (float(dwall) * float(ncpus_)) * 100.f;
-                last_ = pct < 0.f ? 0.f : pct > 100.f ? 100.f : pct;
-            }
-        }
-        prev_wall_ = wall; prev_busy_ = busy;
-        return last_;
-    }
-private:
-    static uint64_t ft64(const FILETIME& f) noexcept {
-        return (uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime;
-    }
-    uint64_t prev_wall_ = 0, prev_busy_ = 0;
-    uint32_t ncpus_     = 1;
-    float    last_      = 0.f;
-};
-
 } // anonymous namespace
 
 #endif // _WIN32
@@ -236,7 +197,6 @@ struct Pipeline::Impl {
     std::unique_ptr<reji::NvencEncoder>                     encoder;
     std::unique_ptr<reji::pipeline::audio::WasapiCapture>   audio;
     std::unique_ptr<rj::pipeline::output::SrtOutput>        srt;
-    std::unique_ptr<rj::MetricsCollector>                   metrics;  // v0.4+
 
     // v0.5.1: ExternalMemoryBridge for zero-copy D3D11↔Vulkan interop
     std::unique_ptr<rj::pipeline::gpu::ExternalMemoryBridge> ext_bridge;
@@ -249,7 +209,9 @@ struct Pipeline::Impl {
     std::thread action_processor;
     std::atomic<bool> action_processor_running{false};
 
-    CpuMeter cpu;
+    // Aşama 2: Metrics alt sistemi — CpuMeter + MetricsCollector + fps ölçümü
+    // (eski cpu, metrics, last_frame_ticks alanları buraya taşındı).
+    MetricsSubsystem metrics_sub_;
 
     std::atomic<bool>    initialized{false};
     std::atomic<bool>    streaming{false};
@@ -258,7 +220,6 @@ struct Pipeline::Impl {
     std::atomic<bool>    timer_set{false};
 
     FramePacer pacer_;                 // Aşama 1: QPC/pts/pacing alt sistemi
-    int64_t  last_frame_ticks = 0;     // Metrics'e ait (fps ölçümü) — Aşama 2'de MetricsSubsystem'e taşınacak
     std::atomic<uint32_t> bitrate_kbps{0};
 
     // Authoritative frame dims — capture'dan gelir; recovery (frame thread) yazar,
@@ -497,8 +458,8 @@ bool Pipeline::init(const Config& cfg_in) {
     // Initialize profiler
     profiler_ = std::make_unique<rj::FrameProfiler>();
 
-    // Initialize metrics collector (v0.4+ Runtime Adaptation)
-    s.metrics = std::make_unique<rj::MetricsCollector>();
+    // Initialize metrics subsystem (v0.4+ Runtime Adaptation)
+    s.metrics_sub_.init();
 
     s.cfg                          = cfg_in;
     s.cfg.original_bitrate_kbps    = cfg_in.bitrate_kbps;
@@ -923,48 +884,22 @@ bool Pipeline::run_frame() {
         }
     }
 
-    // 4) Metrics push  frame_drops as delta
+    // 4) Metrics push  frame_drops as delta (MetricsSubsystem alt sistemi)
     {
-        RjMetricSample m{};
-        m.magic_head   = kMetricMagic;
-        m.magic_tail   = kMetricMagic;
-        m.timestamp_us = static_cast<uint64_t>(
-                             ticks_to_us(frame_start, s.pacer_.qpc_freq()));
-        m.bitrate_kbps = s.bitrate_kbps.load(std::memory_order_relaxed);
-        {
-            auto delta = frame_start - s.last_frame_ticks;
-            m.fps_actual = (delta > 0)
-                ? std::clamp(
-                      static_cast<float>(s.pacer_.qpc_freq()) / static_cast<float>(delta),
-                      0.0f, 240.0f)
-                : 0.0f;
-        }
-        m.cpu_percent  = s.cpu.sample();
-        m.frame_drops  = s.frame_drops.exchange(0, std::memory_order_acq_rel);
-
-        // v0.4+: Extended metrics from MetricsCollector
-        // NOTE: WMI queries run in separate thread; run_frame() only reads snapshot
-        if (s.metrics) {
-            auto latest = s.metrics->get_latest();
-            m.frame_drop_pct     = latest.frame_drop_pct;
-            m.gpu_temp_c         = latest.gpu_temp_c;
-            m.cpu_temp_c         = latest.cpu_temp_c;
-            m.memory_usage_pct   = latest.memory_usage_pct;
-            m.cpu_load_pct       = latest.cpu_load_pct;
-            m.network_rtt_ms     = latest.network_rtt_ms;
-            m.network_loss_pct   = latest.network_loss_pct;
-        }
-
-        m.source_id = 0;  // video
-        seh_metrics_push(&m);
+        // frame_drops atomic Impl'de kalır; delta olarak exchange edilip parametre geçilir.
+        const uint32_t drops = s.frame_drops.exchange(0, std::memory_order_acq_rel);
+        RjMetricSample m = s.metrics_sub_.build_sample(
+            s.bitrate_kbps.load(std::memory_order_relaxed),
+            drops, frame_start, s.pacer_.qpc_freq());
+        s.metrics_sub_.push(m);
         s.last_sample_ = m;  // Aşama-0 test seam — frame-thread only
     }
-    s.last_frame_ticks = frame_start;
+    s.metrics_sub_.record_frame_start(frame_start);  // fps ölçümü: bu frame'i sonraki için kaydet
 
     // 5) Frame pacing  absolute deadline (FramePacer alt sistemi)
     s.pacer_.pace();
 
-    if (s.metrics) s.metrics->poll();
+    s.metrics_sub_.poll();
 
     return true;
 }
