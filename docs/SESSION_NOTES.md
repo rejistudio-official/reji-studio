@@ -164,3 +164,11 @@ tek nokta arızaları.
   (önceden Flush() sadece komut gönderiyordu, tamamlanma garantisi yoktu — torn frame riski)
 - SrtOutput::send_internal static state: last_metric_push_us_/bytes_since_last_push_
   Impl instance field'ına taşındı (önceden tüm SrtOutput instance'ları arasında paylaşılıyordu)
+
+### Kırılganlık Turu — Madde 3 ve 4
+- action_queue/ws_command_queue push() artık başarısızlığı logluyor (DROPPED_ACTIONS_COUNT/
+  DROPPED_WS_CMDS_COUNT sayaçları eklendi) — önceden sessizce mesaj kaybediliyordu
+- Zig modül-global state (external_memory_bridge.zig, vulkan_initializer.zig):
+  initialized bool guard eklendi, ikinci init() çağrısında uyarı basıyor
+  ⚠️ Bu geçici önlem — gerçek çözüm state'i global'den instance-level struct'a taşımak
+  (API imza değişikliği gerektirir, ayrı büyük refactor olarak not edildi)
