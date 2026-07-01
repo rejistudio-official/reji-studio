@@ -187,7 +187,11 @@ struct SrtOutput::Impl {
     std::atomic<bool>     initialized{false};
     std::atomic<bool>     shutting_down{false};
     std::atomic<bool>     notified_lost{false};
+    std::atomic<bool>     already_cleaned_up_{false};
     std::atomic<uint32_t> bitrate_kbps{0};
+
+    int64_t  last_metric_push_us_  = 0;
+    uint64_t bytes_since_last_push_ = 0;
 
     ComGuard    com_guard;
     std::thread worker_thread;
@@ -394,21 +398,18 @@ struct SrtOutput::Impl {
 
         // Başarılı gönderim — metrik push'u saniyede bir throttle et; aradaki baytları biriktir.
         {
-            static int64_t  last_metric_push_us   = 0;
-            static uint64_t bytes_since_last_push  = 0;
-
             FILETIME ft;
             GetSystemTimePreciseAsFileTime(&ft);
             constexpr uint64_t kWindowsToUnix = 116444736000000000ULL; // 100ns birimleri
             uint64_t raw   = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
             uint64_t ts_us = raw > kWindowsToUnix ? (raw - kWindowsToUnix) / 10ULL : 0ULL;
 
-            bytes_since_last_push += size;
+            this->bytes_since_last_push_ += size;
 
-            int64_t elapsed_us = static_cast<int64_t>(ts_us) - last_metric_push_us;
+            int64_t elapsed_us = static_cast<int64_t>(ts_us) - this->last_metric_push_us_;
             if (elapsed_us >= 1'000'000) {
                 uint32_t kbps = (elapsed_us > 0)
-                    ? static_cast<uint32_t>((bytes_since_last_push * 8000ULL)
+                    ? static_cast<uint32_t>((this->bytes_since_last_push_ * 8000ULL)
                                             / static_cast<uint64_t>(elapsed_us))
                     : bitrate_kbps.load(std::memory_order_relaxed);
 
@@ -422,8 +423,8 @@ struct SrtOutput::Impl {
                 m.magic_tail   = RJ_METRIC_MAGIC;
                 rj_metrics_push(&m);
 
-                last_metric_push_us   = static_cast<int64_t>(ts_us);
-                bytes_since_last_push = 0;
+                this->last_metric_push_us_   = static_cast<int64_t>(ts_us);
+                this->bytes_since_last_push_ = 0;
             }
         }
         return true;
@@ -460,6 +461,9 @@ struct SrtOutput::Impl {
 
     // SEH-korumalı, leaf-only C kaynak temizliği.
     void do_seh_cleanup() noexcept {
+        if (already_cleaned_up_.exchange(true, std::memory_order_acq_rel)) {
+            return;  // ikinci çağrıyı atla — SrtGlobalRegistry::release() yalnızca bir kez çalışsın
+        }
         SRTSOCKET local_sock        = sock;
         SRTSOCKET local_client_sock = client_sock_;
         int       local_eid         = epoll_id;

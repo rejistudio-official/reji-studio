@@ -159,20 +159,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 if (cmd == 4) onFadeTransition();
             }, Qt::QueuedConnection);
         });
-    }
 
-    // run_frame() ayrı thread'de çalışsın
-    frame_thread_ = new QThread(this);
-    auto* worker = new QObject();
-    worker->moveToThread(frame_thread_);
-    connect(frame_thread_, &QThread::started, worker, [this, worker] {
-        while (!frame_thread_->isInterruptionRequested()) {
-            pipeline_->run_frame();
-            // D10b: AcquireNextFrame timeout_ms=17>0 — DXGI zaten pacing yapar, msleep gereksiz
-        }
-        delete worker;
-    });
-    frame_thread_->start();
+        // run_frame() ayrı thread'de çalışsın — sadece init() başarılıysa başlat
+        frame_thread_ = new QThread(this);
+        auto* worker = new QObject();
+        worker->moveToThread(frame_thread_);
+        connect(frame_thread_, &QThread::started, worker, [this, worker] {
+            while (!frame_thread_->isInterruptionRequested()) {
+                pipeline_->run_frame();
+                // D10b: AcquireNextFrame timeout_ms=17>0 — DXGI zaten pacing yapar, msleep gereksiz
+            }
+            delete worker;
+        });
+        frame_thread_->start();
+    }
 }
 
 MainWindow::~MainWindow() {

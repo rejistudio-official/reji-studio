@@ -208,6 +208,10 @@ private:
     bool preview_staging_dirty_ = false;
     bool preview_mapped_        = false;
 
+    /// AMD fallback: D3D11 Event query used to spin-wait for CopyResource completion.
+    /// Created alongside shared_texture_ in init_preview_staging().
+    Microsoft::WRL::ComPtr<ID3D11Query> amd_copy_fence_;
+
     mutable std::mutex cb_mutex_;       ///< D10a: guards preview_cb_
     bool               preview_cb_ = false;  ///< D10a: true when Pipeline::preview_cb is registered
 

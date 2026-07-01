@@ -4,6 +4,7 @@
 #include "../include/frame_profiler.h"
 #include <cassert>
 #include <cstdio>
+#include <intrin.h>   // YieldProcessor
 
 namespace reji {
 
@@ -379,12 +380,20 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
             display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
             keyed_mutex_shared_->ReleaseSync(1);  // hand off to Vulkan (key=1)
         } else {
-            // Keyed mutex yok veya desteklenmiyor — dogrudan kopyala, ReleaseSync cagirma
+            // AMD fallback: keyed mutex yok — dogrudan kopyala, tamamlanma icin fence bekle.
             display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
-            // H3: AMD path — Flush ile pending D3D11 komutlarini GPU'ya gonder.
-            // Tamamlanma garantisi yok; production icin keyed mutex zorunludur.
-            if (!use_keyed_mutex_ && keyed_mutex_shared_) {
-                display_ctx_->d3d_context()->Flush();
+            // Flush: pending komutları GPU komut kuyruğuna gönder.
+            display_ctx_->d3d_context()->Flush();
+            // Completion wait: GpuResourceManager::wait_display_gpu_idle() ile aynı pattern.
+            // D3D11 Event query End()+GetData() ile GPU'nun CopyResource'u bitirmesini bekle.
+            if (amd_copy_fence_) {
+                auto* ctx = display_ctx_->d3d_context();
+                ctx->End(amd_copy_fence_.Get());
+                BOOL done = FALSE;
+                while (ctx->GetData(amd_copy_fence_.Get(), &done, sizeof(done),
+                                    D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_FALSE || !done) {
+                    YieldProcessor();
+                }
             }
         }
     }
@@ -469,6 +478,16 @@ bool DxgiCapturePipeline::init_preview_staging() {
         printf("[DxgiCapture] staging_texture_ creation failed: 0x%08lX\n", hr);
         shared_texture_.Reset();
         return false;
+    }
+
+    // AMD fallback: D3D11 Event query for spin-waiting after CopyResource + Flush.
+    // Same pattern as GpuResourceManager::wait_display_gpu_idle().
+    D3D11_QUERY_DESC qd{};
+    qd.Query = D3D11_QUERY_EVENT;
+    HRESULT qhr = display_ctx_->d3d_device()->CreateQuery(&qd, &amd_copy_fence_);
+    if (FAILED(qhr)) {
+        fprintf(stderr, "[DxgiCapture] amd_copy_fence_ CreateQuery failed: 0x%08lX (AMD sync degraded)\n", qhr);
+        fflush(stderr);
     }
 
     printf("[DxgiCapture] Dual textures initialized: %ux%u fmt=%u\n",
