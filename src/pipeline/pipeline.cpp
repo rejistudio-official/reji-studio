@@ -34,6 +34,7 @@
 #include "audio/wasapi_capture.h"
 #include "include/audio_subsystem.h"
 #include "output/srt_output.h"
+#include "include/output_subsystem.h"
 #include "ffi_bridge.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -146,18 +147,6 @@ static void seh_connection_lost(const char* reason) noexcept {
     __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-struct SrtSendArgs {
-    rj::pipeline::output::SrtOutput* out;
-    const uint8_t*                   data;
-    size_t                           size;
-    int64_t                          pts;
-};
-__declspec(noinline)
-static int seh_srt_send(SrtSendArgs* a) noexcept {
-    __try   { return a->out->send_packet(a->data, a->size, a->pts) ? 0 : 1; }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return -2; }
-}
-
 __declspec(noinline)
 static void seh_uninit_com(bool* ok) noexcept {
     __try   { CoUninitialize(); }
@@ -197,14 +186,10 @@ struct Pipeline::Impl {
     reji::DxgiCapturePipeline*                               capture_dxgi_ = nullptr;
     std::unique_ptr<reji::NvencEncoder>                     encoder;
     AudioSubsystem                                          audio_sub_;   // Aşama 3
-    std::unique_ptr<rj::pipeline::output::SrtOutput>        srt;
+    OutputSubsystem                                         output_sub_;  // Aşama 4
 
     // v0.5.1: ExternalMemoryBridge for zero-copy D3D11↔Vulkan interop
     std::unique_ptr<rj::pipeline::gpu::ExternalMemoryBridge> ext_bridge;
-
-    // Thread-safe SRT pointer: packet callback (encode thread) vs
-    // stop_stream() / shutdown() (potentially another thread).
-    std::atomic<rj::pipeline::output::SrtOutput*> srt_atomic{nullptr};
 
     // v0.4+: Action processing thread (polls rj_action_dequeue)
     std::thread action_processor;
@@ -310,7 +295,8 @@ struct Pipeline::Impl {
     }
 
     // Called from NVENC packet callback (same thread as run_frame).
-    // srt_atomic provides acquire/release visibility against stop_stream().
+    // "Sıkı düğüm": hem Output (send) hem Metrics (frame_drops) alt sistemlerine
+    // dokunur — bu yüzden orkestratörde kalır; gönderme OutputSubsystem'e devredilir.
     static void on_packet(const reji::NvencEncoder::Packet& pkt,
                           Impl* self) noexcept {
         static std::atomic<int> pkt_count{0};
@@ -321,11 +307,8 @@ struct Pipeline::Impl {
         fflush(stderr);
 
         if (!self->streaming.load(std::memory_order_acquire)) return;
-        auto* out = self->srt_atomic.load(std::memory_order_acquire);
-        if (!out) return;
-        SrtSendArgs args{out, pkt.data, pkt.size, pkt.pts};
-        int rc = seh_srt_send(&args);
-        if (rc != 0)
+        // send() false döndürürse (aktif çıkış vardı ama gönderim başarısız) → drop.
+        if (!self->output_sub_.send(pkt.data, pkt.size, pkt.pts))
             self->frame_drops.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -571,17 +554,15 @@ bool Pipeline::init(const Config& cfg_in) {
         }
     }
 
-    //  SrtOutput 
-    rj::pipeline::output::SrtOutput::Config scfg{};
+    //  SrtOutput  OutputSubsystem alt sistemi
+    OutputSubsystem::Config scfg{};
     strncpy_s(scfg.host, sizeof(scfg.host), cfg_in.srt_host, sizeof(scfg.host) - 1);
     scfg.port           = cfg_in.srt_port;
     scfg.latency_ms     = 200;
     scfg.bandwidth_kbps = 0;
     scfg.caller_mode    = true;
-    s.srt = std::make_unique<rj::pipeline::output::SrtOutput>();
-    if (!s.srt->init(scfg)) {
+    if (!s.output_sub_.init(scfg)) {
         dbglog("[Pipeline] SrtOutput::init failed -- running without SRT output");
-        s.srt.reset();  // SRT olmadan devam et
     }
 
     //  Rust monitor 
@@ -608,13 +589,13 @@ bool Pipeline::start_stream() {
     if (!impl_ || !impl_->initialized.load(std::memory_order_acquire)) return false;
     if (impl_->streaming.exchange(true, std::memory_order_acq_rel)) return true;
 
-    if (!impl_->srt) {
+    if (!impl_->output_sub_.is_active()) {
         dbglog("[Pipeline] start_stream: SRT not initialized -- preview-only mode");
         // SRT olmadan streaming flag'ini set et, preview devam etsin
     }
 
     // Publish SRT pointer before any packet callback can observe it.
-    impl_->srt_atomic.store(impl_->srt.get(), std::memory_order_release);
+    impl_->output_sub_.set_streaming(true);
     (void)impl_->audio_sub_.start();
     dbglog("[Pipeline] streaming started");
     return true;
@@ -625,7 +606,7 @@ bool Pipeline::stop_stream() {
     if (!impl_->streaming.exchange(false, std::memory_order_acq_rel)) return true;
 
     // Null the atomic pointer before any further packets can be sent.
-    impl_->srt_atomic.store(nullptr, std::memory_order_release);
+    impl_->output_sub_.set_streaming(false);
     (void)impl_->audio_sub_.stop();
     dbglog("[Pipeline] streaming stopped");
     return true;
@@ -907,7 +888,7 @@ bool Pipeline::shutdown() {
         auto& s = *impl_;
 
         s.streaming.store(false, std::memory_order_release);
-        s.srt_atomic.store(nullptr, std::memory_order_release);
+        s.output_sub_.set_streaming(false);   // srt_atomic null — encode thread güvenliği
 
         // v0.4+: Stop action processor thread
         s.action_processor_running.store(false, std::memory_order_release);
@@ -922,11 +903,11 @@ bool Pipeline::shutdown() {
 
         // SEH-protected teardown  raw pointers only, no C++ destructors in scope.
         ok = seh_shutdown_subsystems(
-            s.audio_sub_.raw(), s.encoder.get(), s.srt.get());
+            s.audio_sub_.raw(), s.encoder.get(), s.output_sub_.raw());
 
         // RAII reset outside __try  destructors run safely here.
-        s.audio_sub_.shutdown();   // audio_ reset (SEH-leaf DIŞINDA)
-        s.srt.reset();
+        s.audio_sub_.shutdown();    // audio_ reset (SEH-leaf DIŞINDA)
+        s.output_sub_.shutdown();   // srt_atomic null + srt_ reset (SEH-leaf DIŞINDA)
         s.encoder.reset();
         s.capture.reset();
 
