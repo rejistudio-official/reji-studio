@@ -44,9 +44,8 @@ const IID_IDXGIResource1 = w32.GUID{
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const PoolSlot = struct {
-    image:     vk.VkImage        = null,
-    memory:    vk.VkDeviceMemory = null,
-    gl_handle: ?*anyopaque       = null,
+    image:  vk.VkImage        = null,
+    memory: vk.VkDeviceMemory = null,
 };
 
 const State = struct {
@@ -62,6 +61,7 @@ const State = struct {
     gl_target_handles: [POOL_SIZE]?*anyopaque             = [1]?*anyopaque{null} ** POOL_SIZE,
     gl_sync_semaphores: [POOL_SIZE]vk.VkSemaphore        = [1]vk.VkSemaphore{null} ** POOL_SIZE,
     gl_sync_handles:    [POOL_SIZE]?*anyopaque      = [1]?*anyopaque{null} ** POOL_SIZE,
+    d3d11_nt_handles:   [POOL_SIZE]?*anyopaque      = [1]?*anyopaque{null} ** POOL_SIZE,
     cached_texture_ptr: ?*anyopaque                 = null,
     shutdown_called: std.atomic.Value(bool) =
         std.atomic.Value(bool).init(false),
@@ -206,7 +206,8 @@ pub export fn ext_bridge_set_device(
 }
 
 fn create_vulkan_image_from_d3d11(
-    tex: ?*anyopaque,
+    tex:  ?*anyopaque,
+    slot: u32,
 ) !ImageResult {
     const d3d_tex: *w32.ID3D11Texture2D =
         @ptrCast(@alignCast(tex orelse return error.NullTexture));
@@ -238,7 +239,8 @@ fn create_vulkan_image_from_d3d11(
     );
     if (hr_sh < 0) return error.SharedHandleFailed;
     if (nt_handle == null) return error.NullSharedHandle;
-    // NT handle — CloseHandle caller sorumlu
+    // NT handle — invalidate_pool() içinde kapatılacak
+    state.d3d11_nt_handles[slot] = nt_handle;
 
     // Vulkan image oluştur ve state'e yaz
     const result = try create_vulkan_image(desc.Width, desc.Height, vk_fmt, nt_handle);
@@ -272,11 +274,11 @@ fn invalidate_pool() void {
             slot.memory = null;
         }
     }
-    // NT handle'ları kapat
-    for (&state.image_pool) |*slot| {
-        if (slot.gl_handle) |h| {
-            _ = std.os.windows.CloseHandle(h);
-            slot.gl_handle = null;
+    // D3D11 NT handle'larını kapat
+    for (&state.d3d11_nt_handles) |*h| {
+        if (h.*) |handle| {
+            _ = std.os.windows.CloseHandle(handle);
+            h.* = null;
         }
     }
     // GL target pool ve sync semaphore'lar D3D11 texture değişimine bağlı değil —
@@ -353,7 +355,7 @@ pub export fn ext_bridge_get_frame_images(
 
         // Yeni texture'dan image oluştur
         const result = create_vulkan_image_from_d3d11(
-            @ptrCast(tex)) catch {
+            @ptrCast(tex), slot) catch {
             std.debug.print(
                 "[ExtBridgeZig] image create failed\n", .{});
             return false;
