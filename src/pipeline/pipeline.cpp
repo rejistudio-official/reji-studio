@@ -21,6 +21,7 @@
 #include "include/frame_profiler.h"
 #include "include/frame_pacer.h"
 #include "include/metrics_subsystem.h"
+#include "include/command_router.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
 #ifndef REJI_VULKAN_MOCK
@@ -100,7 +101,6 @@ namespace {
 
 //  Constants
 constexpr uint32_t kMetricMagic    = RJ_METRIC_MAGIC;
-constexpr int      kCmdDrainMax    = 8;
 constexpr uint32_t kCaptureTimeout = 17;   // ms  60 Hz budget
 
 //  QPC helpers 
@@ -118,27 +118,9 @@ inline void dbglog(const char* fmt, ...) noexcept {
 // Rules: __declspec(noinline), only POD params, no destructible locals.
 
 __declspec(noinline)
-static int seh_command_drain(RjCommand* buf, int max) noexcept {
-    __try   { return rj_command_drain(buf, max); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return -1; }
-}
-
-__declspec(noinline)
 static void seh_start_monitor() noexcept {
     __try   { rj_start_monitor(); }
     __except(EXCEPTION_EXECUTE_HANDLER) {}
-}
-
-__declspec(noinline)
-static int seh_ws_command_dequeue(int* cmd, int* param) noexcept {
-    __try   { return rj_ws_command_dequeue(cmd, param); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
-}
-
-__declspec(noinline)
-static uint16_t seh_get_ws_port() noexcept {
-    __try   { return rj_get_ws_port(); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
 __declspec(noinline)
@@ -191,9 +173,9 @@ struct Pipeline::Impl {
     // v0.5.1: ExternalMemoryBridge for zero-copy D3D11↔Vulkan interop
     std::unique_ptr<rj::pipeline::gpu::ExternalMemoryBridge> ext_bridge;
 
-    // v0.4+: Action processing thread (polls rj_action_dequeue)
-    std::thread action_processor;
-    std::atomic<bool> action_processor_running{false};
+    // Aşama 5: Komut/aksiyon yönlendirme — action_processor thread + SPSC ring +
+    // her-frame drain (WS port log, command drain, WS drain, SPSC drain).
+    CommandRouter command_router_;
 
     // Aşama 2: Metrics alt sistemi — CpuMeter + MetricsCollector + fps ölçümü
     // (eski cpu, metrics, last_frame_ticks alanları buraya taşındı).
@@ -201,7 +183,6 @@ struct Pipeline::Impl {
 
     std::atomic<bool>    initialized{false};
     std::atomic<bool>    streaming{false};
-    bool                 ws_port_logged_{false};
     std::atomic<bool>    com_owned{false};
     std::atomic<bool>    timer_set{false};
 
@@ -215,29 +196,14 @@ struct Pipeline::Impl {
     std::atomic<uint32_t> height{0};
 
     std::atomic<uint32_t> frame_drops{0};
-    std::array<RjCommand, kCmdDrainMax> cmd_buf{};
 
     // Aşama-0 test seam: son run_frame() metrik örneği (get_last_metric_sample).
     // Yalnızca frame thread yazar/okur; rj_metrics_poll stub olduğu için gerekli.
     RjMetricSample last_sample_{};
 
-    // C6: SPSC ring buffer — action_processor (producer) → run_frame (consumer)
-    struct FrameCmd { int action_type; int32_t param1; };
-    static constexpr int kFrameCmdCap = 16;
-    std::array<FrameCmd, kFrameCmdCap> frame_cmd_buf_{};
-    std::atomic<uint32_t> frame_cmd_head_{0};
-    std::atomic<uint32_t> frame_cmd_tail_{0};
-
-    bool push_frame_cmd(const FrameCmd& cmd) noexcept {
-        uint32_t head = frame_cmd_head_.load(std::memory_order_relaxed);
-        uint32_t next = (head + 1) % kFrameCmdCap;
-        if (next == frame_cmd_tail_.load(std::memory_order_acquire)) return false;
-        frame_cmd_buf_[head] = cmd;
-        frame_cmd_head_.store(next, std::memory_order_release);
-        return true;
-    }
-
-    void apply_frame_cmd(const FrameCmd& cmd) noexcept {
+    // apply_frame_cmd: SPSC ring'ten tüketilen komutu Encode'a uygular.
+    // CommandRouter'a callback olarak geçilir (Impl Encode'a dokunan tarafı tutar).
+    void apply_frame_cmd(const CommandRouter::FrameCmd& cmd) noexcept {
         if (!encoder) return;
         switch (cmd.action_type) {
             case RJ_ACTION_BITRATE_REDUCE:
@@ -574,9 +540,12 @@ bool Pipeline::init(const Config& cfg_in) {
     }
     seh_start_monitor();
 
-    // v0.4+: Start action processor thread (polls rj_action_dequeue)
-    s.action_processor_running.store(true, std::memory_order_release);
-    s.action_processor = std::thread([this] { action_processor_main(); });
+    // v0.4+: Start action processor thread (CommandRouter alt sistemi).
+    // scene_cb geç-bağlanır (invoke_scene_cmd_ çağrı anında scene_cmd_cb'i okur);
+    // on_action → apply_action (bitrate/res/fps → SPSC ring push).
+    s.command_router_.start(
+        [this](int cmd)            { invoke_scene_cmd_(cmd); },
+        [this](const RjAction& a)  { (void)apply_action(a); });
 
     s.initialized.store(true, std::memory_order_release);
     dbglog("[Pipeline] init OK %ux%u@%u fps %u kbps audio=%d loopback=%d",
@@ -690,50 +659,16 @@ bool Pipeline::run_frame() {
 
     const int64_t frame_start = qpc_ticks();
 
-    // 0) İlk frame'de gerçek WS portunu logla (Tokio bind'ı async — init() anında henüz hazır olmayabilir)
-    if (!s.ws_port_logged_) {
-        uint16_t ws_port = seh_get_ws_port();
-        if (ws_port != 0) {
-            dbglog("[Pipeline] WS listening on ws://127.0.0.1:%u/ws (control: http://127.0.0.1:%u/)",
-                   (unsigned)ws_port, (unsigned)ws_port);
-            s.ws_port_logged_ = true;
-        }
-    }
-
-    // 1) Command drain  clamp [0,8]; log negative
-    int n = seh_command_drain(s.cmd_buf.data(), kCmdDrainMax);
-    if (n < 0) {
-        dbglog("[Pipeline] rj_command_drain negative: %d", n);
-        n = 0;
-    } else if (n > kCmdDrainMax) {
-        n = kCmdDrainMax;
-    }
-    for (int i = 0; i < n; ++i) s.apply_command(s.cmd_buf[i]);
-
-    // 1a) WS command drain — rj_ws_command_queue (Rust) → run_frame() thread
-    {
-        int ws_cmd = 0, ws_param = 0;
-        while (seh_ws_command_dequeue(&ws_cmd, &ws_param)) {
-            switch (ws_cmd) {
-                case 1: (void)start_stream();      break;
-                case 2: (void)stop_stream();       break;
-                case 3: invoke_scene_cmd_(3);      break;  // scene_cut
-                case 4: invoke_scene_cmd_(4);      break;  // scene_fade
-                default: dbglog("[Pipeline] unknown ws_cmd=%d", ws_cmd); break;
-            }
-        }
-    }
-
-    // 1b) C6: Drain SPSC frame commands from action_processor (no lock needed)
-    {
-        uint32_t tail = s.frame_cmd_tail_.load(std::memory_order_relaxed);
-        uint32_t head = s.frame_cmd_head_.load(std::memory_order_acquire);
-        while (tail != head) {
-            s.apply_frame_cmd(s.frame_cmd_buf_[tail]);
-            tail = (tail + 1) % Impl::kFrameCmdCap;
-        }
-        s.frame_cmd_tail_.store(tail, std::memory_order_release);
-    }
+    // 0/1/1a/1b) Komut/aksiyon drain (CommandRouter alt sistemi).
+    // Encode'a/state'e dokunan tüm mantık callback ile geçilir — CommandRouter
+    // bunları bilmez. ws_cmd 1/2 → start/stop_stream; 3/4 → scene_cb (start()'ta).
+    s.command_router_.drain_and_apply(
+        [&s](const RjCommand& c)                { s.apply_command(c); },
+        [&s](const CommandRouter::FrameCmd& fc) { s.apply_frame_cmd(fc); },
+        [this](int ws_cmd) {
+            if      (ws_cmd == 1) (void)start_stream();
+            else if (ws_cmd == 2) (void)stop_stream();
+        });
 
     // 2) Capture + encode
     if (s.capture) {
@@ -890,11 +825,8 @@ bool Pipeline::shutdown() {
         s.streaming.store(false, std::memory_order_release);
         s.output_sub_.set_streaming(false);   // srt_atomic null — encode thread güvenliği
 
-        // v0.4+: Stop action processor thread
-        s.action_processor_running.store(false, std::memory_order_release);
-        if (s.action_processor.joinable()) {
-            s.action_processor.join();
-        }
+        // v0.4+: Stop action processor thread (CommandRouter: running=false + join)
+        s.command_router_.stop();
 
         // Finalize profiler
         if (profiler_) {
@@ -957,29 +889,6 @@ rj::pipeline::gpu::ExternalMemoryBridge* Pipeline::get_external_memory_bridge() 
     return impl_->ext_bridge.get();
 }
 
-// v0.4+: Action processor thread main loop
-void Pipeline::action_processor_main() {
-    // D14: COM init once at thread start — required for WMI/DXGI calls on this thread
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
-        fprintf(stderr, "[Pipeline] COM init failed: 0x%08X\n", hr);
-        fflush(stderr);
-    }
-
-    while (impl_->action_processor_running.load(std::memory_order_acquire)) {
-        RjAction action{};
-        // Poll rj_action_dequeue (FFI call) — non-blocking, returns false if queue empty
-        if (rj_action_dequeue(&action)) {
-            apply_action(action);
-        }
-        // Prevent busy-wait: yield briefly if queue is empty
-        Sleep(100);  // 100ms poll interval — enqueue_action() kullanılmadığı için sık wake-up gereksiz
-    }
-    dbglog("[Pipeline] action processor stopped");
-
-    CoUninitialize();  // D14: paired with CoInitializeEx above
-}
-
 // v0.4+: Apply a single action from the rule engine.
 // C6: All encoder calls are routed through the SPSC frame_cmd queue so
 // that set_bitrate/set_resolution/set_fps_limit execute on the frame
@@ -992,7 +901,7 @@ bool Pipeline::apply_action(const RjAction& action) {
             uint32_t current    = impl_->bitrate_kbps.load(std::memory_order_relaxed);
             uint32_t new_bitrate = static_cast<uint32_t>(current * 0.85f);
             new_bitrate = (std::max)(new_bitrate, impl_->cfg.min_bitrate_kbps);
-            impl_->push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_bitrate)});
+            impl_->command_router_.push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_bitrate)});
             return true;
         }
         case RJ_ACTION_BITRATE_RECOVER: {
@@ -1003,16 +912,16 @@ bool Pipeline::apply_action(const RjAction& action) {
                     static_cast<uint32_t>(current * 1.15f),
                     target
                 );
-                impl_->push_frame_cmd({RJ_ACTION_BITRATE_RECOVER, static_cast<int32_t>(new_bitrate)});
+                impl_->command_router_.push_frame_cmd({RJ_ACTION_BITRATE_RECOVER, static_cast<int32_t>(new_bitrate)});
                 return true;
             }
             break;
         }
         case RJ_ACTION_SCALE_RESOLUTION:
-            impl_->push_frame_cmd({RJ_ACTION_SCALE_RESOLUTION, action.param1});
+            impl_->command_router_.push_frame_cmd({RJ_ACTION_SCALE_RESOLUTION, action.param1});
             return true;
         case RJ_ACTION_CAP_FPS:
-            impl_->push_frame_cmd({RJ_ACTION_CAP_FPS, action.param1});
+            impl_->command_router_.push_frame_cmd({RJ_ACTION_CAP_FPS, action.param1});
             return true;
         default:
             dbglog("[Pipeline] unknown action_type=%u", action.action_type);

@@ -125,10 +125,8 @@ private:
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<rj::FrameProfiler> profiler_;
 
-    /// v0.4+: Action processing thread main loop — polls rj_action_dequeue().
-    void action_processor_main();
-
     /// v0.4+: Apply a single action (bitrate/resolution/fps change).
+    /// CommandRouter'ın action thread'inden callback olarak çağrılır.
     bool apply_action(const RjAction& action);
 
     std::once_flag shutdown_once_;

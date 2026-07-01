@@ -6,6 +6,7 @@ set(PIPELINE_SOURCES
     frame_pacer.cpp
     metrics_subsystem.cpp
     output_subsystem.cpp
+    command_router.cpp
     frame_profiler.cpp
     metrics_collector.cpp
     copy_optimizer.cpp
