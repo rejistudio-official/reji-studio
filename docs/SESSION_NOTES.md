@@ -154,3 +154,13 @@ tek nokta arızaları.
 - action_queue/ws_command_queue backpressure/overflow handling
 - Zig modül-global state (external_memory_bridge.zig, vulkan_initializer.zig) —
   çoklu instance senaryosu için hazır değil
+
+### Sonnet 5 Review — 4 Kritik Bulgu Düzeltildi
+- Frame thread busy-loop: init() başarısız olursa frame_thread_ artık hiç başlamıyor
+  (önceden %100 CPU busy-loop'a giriyordu)
+- SrtOutput çift shutdown: already_cleaned_up_ atomic flag ile do_seh_cleanup() idempotent hale geldi
+  (önceden SrtGlobalRegistry refcount negatife düşebiliyordu)
+- AMD path GPU sync: amd_copy_fence_ (ID3D11Query) eklendi, Flush() sonrası gerçek completion wait
+  (önceden Flush() sadece komut gönderiyordu, tamamlanma garantisi yoktu — torn frame riski)
+- SrtOutput::send_internal static state: last_metric_push_us_/bytes_since_last_push_
+  Impl instance field'ına taşındı (önceden tüm SrtOutput instance'ları arasında paylaşılıyordu)
