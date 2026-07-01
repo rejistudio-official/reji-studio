@@ -118,3 +118,12 @@ ABI güvenli (offsetof assert + otomatik cbindgen), performans güvenli (throttl
   önceden Recover aksiyonları yanlışlıkla "Reduce" olarak gösteriliyordu (yanıltıcı UI)
 - Doğrulama: rules.json eşiği cpu>80% — test yükü 50%'de kaldı, aksiyon tetiklenmedi (beklenen);
   pipeline drop=0% ile sorunsuz çalışıyor
+
+### ExternalMemoryBridge NT Handle Leak + Stack Canary (GLM 5.2 özgün bulgular)
+- NT handle leak: create_vulkan_image_from_d3d11() her çağrıldığında (texture pointer değişiminde)
+  handle state'e kaydedilmiyordu, invalidate_pool() bunları hiç kapatmıyordu — düzeltildi,
+  d3d11_nt_handles[] array'i eklendi
+- Dead code temizliği: PoolSlot.gl_handle hiç set edilmeyen, hiç çalışmayan bir CloseHandle
+  bloğuna sahipti — kaldırıldı
+- Stack canary: __stack_chk_guard sabit 0xDEADBEEF değerindeydi (SSP etkisiz) — BCryptGenRandom
+  ile .CRT$XCU section üzerinden main() öncesi rastgele değer atanıyor artık
