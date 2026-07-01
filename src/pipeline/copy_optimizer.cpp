@@ -67,6 +67,19 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
             shutdown(); return false;
         }
 
+        // Query blit capability for VK_FORMAT_B8G8R8A8_UNORM
+        VkFormatProperties format_props{};
+        vkGetPhysicalDeviceFormatProperties(phys_device_, VK_FORMAT_B8G8R8A8_UNORM, &format_props);
+
+        const bool blit_src_supported = (format_props.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0;
+        const bool blit_dst_supported = (format_props.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
+        const bool linear_filter_supported = (format_props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+
+        use_blit_ = blit_src_supported && blit_dst_supported;
+
+        fprintf(stderr, "[GpuCopyOptimizer] Blit capability: src=%d dst=%d linear=%d -> use_blit=%d\n",
+            blit_src_supported, blit_dst_supported, linear_filter_supported, use_blit_);
+
         // Create timeline semaphore (non-blocking sync)
         VkSemaphoreTypeCreateInfoKHR timeline_info = {};
         timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
@@ -236,11 +249,22 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                 (void*)d3d11_staging_vk, (void*)vulkan_target, width, height);
 #endif
 
-        vkCmdBlitImage(cmd,
-                       d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       vulkan_target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       1, &blit_region,
-                       VK_FILTER_LINEAR);
+        if (use_blit_) {
+            vkCmdBlitImage(cmd, d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           vulkan_target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &blit_region, VK_FILTER_LINEAR);
+        } else {
+            // blit desteklenmiyorsa vkCmdCopyImage ile pixel-perfect kopyalama yap
+            VkImageCopy copy_region{};
+            copy_region.srcSubresource = blit_region.srcSubresource;
+            copy_region.dstSubresource = blit_region.dstSubresource;
+            copy_region.srcOffset = {0, 0, 0};
+            copy_region.dstOffset = {0, 0, 0};
+            copy_region.extent = {width, height, 1};
+            vkCmdCopyImage(cmd, d3d11_staging_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           vulkan_target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &copy_region);
+        }
 
         // ========== LAYOUT TRANSITION 3: Target TRANSFER_DST → SHADER_READ_ONLY ==========
         VkImageMemoryBarrier barrier_final = {};

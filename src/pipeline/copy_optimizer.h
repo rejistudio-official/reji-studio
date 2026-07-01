@@ -111,6 +111,8 @@ private:
 
     std::atomic<uint32_t> last_used_slot_{0};
 
+    bool use_blit_ = true;
+
     uint32_t dispatch_x_ = 1;
     uint32_t dispatch_y_ = 1;
     uint32_t graphics_queue_family_ = 0;  // E4: external acquire/release barrier için
