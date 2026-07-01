@@ -3,6 +3,7 @@ project(reji_pipeline CXX C ASM_MASM)
 
 set(PIPELINE_SOURCES
     pipeline.cpp
+    frame_pacer.cpp
     frame_profiler.cpp
     metrics_collector.cpp
     copy_optimizer.cpp

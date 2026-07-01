@@ -19,6 +19,7 @@
 #include "include/pipeline.h"
 #include "include/i_screen_capture.h"
 #include "include/frame_profiler.h"
+#include "include/frame_pacer.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
 #ifndef REJI_VULKAN_MOCK
@@ -98,7 +99,6 @@ namespace {
 constexpr uint32_t kMetricMagic    = RJ_METRIC_MAGIC;
 constexpr int      kCmdDrainMax    = 8;
 constexpr uint32_t kCaptureTimeout = 17;   // ms  60 Hz budget
-constexpr int64_t  kResyncFrames   = 4;    // catch-up spiral guard
 
 //  QPC helpers 
 inline int64_t qpc_ticks() noexcept {
@@ -257,11 +257,8 @@ struct Pipeline::Impl {
     std::atomic<bool>    com_owned{false};
     std::atomic<bool>    timer_set{false};
 
-    int64_t  qpc_freq         = 1;
-    int64_t  frame_ticks      = 0;
-    int64_t  next_deadline    = 0;
-    int64_t  pts_origin       = 0;
-    int64_t  last_frame_ticks = 0;
+    FramePacer pacer_;                 // Aşama 1: QPC/pts/pacing alt sistemi
+    int64_t  last_frame_ticks = 0;     // Metrics'e ait (fps ölçümü) — Aşama 2'de MetricsSubsystem'e taşınacak
     std::atomic<uint32_t> bitrate_kbps{0};
 
     // Authoritative frame dims — capture'dan gelir; recovery (frame thread) yazar,
@@ -523,16 +520,11 @@ bool Pipeline::init(const Config& cfg_in) {
     if (timeBeginPeriod(1) == TIMERR_NOERROR)
         s.timer_set.store(true, std::memory_order_release);
 
-    //  QPC 
-    LARGE_INTEGER freq{};
-    if (!QueryPerformanceFrequency(&freq) || freq.QuadPart == 0) {
-        dbglog("[Pipeline] QueryPerformanceFrequency failed");
+    //  QPC / frame pacing (FramePacer alt sistemi)
+    if (!s.pacer_.init(cfg_in.fps)) {
+        dbglog("[Pipeline] FramePacer init failed (QPC unavailable)");
         (void)shutdown(); return false;
     }
-    s.qpc_freq      = freq.QuadPart;
-    s.frame_ticks   = s.qpc_freq / static_cast<int64_t>(cfg_in.fps);
-    s.pts_origin    = qpc_ticks();
-    s.next_deadline = qpc_ticks() + s.frame_ticks;
 
     //  IScreenCapture::create() — WGC tercihli, DXGI fallback
     {
@@ -822,8 +814,7 @@ bool Pipeline::run_frame() {
 
         if (tex) {
             null_streak.store(0, std::memory_order_relaxed);
-            const int64_t pts_us =
-                ticks_to_us(frame_start - s.pts_origin, s.qpc_freq);
+            const int64_t pts_us = s.pacer_.pts_us(frame_start);
             if (s.encoder && !s.encoder->encode_frame(tex, pts_us)) {
                 s.frame_drops.fetch_add(1, std::memory_order_relaxed);
                 // 3) GPU TDR check  outside __try, free to use C++ objects
@@ -938,13 +929,13 @@ bool Pipeline::run_frame() {
         m.magic_head   = kMetricMagic;
         m.magic_tail   = kMetricMagic;
         m.timestamp_us = static_cast<uint64_t>(
-                             ticks_to_us(frame_start, s.qpc_freq));
+                             ticks_to_us(frame_start, s.pacer_.qpc_freq()));
         m.bitrate_kbps = s.bitrate_kbps.load(std::memory_order_relaxed);
         {
             auto delta = frame_start - s.last_frame_ticks;
             m.fps_actual = (delta > 0)
                 ? std::clamp(
-                      static_cast<float>(s.qpc_freq) / static_cast<float>(delta),
+                      static_cast<float>(s.pacer_.qpc_freq()) / static_cast<float>(delta),
                       0.0f, 240.0f)
                 : 0.0f;
         }
@@ -970,20 +961,8 @@ bool Pipeline::run_frame() {
     }
     s.last_frame_ticks = frame_start;
 
-    // 5) Frame pacing  absolute deadline
-    s.next_deadline += s.frame_ticks;
-    int64_t now    = qpc_ticks();
-    int64_t remain = s.next_deadline - now;
-
-    if (remain < -s.frame_ticks * kResyncFrames) {
-        s.next_deadline = now + s.frame_ticks;  // resync  prevent catch-up spiral
-    } else if (remain > 0) {
-        int64_t remain_us = ticks_to_us(remain, s.qpc_freq);
-        if (remain_us > 1500)
-            Sleep(static_cast<DWORD>((remain_us - 1000) / 1000));
-        while (qpc_ticks() < s.next_deadline)
-            YieldProcessor();
-    }
+    // 5) Frame pacing  absolute deadline (FramePacer alt sistemi)
+    s.pacer_.pace();
 
     if (s.metrics) s.metrics->poll();
 
