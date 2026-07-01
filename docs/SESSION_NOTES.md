@@ -93,3 +93,8 @@ ABI güvenli (offsetof assert + otomatik cbindgen), performans güvenli (throttl
 - AnyDesk gibi araçlar 7070'i tutabiliyor — otomatik fallback eklendi (7070→7071→7072→7073)
 - rj_get_ws_port() ile gerçek port C++'a bildiriliyor, loglanıyor
 - control.html zaten location.port kullandığı için otomatik doğru porta bağlanıyor
+
+### Vulkan Blit Capability Check (Code Review #4 — Opus/Sonnet/GLM ortak bulgu)
+- init(): vkGetPhysicalDeviceFormatProperties ile VK_FORMAT_B8G8R8A8_UNORM için blit_src/blit_dst desteği sorgulanıyor
+- execute_copy(): use_blit_ false ise vkCmdCopyImage fallback devreye giriyor
+- AMD 780M sonucu: src=1 dst=1 linear=1 — mevcut donanımda sorun yoktu ama capability check artık kalıcı güvenlik ağı
