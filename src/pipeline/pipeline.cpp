@@ -37,6 +37,7 @@
 #include "include/audio_subsystem.h"
 #include "output/srt_output.h"
 #include "include/output_subsystem.h"
+#include "include/gpu_interop_subsystem.h"
 #include "ffi_bridge.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -171,8 +172,9 @@ struct Pipeline::Impl {
     AudioSubsystem                                          audio_sub_;   // Aşama 3
     OutputSubsystem                                         output_sub_;  // Aşama 4
 
-    // v0.5.1: ExternalMemoryBridge for zero-copy D3D11↔Vulkan interop
-    std::unique_ptr<rj::pipeline::gpu::ExternalMemoryBridge> ext_bridge;
+    // Aşama 7: D3D11↔Vulkan zero-copy interop — ExternalMemoryBridge yaşam döngüsü +
+    // son frame VkImage cache'i (eski ext_bridge/last_staging_vk/last_target_vk alanları).
+    GpuInteropSubsystem                                     gpu_sub_;     // Aşama 7
 
     // Aşama 5: Komut/aksiyon yönlendirme — action_processor thread + SPSC ring +
     // her-frame drain (WS port log, command drain, WS drain, SPSC drain).
@@ -235,10 +237,8 @@ struct Pipeline::Impl {
     // WebSocket scene command callback — invoked from run_frame() ws_command drain for cmd=3/4
     Pipeline::SceneCommandCallback   scene_cmd_cb;
 
-    // v0.5.1: Cache last frame images for get_last_frame_images() getter
-    // E2: atomic — frame thread writes, GL thread reads via get_last_frame_images()
-    std::atomic<VkImage> last_staging_vk{nullptr};
-    std::atomic<VkImage> last_target_vk{nullptr};
+    // Son frame VkImage cache'i Aşama 7'de GpuInteropSubsystem'e taşındı
+    // (gpu_sub_.cache_last_images / get_last_frame_images).
 
     // WGC path CPU staging — lazily created on first preview frame
     Microsoft::WRL::ComPtr<ID3D11Texture2D> wgc_staging_tex_;
@@ -458,9 +458,10 @@ bool Pipeline::init(const Config& cfg_in) {
     s.width.store(s.cfg.width,  std::memory_order_release);   // atomic = runtime kaynağı
     s.height.store(s.cfg.height, std::memory_order_release);
 
-    //  ExternalMemoryBridge (v0.5.1 zero-copy D3D11↔Vulkan — DXGI path only)
+    //  GpuInteropSubsystem (v0.5.1 zero-copy D3D11↔Vulkan — DXGI path only)
     if (s.capture_dxgi_) {
         auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
+        // Sıkı düğüm: keyed-mutex capture_dxgi_'ye dokunur — orkestratörde kalır.
         s.capture_dxgi_->set_use_keyed_mutex(vk && vk->use_keyed_mutex());
         fprintf(stderr, "[Pipeline] VulkanInit: device=%p phys=%p\n",
                 (void*)(vk ? vk->device() : nullptr),
@@ -468,13 +469,9 @@ bool Pipeline::init(const Config& cfg_in) {
         fflush(stderr);
         VkDevice vk_device = vk ? vk->device() : VK_NULL_HANDLE;
         VkPhysicalDevice vk_phys = vk ? vk->physical_device() : VK_NULL_HANDLE;
-        s.ext_bridge = std::make_unique<rj::pipeline::gpu::ExternalMemoryBridge>(
-            vk_device, vk_phys);
-        if (s.ext_bridge) {
-            if (!s.ext_bridge->initialize_image_pool(VK_FORMAT_B8G8R8A8_UNORM,
-                                                       s.cfg.width, s.cfg.height)) {
-                dbglog("[Pipeline] ExternalMemoryBridge::initialize_image_pool failed");
-            }
+        // device/phys/width/height çözülüp GpuInterop'a geçilir; pool init fail → log.
+        if (!s.gpu_sub_.init(vk_device, vk_phys, s.cfg.width, s.cfg.height)) {
+            dbglog("[Pipeline] ExternalMemoryBridge::initialize_image_pool failed");
         }
     }
 
@@ -602,9 +599,10 @@ bool Pipeline::set_d3d11_frame_callback(D3D11FrameCallback cb) {
         impl_->capture_dxgi_->init_preview_staging();
     }
     // Late-bind Vulkan device to the bridge (Vulkan may not have been ready at init()).
+    // set_device() bridge yoksa no-op — eski `impl_->ext_bridge &&` guard'ı içeride.
     auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
-    if (impl_->ext_bridge && vk && vk->device()) {
-        impl_->ext_bridge->set_device(vk->device(), vk->physical_device());
+    if (vk && vk->device()) {
+        impl_->gpu_sub_.set_device(vk->device(), vk->physical_device());
     }
     fprintf(stderr, "[Pipeline] d3d11_frame_cb set OK\n"); fflush(stderr);
     return true;
@@ -621,32 +619,28 @@ void Pipeline::invoke_scene_cmd_(int cmd) noexcept {
 }
 
 bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device) {
-    if (impl_ && impl_->ext_bridge) {
-        impl_->ext_bridge->set_device(device, phys_device);
-        fprintf(stderr, "[Pipeline] notify_vulkan_ready: device=%p phys=%p\n",
-                (void*)device, (void*)phys_device);
+    if (!impl_) return true;
+    auto& s = *impl_;
+    // Eski davranış: tüm gövde ext_bridge guard'lıydı — bridge yoksa no-op.
+    if (!s.gpu_sub_.raw()) return true;
+
+    // GPU interop: set_device + GL target pool + sync semaphore. width/height
+    // atomik'lerden okunup parametre olarak geçilir (Aşama 0 test seam korunur).
+    s.gpu_sub_.notify_vulkan_ready(
+        device, phys_device,
+        s.width.load(std::memory_order_acquire),
+        s.height.load(std::memory_order_acquire));
+
+    // Sıkı düğüm: keyed mutex yeniden değerlendirme capture_dxgi_'ye dokunur —
+    // GpuInterop'un değil orkestratörün sorumluluğu. Vulkan device artık hazır;
+    // ilk init'te device=0x0 olup use_keyed_mutex_ false kalmış olabilir.
+    // (ext_bridge GL kurulumundan bağımsız — sıra değişimi güvenli.)
+    auto* vk_init = rj::pipeline::gpu::VulkanInitializer::get();
+    if (s.capture_dxgi_) {
+        bool km = vk_init && vk_init->use_keyed_mutex();
+        s.capture_dxgi_->set_use_keyed_mutex(km);
+        fprintf(stderr, "[Pipeline] notify_vulkan_ready: set_use_keyed_mutex=%d\n", (int)km);
         fflush(stderr);
-
-        // Vulkan device artık hazır — keyed mutex desteğini yeniden değerlendir.
-        // İlk init sırasında Vulkan henüz oluşmamış olabilir (device=0x0), bu yüzden
-        // use_keyed_mutex_ false kalmış olabilir.
-        auto* vk_init = rj::pipeline::gpu::VulkanInitializer::get();
-        if (impl_->capture_dxgi_) {
-            bool km = vk_init && vk_init->use_keyed_mutex();
-            impl_->capture_dxgi_->set_use_keyed_mutex(km);
-            fprintf(stderr, "[Pipeline] notify_vulkan_ready: set_use_keyed_mutex=%d\n", (int)km);
-            fflush(stderr);
-        }
-
-        impl_->ext_bridge->initialize_gl_target_pool(
-            VK_FORMAT_B8G8R8A8_UNORM,
-            impl_->width.load(std::memory_order_acquire),
-            impl_->height.load(std::memory_order_acquire)
-        );
-        if (!impl_->ext_bridge->create_gl_sync_semaphore()) {
-            fprintf(stderr, "[Pipeline] GL sync semaphore oluşturulamadı\n");
-            fflush(stderr);
-        }
     }
     return true;
 }
@@ -694,20 +688,15 @@ bool Pipeline::run_frame() {
                 (void)s.handle_device_lost();
             }
             // v0.5.1: Zero-copy D3D11 frame callback (GPU-side operations, DXGI only)
+            // get_frame_images + cache GpuInterop'a taşındı; callback'in kendisi burada.
             if (s.d3d11_frame_cb) {
-                VkImage staging_vk = nullptr;
-                VkImage target_vk = nullptr;
-                if (s.ext_bridge && s.capture_dxgi_ && s.capture_dxgi_->shared_texture()) {
-                    s.ext_bridge->get_frame_images(s.capture_dxgi_->shared_texture(),
-                                                    &staging_vk, &target_vk);
-#ifdef RJ_DEBUG_VERBOSE
-                    fprintf(stderr, "[Pipeline] get_frame_images: staging=%p target=%p\n",
-                            staging_vk, target_vk);
-                    fflush(stderr);
-#endif
-                    // v0.5.1: Cache for get_last_frame_images() getter
-                    s.last_staging_vk.store(staging_vk, std::memory_order_release);
-                    s.last_target_vk.store(target_vk, std::memory_order_release);
+                // Guard eskisiyle bire bir: bridge + capture_dxgi_ + shared_texture.
+                if (s.gpu_sub_.raw() && s.capture_dxgi_ && s.capture_dxgi_->shared_texture()) {
+                    VkImage staging_vk = nullptr;
+                    VkImage target_vk = nullptr;
+                    s.gpu_sub_.get_frame_images(s.capture_dxgi_->shared_texture(),
+                                                &staging_vk, &target_vk);
+                    s.gpu_sub_.cache_last_images(staging_vk, target_vk);
                 }
 
                 s.d3d11_frame_cb(static_cast<void*>(tex),
@@ -847,10 +836,8 @@ bool Pipeline::shutdown() {
         // B10: Shutdown bridge before VulkanInitializer can release the device.
         // ExternalMemoryBridge holds raw VkDevice/VkImage handles; resetting here
         // while the singleton device is still valid prevents use-after-free.
-        if (s.ext_bridge) {
-            s.ext_bridge->shutdown();
-            s.ext_bridge.reset();
-        }
+        // (Sıra korunur: gpu_sub_.shutdown() timer/COM teardown'dan ÖNCE.)
+        s.gpu_sub_.shutdown();
 
         if (s.timer_set.exchange(false, std::memory_order_acq_rel))
             timeEndPeriod(1);
@@ -867,10 +854,8 @@ bool Pipeline::shutdown() {
 
 bool Pipeline::get_last_frame_images(VkImage* out_staging, VkImage* out_target) {
     if (!impl_ || !out_staging || !out_target) return false;
-    // v0.5.1: Return cached frame images from last run_frame()
-    *out_staging = impl_->last_staging_vk.load(std::memory_order_acquire);
-    *out_target  = impl_->last_target_vk.load(std::memory_order_acquire);
-    return *out_staging != nullptr && *out_target != nullptr;
+    // v0.5.1: Return cached frame images from last run_frame() (GpuInteropSubsystem).
+    return impl_->gpu_sub_.get_last_frame_images(out_staging, out_target);
 }
 
 bool Pipeline::get_last_metric_sample(RjMetricSample* out) const {
@@ -887,7 +872,7 @@ uint32_t Pipeline::display_vendor_id() const {
 
 rj::pipeline::gpu::ExternalMemoryBridge* Pipeline::get_external_memory_bridge() const {
     if (!impl_) return nullptr;
-    return impl_->ext_bridge.get();
+    return impl_->gpu_sub_.raw();
 }
 
 // v0.4+: Apply a single action from the rule engine.

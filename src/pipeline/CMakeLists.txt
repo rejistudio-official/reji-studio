@@ -29,6 +29,7 @@ if(WIN32)
         list(APPEND PIPELINE_SOURCES
             gpu/vulkan_initializer.cpp
             gpu/external_memory_bridge.cpp
+            gpu_interop_subsystem.cpp
             gpu/zig_win32_compat.c
         )
     endif()
