@@ -229,3 +229,28 @@ frame_drops 0-1 gürültü bandı) — davranışsal regresyon yok.
 Kalan aşamalar: 6 (EncodeSubsystem), 7 (GpuInteropSubsystem), 8 (CaptureSubsystem),
 9 (RecoveryCoordinator + Impl'i ince orkestratöre indirme) — bunlar en düğümlü/riskli
 kısımlar, ayrı oturumda dikkatle ele alınacak.
+
+### Pipeline::Impl God Object Refactoring — TAMAMLANDI (Aşama 0-9)
+
+Opus ile başlatılan 9 aşamalı refactoring tamamlandı. Sonuç:
+- pipeline.cpp: 986 → 780 satır (−21%)
+- run_frame(): 234 → 111 satır (−53%)
+- 9 alt sistem çıkarıldı: FramePacer, MetricsSubsystem, AudioSubsystem, OutputSubsystem, 
+  CommandRouter, EncodeSubsystem, GpuInteropSubsystem, CaptureSubsystem, RecoveryCoordinator
+- Impl artık ince orkestratör: 8 alt sistem üyesi + 4 lifecycle flag + indirgenemez 
+  cross-cutting state (cfg, width/height atomics, frame_drops, UI callback'leri, 
+  sıkı-düğüm applier'ları: on_packet, apply_command, apply_frame_cmd)
+
+Her aşamada: build temiz + PipelineIntegration + PipelineCharacterization testleri PASS + 
+baseline_metrics.txt karşılaştırması + (kritik aşamalarda) GUI görsel doğrulama — 
+sıfır davranışsal regresyon.
+
+Aşama 0'da ayrıca gerçek bir veri yarışı (width/height) ve ölü kod (cfg.bitrate_kbps) 
+düzeltildi.
+
+Kalan sınırlar (kabul edilen, doğal): RecoveryCoordinator stateless static fonksiyon 
+(subsystem değil, cross-cutting orchestration); on_packet sıkı düğümü Impl'de kalıyor 
+(Output+Metrics'e dokunuyor); UI callback'leri (preview_cb, d3d11_frame_cb, scene_cmd_cb) 
+doğaları gereği orkestratörde.
+
+Linear: REJ-5 (Faz 0) artık tamamen tamamlanabilir durumda.
