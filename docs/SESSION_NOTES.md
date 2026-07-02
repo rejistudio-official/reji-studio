@@ -254,3 +254,44 @@ Kalan sınırlar (kabul edilen, doğal): RecoveryCoordinator stateless static fo
 doğaları gereği orkestratörde.
 
 Linear: REJ-5 (Faz 0) artık tamamen tamamlanabilir durumda.
+
+## Oturum: 2 Temmuz 2026 — Faz 1 Başlangıcı (obs-websocket)
+
+### Faz 1 — Aşama 1
+
+obs-websocket v5 handshake iskeleti eklendi: Hello (op 0) → Identify (op 1) →
+Identified (op 2). Bu aşamada henüz gerçek komut (Request/RequestResponse, op 6/7)
+işlenmiyor — yalnızca bağlantı açılışı obs-websocket uyumlu hale getirildi.
+
+Yapılanlar:
+- `src/orchestrator/src/obs_protocol.rs` (yeni): `WsEnvelope {op, d}` zarfı, opcode
+  sabitleri, `hello()`/`identified()` zarf üreticileri, RPC_VERSION=1.
+- `ws_server.rs`: `handle_socket()` bağlantı açılışında Hello gönderir ve **hemen
+  ardından** normal `tokio::select!` döngüsüne girer. Identify ve soft-timeout döngü
+  İÇİNDE ele alınır; ayrı bloklayan "Identify bekleniyor" adımı YOK.
+- Mesaj sınıflandırma `classify()` içinde: `op:1` → Identify (Identified dönülür),
+  başka `op` → obs mesajı (Aşama 1'de sadece log), `op` yok → legacy `{cmd}` yolu
+  (stream_start vb.) `handle_legacy_cmd()` ile aynen çalışıyor.
+
+Tasarım kararı — **non-blocking toleranslı handshake**: Katı "ilk mesaj op:1 değilse
+kapat + 5 sn bloklayan bekleme" davranışı mevcut `control.html` ile çakışıyordu
+(control.html Identify göndermiyor, sadece metrik izliyor). İki katmanlı regresyon
+riski vardı: (1) bağlantının kopması, (2) bloklayan bekleme yüzünden ilk 5 sn metrik
+akışının donması. Çözüm: Hello sonrası doğrudan select! döngüsü — evt_rx metrik akışı
+ilk andan itibaren kesintisiz iletiliyor. Identify gelirse Identified dönülüyor;
+gelmezse 5 sn sonra yalnızca log'lanıp legacy olarak sürdürülüyor (bağlantı KAPATILMAZ,
+akış KESİLMEZ). (Not: bu, katı timeout/kaynak-sızıntısı korumasını bilinçli gevşetir;
+obs-uyum + control.html uyumu birlikte korunur.)
+
+Testler (`tests/ws_obs_protocol_test.rs`, tokio-tungstenite dev-dependency):
+- Hello/Identify/Identified akışı → PASS
+- Legacy `{cmd}` regresyonu (handshake sonrası) → PASS
+- Legacy istemci Identify göndermeden çalışıyor → PASS
+- **Event akışı handshake beklenirken bloklanmıyor** (Identify yokken metrik 2sn < 5sn
+  içinde iletiliyor) → PASS — kritik regresyon guard'ı
+- Identify timeout sonrası bağlantı legacy olarak sürüyor (kapanmıyor) → PASS
+
+`cargo test -p reji-orchestrator`: 29 + 5 + 5 = 39 test PASS, regresyon yok.
+
+Sıradaki: Aşama 2 — Request/RequestResponse (op 6/7), GetVersion/StartStream/
+GetSceneList gibi requestType'ların işlenmesi.

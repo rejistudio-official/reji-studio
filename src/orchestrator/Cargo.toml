@@ -18,6 +18,8 @@ tracing     = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-tungstenite  = "0.24"
+futures-util       = "0.3"
 
 [build-dependencies]
 cbindgen = "0.27"
