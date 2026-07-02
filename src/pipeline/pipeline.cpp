@@ -32,6 +32,7 @@
 #include "capture/capture_dxgi.h"
 #include "capture/capture_dxgi_screen.h"
 #include "encode/encode_nvenc.h"
+#include "include/encode_subsystem.h"
 #include "audio/wasapi_capture.h"
 #include "include/audio_subsystem.h"
 #include "output/srt_output.h"
@@ -166,7 +167,7 @@ struct Pipeline::Impl {
 
     std::unique_ptr<rj::IScreenCapture>                      capture;
     reji::DxgiCapturePipeline*                               capture_dxgi_ = nullptr;
-    std::unique_ptr<reji::NvencEncoder>                     encoder;
+    EncodeSubsystem                                         encode_sub_;  // Aşama 6
     AudioSubsystem                                          audio_sub_;   // Aşama 3
     OutputSubsystem                                         output_sub_;  // Aşama 4
 
@@ -204,28 +205,26 @@ struct Pipeline::Impl {
     // apply_frame_cmd: SPSC ring'ten tüketilen komutu Encode'a uygular.
     // CommandRouter'a callback olarak geçilir (Impl Encode'a dokunan tarafı tutar).
     void apply_frame_cmd(const CommandRouter::FrameCmd& cmd) noexcept {
-        if (!encoder) return;
+        // encoder yoksa no-op (bitrate_kbps de güncellenmez — eski davranış korunur).
+        if (!encode_sub_.raw()) return;
         switch (cmd.action_type) {
             case RJ_ACTION_BITRATE_REDUCE:
             case RJ_ACTION_BITRATE_RECOVER:
                 if (cmd.param1 > 0) {
-                    (void)encoder->set_bitrate(static_cast<uint32_t>(cmd.param1));
+                    (void)encode_sub_.set_bitrate(static_cast<uint32_t>(cmd.param1));
                     bitrate_kbps.store(static_cast<uint32_t>(cmd.param1), std::memory_order_relaxed);
                 }
                 break;
             case RJ_ACTION_SCALE_RESOLUTION:
-                (void)encoder->set_resolution(cmd.param1 / 1000.0f);
+                (void)encode_sub_.set_resolution(cmd.param1 / 1000.0f);
                 break;
             case RJ_ACTION_CAP_FPS:
-                (void)encoder->set_fps_limit(static_cast<uint32_t>(cmd.param1));
+                (void)encode_sub_.set_fps_limit(static_cast<uint32_t>(cmd.param1));
                 break;
             default:
                 break;
         }
     }
-
-    // Stored so TDR recovery can re-pass it to encoder->init.
-    std::function<void(const reji::NvencEncoder::Packet&)> packet_cb;
 
     // Preview callback  called from run_frame() with CPU-mapped BGRA frame
     Pipeline::PreviewCallback        preview_cb;
@@ -247,8 +246,8 @@ struct Pipeline::Impl {
     void apply_command(const RjCommand& c) noexcept {
         switch (c.cmd_type) {
             case RJ_CMD_BITRATE_SET:
-                if (encoder && c.param_u32 > 0) {
-                    (void)encoder->set_bitrate(c.param_u32);
+                if (encode_sub_.raw() && c.param_u32 > 0) {
+                    (void)encode_sub_.set_bitrate(c.param_u32);
                     bitrate_kbps.store(c.param_u32, std::memory_order_relaxed);
                 }
                 break;
@@ -319,7 +318,7 @@ struct Pipeline::Impl {
                static_cast<unsigned long>(reason));
         seh_connection_lost("gpu-device-lost");
 
-        if (encoder) { encoder->flush(); encoder->shutdown(); encoder.reset(); }
+        encode_sub_.shutdown();   // native teardown (~NvencEncoder) + reset
         capture.reset();
         capture_dxgi_ = nullptr;
 
@@ -355,10 +354,10 @@ struct Pipeline::Impl {
         const uint32_t bps       = bitrate_kbps.load(std::memory_order_relaxed);
         enc_cfg.bitrate_kbps     = bps;
         enc_cfg.max_bitrate_kbps = bps + bps / 4;
-        encoder = std::make_unique<reji::NvencEncoder>();
-        if (!encoder->init(encode_device, enc_cfg, packet_cb)) {
+        // Saklı packet_cb ile yeniden kur (EncodeSubsystem::reinit).
+        if (!encode_sub_.reinit(encode_device, enc_cfg)) {
             dbglog("[Pipeline] TDR encoder reinit failed");
-            encoder.reset(); return false;
+            return false;
         }
 
         dbglog("[Pipeline] TDR recovery complete");
@@ -495,13 +494,13 @@ bool Pipeline::init(const Config& cfg_in) {
             enc_cfg.fps_den          = 1;
             enc_cfg.bitrate_kbps     = cfg_in.bitrate_kbps;
             enc_cfg.max_bitrate_kbps = cfg_in.bitrate_kbps + cfg_in.bitrate_kbps / 4;
-            s.packet_cb = [&s](const reji::NvencEncoder::Packet& pkt) noexcept {
+            // packet_cb "sıkı düğüm": Impl::on_packet (Output+Metrics) EncodeSubsystem'e
+            // callback olarak geçilir; EncodeSubsystem içeriğini bilmez, yalnızca saklar.
+            auto packet_cb = [&s](const reji::NvencEncoder::Packet& pkt) noexcept {
                 Impl::on_packet(pkt, &s);
             };
-            s.encoder = std::make_unique<reji::NvencEncoder>();
-            if (!s.encoder->init(encode_device, enc_cfg, s.packet_cb)) {
+            if (!s.encode_sub_.init(encode_device, enc_cfg, packet_cb)) {
                 dbglog("[Pipeline] NvencEncoder::init failed -- running in preview-only mode");
-                s.encoder.reset();
             }
         }
     }
@@ -687,7 +686,9 @@ bool Pipeline::run_frame() {
         if (tex) {
             null_streak.store(0, std::memory_order_relaxed);
             const int64_t pts_us = s.pacer_.pts_us(frame_start);
-            if (s.encoder && !s.encoder->encode_frame(tex, pts_us)) {
+            // encode_frame(): encoder yoksa true (no-op) — eski `s.encoder && ...`
+            // koşuluyla aynı: yalnızca gerçek encode hatasında drop + TDR recovery.
+            if (!s.encode_sub_.encode_frame(tex, pts_us)) {
                 s.frame_drops.fetch_add(1, std::memory_order_relaxed);
                 // 3) GPU TDR check  outside __try, free to use C++ objects
                 (void)s.handle_device_lost();
@@ -835,12 +836,12 @@ bool Pipeline::shutdown() {
 
         // SEH-protected teardown  raw pointers only, no C++ destructors in scope.
         ok = seh_shutdown_subsystems(
-            s.audio_sub_.raw(), s.encoder.get(), s.output_sub_.raw());
+            s.audio_sub_.raw(), s.encode_sub_.raw(), s.output_sub_.raw());
 
         // RAII reset outside __try  destructors run safely here.
         s.audio_sub_.shutdown();    // audio_ reset (SEH-leaf DIŞINDA)
         s.output_sub_.shutdown();   // srt_atomic null + srt_ reset (SEH-leaf DIŞINDA)
-        s.encoder.reset();
+        s.encode_sub_.shutdown();   // encoder_ reset (SEH-leaf DIŞINDA)
         s.capture.reset();
 
         // B10: Shutdown bridge before VulkanInitializer can release the device.

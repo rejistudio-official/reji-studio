@@ -20,6 +20,7 @@ if(WIN32)
         capture/capture_wgc.cpp
         capture/gpu_resource_manager.cpp
         encode/encode_nvenc.cpp
+        encode_subsystem.cpp
         screen_capture_factory.cpp
     )
 
