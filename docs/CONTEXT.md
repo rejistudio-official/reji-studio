@@ -1,290 +1,192 @@
-# Reji Studio — Claude Code Bağlam Dosyası
+# Reji Studio — Proje Bağlamı
 
-> Her oturumda bu dosyayı oku. `docs/progress.md` ve `docs/memory.md` dosyalarını da kontrol et.
-> Son güncelleme: 2026-06-07
-
----
-
-## Proje Kimliği
-
-| Alan | Değer |
-|---|---|
-| Ad | Reji Studio |
-| Tür | Açık kaynak canlı yayın yazılımı |
-| Lisans | Apache 2.0 |
-| Repo | github.com/rejistudio-official/reji-studio |
-| Yerel yol | `C:\reji-studio` |
-| Versiyon | v0.5.1 ✅ tamamlandı |
-| Donanım | AMD Radeon 780M (display/iGPU) + NVIDIA RTX 4070 Laptop (encode/dGPU) |
-| OS | Windows 11 |
+**Son güncelleme:** 2 Temmuz 2026
+**Durum:** Faz 0 tamamlandı, Faz 1'e geçiş
 
 ---
 
-## Teknoloji Yığını
+## Proje Özeti
 
-| Katman | Teknoloji | Klasör |
+Açık kaynak canlı yayın/prodüksiyon yazılımı. Windows üzerinde çalışır.
+
+**Stack:**
+- C++17 (MSVC) — pipeline (capture/encode/output)
+- Rust/Tokio — orchestrator (self-healing, metrikler, WebSocket API)
+- Qt6 — UI (preview + program panelleri)
+- Vulkan + D3D11 — GPU işlemleri
+- Zig — Vulkan bridge (external_memory_bridge.zig, vulkan_initializer.zig)
+
+**Hedef donanım:** AMD Radeon 780M (iGPU/display) + NVIDIA RTX 4070 Laptop (dGPU)
+
+**Repo:** github.com/rejistudio-official/reji-studio
+
+---
+
+## Çalışan Uçtan Uca Zincir
+WGC (Windows Graphics Capture, NVIDIA adapter)
+→ NVENC H264 encode (60fps, 6000kbps, self-healing ile 3500'e düşebiliyor)
+→ SRT output (gerçek implementasyon)
+→ ffplay / herhangi bir SRT alıcısı
+Paralelde:
+→ CPU staging → Qt preview panel (sol)
+→ CPU staging → Qt program panel (sağ)
+→ WebSocket API (port 7070-7073 fallback) → HTML kontrol paneli
+(stream_start/stop, scene_cut/fade, gerçek zamanlı metrikler)
+
+DXGI capture da mevcut, WGC desteklenmediğinde fallback olarak devrede (CPU staging güvenlik ağı ile).
+
+---
+
+## Mimari — Pipeline::Impl Refactoring (TAMAMLANDI)
+
+`Pipeline::Impl` God Object'ti (986 satır, 9 alt sistemi tek struct'ta topluyordu). 
+Opus ile 9 aşamalı refactoring yapıldı, sıfır davranışsal regresyonla tamamlandı:
+
+| Aşama | Alt Sistem | Sorumluluk |
 |---|---|---|
-| Medya pipeline | C++17/MSVC | `src/pipeline/` |
-| GPU interop | Vulkan 1.4 + D3D11 | `src/pipeline/gpu/` |
-| FFI köprüsü | C ABI | `src/ffi/` |
-| Orkestrasyon | Rust + Tokio | `src/orchestrator/` |
-| Arayüz | Qt6 6.8.0 + OpenGL | `src/ui/` |
-| Build | CMake + Ninja + CMakePresets.json | root |
-| CI | GitHub Actions | `.github/workflows/` |
+| 1 | FramePacer | QPC zamanlama, pts hesabı, frame pacing |
+| 2 | MetricsSubsystem | CpuMeter, MetricsCollector, fps hesabı |
+| 3 | AudioSubsystem | WasapiCapture lifecycle |
+| 4 | OutputSubsystem | SRT + srt_atomic (thread-safe fasad) |
+| 5 | CommandRouter | Command/WS drain + SPSC ring + action thread |
+| 6 | EncodeSubsystem | NVENC lifecycle |
+| 7 | GpuInteropSubsystem | ExternalMemoryBridge + D3D11↔Vulkan frame cache |
+| 8 | CaptureSubsystem | WGC/DXGI + preview (en düğümlü aşama) |
+| 9 | RecoveryCoordinator | TDR/device-lost recovery (stateless, cross-subsystem) |
+
+**Sonuç:**
+- `pipeline.cpp`: 986 → 780 satır (−21%)
+- `run_frame()`: 234 → 111 satır (−53%)
+- `Impl` artık ince orkestratör: 8 alt sistem üyesi + 4 lifecycle flag + indirgenemez 
+  cross-cutting state (cfg, width/height atomics, frame_drops, UI callback'leri, 
+  sıkı-düğüm applier'ları: on_packet, apply_command, apply_frame_cmd)
+
+**Soyutlama interface'leri (cross-platform/çoklu-backend hazırlığı):**
+- `IScreenCapture` — WGC/DXGI seçimi factory pattern ile (`is_supported()` kontrolü)
+- `IVideoEncoder` — NVENC implementasyonu, gelecekte AMF/VideoToolbox için hazır
+- `ITransport` — SRT implementasyonu, gelecekte RTMP/NDI için hazır
 
 ---
 
-## Build Komutları
+## FFI Sınırı (Rust ↔ C++)
 
-```cmd
-# Tercih edilen (CMakePresets.json ile)
-cmake --preset release
-cmake --build --preset release
+Detaylı sözleşme: `docs/FFI_CONTRACT.md`
 
-# Temiz build gerekirse
-rmdir /S /Q build
-cmake --preset release
-cmake --build --preset release
-
-# Test
-cd build\src\ui
-reji_app.exe 2>&1 | more
-
-# Mock build (Vulkan donanımı olmadan)
-cmake --preset mock
-cmake --build --preset mock
-```
-
-**Kurallar:**
-- Build: x64 Native Tools Command Prompt (MSVC environment gerekli)
-- PowerShell'de build YAPMA — cstdint hatası alırsın
-- Claude Code bash: `cd C:/reji-studio && cmake --build --preset release`
-- Windows CMD: backslash `C:\reji-studio`
+**Mimari prensip:** FFI'dan sadece veri geçer, pointer/handle geçmez.
+- `g_pipeline` global pointer + `PipelineRegistry` (weak_ptr) tamamen kaldırıldı
+- Yerine: lock-free SPSC kuyruklar (`action_queue`, `ws_command_queue`)
+- 13 `extern "C"` fonksiyon, hepsi `catch_unwind` ile korunuyor (panic C++'a sızmıyor)
+- `RjCommand` (24B), `RjAction` (20B), `RjMetricSample` (64B) — offsetof static_assert 
+  ile 25 alan derleme zamanında doğrulanıyor
+- `ffi_auto.h` cbindgen ile tamamen otomatik üretiliyor (manuel drift riski yok)
+- Backpressure logging: kuyruk dolduğunda sessizce kaybetmek yerine loglanıyor + sayaç
 
 ---
 
-## Kritik Dosyalar
+## Self-Healing Sistemi
 
-| Dosya | Açıklama |
-|---|---|
-| `src/pipeline/gpu/external_memory_bridge.h/.cpp` | D3D11↔Vulkan bridge |
-| `src/pipeline/gpu/vulkan_initializer.h/.cpp` | VulkanInitializer singleton (`get()`) |
-| `src/pipeline/capture/capture_dxgi.h/.cpp` | Dual texture: shared_ + staging_ |
-| `src/pipeline/pipeline.cpp` | D3D11FrameCallback, lazy init, notify_vulkan_ready |
-| `src/ui/preview_widget.h/.cpp` | submitD3D11Frame, setPipeline, initializeGL |
-| `src/ui/main_window.cpp` | Pipeline wiring, notify_vulkan_ready |
-| `src/ui/render_capability.cpp` | VulkanInitializer singleton kullanımı |
-| `CMakePresets.json` | release + mock presets |
-| `AGENTS.md` | AI geliştirme kuralları |
+Kural motoru (`rules.rs`), JSON/TOML formatında, hot-reload destekli.
+
+- OR (`||`) ve AND (`&&`) koşul kombinasyonu: `"cpu_load_pct > 80 || gpu_load_pct > 85"`
+- Hysteresis — aynı kural belirli süre içinde tekrar tetiklenmiyor
+- Çakışma çözümü — BitrateReduce + BitrateRecover aynı anda tetiklenirse öncelik sırası uygulanıyor
+- `HealingOverlay` UI bağlantısı kuruldu — Co-Pilot modunda kullanıcı onay akışı çalışıyor
+- Metrikler: CPU/GPU/RAM gerçek PDH sorgularıyla besleniyor (`MetricsCollector`)
+
+Örnek kural dosyası: `~/.reji/rules.json`
 
 ---
 
-## Versiyon Geçmişi
+## Kontrol Arayüzleri
 
-### v0.5.0 ✅ — Vulkan Pivot
-- OpenGL PBO'dan Vulkan render path'e geçiş
-- AMD 780M paintGL: 7.6ms → 4.3ms (%43 iyileşme)
-- DwmFlush kaldırıldı
-- Ninja generator entegre
+**Qt UI:** Ana pencere, sahne listesi, CUT/FADE geçişleri, ayarlar dialogu (SRT host/port, healing modu)
 
-### v0.5.1 ✅ — D3D11↔Vulkan Zero-Copy Pipeline
-- `GpuCopyOptimizer` — Vulkan compute pipeline skeleton
-- `DxgiFramePacing` — QPC frequency static lambda cache
-- `GpuQueryTiming` — GPU timing skeleton
-- `ExternalMemoryBridge` — D3D11 NT handle export + VkImage import
-- Dual texture: `shared_texture_` (DEFAULT+SHARED) + `staging_texture_` (STAGING)
-- `VulkanInitializer` singleton — `get()` metodu
-- `notify_vulkan_ready()` — render_capability.cpp → pipeline bridge
-- **Sonuç:** VkImage'lar oluşuyor, frame'ler GPU'da aktarılıyor ✅
-
-```
-[ExternalMemoryBridge] Created Vulkan image from D3D11 handle ✅
-[Pipeline] get_frame_images: staging=0x... target=0x... ✅
-```
+**WebSocket API** (Rust, axum):
+- Port 7070 varsayılan, 7071-7073 fallback (port çakışmasında otomatik dener)
+- `ws://host:port/ws` — komut gönder (`stream_start`, `stream_stop`, `scene_cut`, `scene_fade`)
+- `http://host:port/` — HTML kontrol paneli (mobil tarayıcıdan erişilebilir)
+- Gerçek zamanlı metrik push: fps, kbps, drop, CPU, GPU
 
 ---
 
-## Mevcut Durum (2026-06-28)
+## Büyük Kararlar (Kronolojik Özet)
 
-### Çalışan ✅
-- D3D11 → NT handle export → VkImage import (zero-copy)
-- VulkanInitializer singleton — render_capability.cpp üzerinden init
-- ExternalMemoryBridge::get_frame_images() — round-robin pool (POOL_SIZE=3)
-- Pipeline → PreviewWidget callback zinciri
-- CMakePresets.json — `cmake --preset release`
-- Git repack kapalı — `gc.auto=0`
-- Build sistemi: `python scripts/build.py` (cmd.exe + vcvars64.bat otomatik)
-- **WGC capture backend** — `WgcScreenCapture` (C++20/WinRT), `ScreenCaptureFactory`, `IScreenCapture` arayüzü
-- **CPU preview path** — staging_texture_ → map_preview_frame() → PreviewWidget + ProgramWidget; her iki panel çalışıyor ✅
+1. **DXGI → WGC geçişi** — AMD+NVIDIA cross-adapter NT handle sharing çalışmıyordu 
+   (`E_INVALIDARG`). Windows Graphics Capture API'ye geçildi, NVIDIA adapter üzerinde 
+   çalıştırılarak sorun OS seviyesinde çözüldü. DXGI fallback olarak korundu.
 
-### Root Cause Found & Fixed ✅
-- **VK_ERROR_DEVICE_LOST原因:** VK_IMAGE_USAGE_TRANSFER_SRC_BIT eksikti
-  - D3D11 staging images (image_pool_) source olarak vkCmdBlitImage'e gidiyor
-  - Ama creation flags'e TRANSFER_SRC_BIT eklenmemişti
-  - Vulkan spec violation → device lost
-  - **FIX:** external_memory_bridge.cpp:94 → flags += TRANSFER_SRC_BIT
-  - Yeni flags: TRANSFER_SRC_BIT | TRANSFER_DST_BIT | COLOR_ATTACHMENT_BIT
+2. **NVENC API version negotiation** — SDK 13.1 header'ı driver'ın desteklediği 13.0 
+   formatına düşürülerek `NV_ENC_ERR_INVALID_VERSION` hatası çözüldü.
 
-### GL Interop Bridge Wiring ✅ (v0.5.2 Step 4)
-- **Pipeline accessor:** Pipeline::get_external_memory_bridge() (pipeline.cpp:717-720)
-- **Main window wiring:** preview_widget_->setBridge() after copy_optimizer init (main_window.cpp:75-76)
-- **PreviewWidget:** GL extension function pointer resolution in initializeGL() (preview_widget.cpp:179-202)
-- **paintGL interop:** NT handle import + GL texture creation (preview_widget.cpp:290-318)
-- **Render path:** Prefer gl_interop_texture, fallback to d_->tex_id (preview_widget.cpp:335)
+3. **SRT gerçek implementasyon** — stub'dan gerçek SRT'ye geçildi, vcpkg DLL bağımlılıkları 
+   (`srt.dll`, `libcrypto-3-x64.dll`, `libssl-3-x64.dll`) build.py'ye otomatik kopyalama 
+   eklendi.
 
-### Stub / Eksik ❌
-- NVENC encoder — SDK yok, preview-only mode
-- SRT output — stub
-- Build environment — CMake MSVC include paths from bash/PowerShell (x64 Native Tools required)
-- FrameProfiler benchmark — No samples collected
-- VkImage → OpenGL texture transfer (GPU path) — CPU fallback aktif, GPU yolu henüz tamamlanmadı
+4. **FFI mimarisi — tam veri-tabanlı geçiş** — Önce `g_pipeline` → `PipelineRegistry` 
+   (weak_ptr) ile UAF riski giderildi, sonra bu da gereksiz hale geldi ve tamamen kaldırıldı: 
+   artık FFI sınırından sadece kuyruk üzerinden veri geçiyor, hiçbir pointer/handle yok.
+
+5. **Pipeline::Impl God Object refactoring** — 9 aşamalı, Opus ile yürütülen büyük refactoring. 
+   Her aşamada karakterizasyon testi + baseline karşılaştırması ile sıfır regresyon garantisi.
+
+6. **Dört model code review turu** — Claude Opus 4.8, Sonnet 4.6, GLM 5.2, Sonnet 5 (2 deneme, 
+   ikisi de boş/başarısız yanıt döndü — provider tarafı sorun). 12+ kritik/orta bulgu düzeltildi: 
+   Vulkan blit capability, cross-adapter CPU fallback, HealingOverlay wiring, NT handle leak, 
+   stack canary, frame thread busy-loop, SrtOutput çift shutdown, AMD GPU sync, vb.
 
 ---
 
-## Sonraki Milestone: v0.5.2
+## Yol Haritası — 5 Faz
 
-### Öncelik 1 (Kritik)
-- [ ] `paintGL` içinde VkImage → OpenGL texture transfer (GPU path)
-  - `VK_KHR_external_memory` + GL interop extension
-  - CPU path çalışıyor; GPU path ile latency/CPU overhead düşürülecek
-- [ ] FrameProfiler benchmark — copy p50 hedef <1ms
+Detaylar: `docs/ROADMAP.md`, Linear (Reji Studio takımı, REJ-5 ila REJ-13)
 
-### Öncelik 2
-- [ ] cbindgen entegrasyonu — ABI güvenliği, manuel senkronizasyon riski giderilecek
-- [ ] `static_assert` ABI kontrolleri otomatikleştirilecek
-
-### Öncelik 3 (v0.6+)
-- [ ] reji-bridge-guard kütüphanesi — FFI proc macro, `#[reji_ffi_boundary]`
-- [ ] reji-zero-copy kütüphanesi — ExternalMemoryBridge izole crate
-- [ ] reji-sys-metrics kütüphanesi — MetricsCollector Rust crate
-
-### Uzun Vade (v1.0+)
-- [ ] NVENC gerçek implementasyon
-- [ ] SRT gerçek implementasyon
-- [ ] NDI entegrasyonu
-- [ ] WASM plugin sandbox (Extism)
-
----
-
-## Mimari: GPU Pipeline
-
-```
-AMD 780M (display)          NVIDIA RTX 4070 (encode)
-DXGI Desktop Duplication
-    ↓
-ID3D11Texture2D (captured)
-    ├─ CopyResource → shared_texture_ (DEFAULT+SHARED_NTHANDLE)
-    │       ↓
-    │   CreateSharedHandle → NT handle
-    │       ↓
-    │   VkImportMemoryWin32HandleInfoKHR
-    │       ↓
-    │   VkImage (zero-copy) → ExternalMemoryBridge pool
-    │       ↓
-    │   d3d11_frame_cb → PreviewWidget::submitD3D11Frame
-    │
-    └─ CopyResource → staging_texture_ (STAGING+CPU_ACCESS_READ)
-            ↓
-        map_preview_frame() → CPU preview (fallback)
-```
-
----
-
-## Mimari: VulkanInitializer Singleton
-
-```
-render_capability.cpp
-    VulkanInitializer* vk = VulkanInitializer::get()  ← singleton
-    vk->initialize()  ← Vulkan init + device oluşturma
-    // shutdown() ÇAĞIRMA — singleton ömür boyu yaşıyor
-
-main_window.cpp
-    pipeline_.notify_vulkan_ready(vk->device(), vk->physical_device())
-        ↓
-    ExternalMemoryBridge::set_device(device, phys_device)
-```
-
-**Önemli:** `render_capability.cpp`'de local `VulkanInitializer vk_init` KULLANMA.
-Singleton `get()` kullan, `shutdown()` çağırma.
-
----
-
-## Bilinen Sorunlar / Teknik Borç
-
-| Sorun | Risk | Versiyon |
+| Faz | Konu | Durum |
 |---|---|---|
-| Manuel ABI senkronizasyonu (cbindgen yok) | Silent corruption | v0.5.2 |
-| SEH + Rust panic aynı process | Teorik crash | v0.6 |
-| main_window.cpp SEH wrapper eksik | Reliability | v0.6 |
-| VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT — cross-adapter test yok | Potansiyel crash | v0.5.2 |
-| notify_vulkan_ready duplicate blok — main_window.cpp satır 63+72 | Harmless, temizlenmeli | v0.5.2 |
+| **0** | Temel Hazırlık (FFI_CONTRACT + God Object refactoring) | ✅ **TAMAMLANDI** |
+| 1 | OBS-WebSocket Protokol Uyumluluğu | 🔜 Sıradaki |
+| 2 | RTMP Çıkışı | Backlog |
+| 3 | Çoklu Kaynak Mimarisi (ISource) | Backlog |
+| 4 | NDI Desteği | Backlog |
+| 5 | Zig Global State Tam Çözümü | Kısmen (geçici double-init uyarısı var) |
+
+### Faz 1 — Sıradaki Adımlar
+
+OBS-WebSocket protokol uyumluluğu, Stream Deck/Companion ekosistemiyle anında uyum sağlar.
+
+1. obs-websocket v5 protokol alt kümesi araştırması (hangi request/response tipleri gerekli)
+2. Mevcut `ws_server.rs` üzerine protokol adaptör katmanı
+3. Temel komutlar: `GetSceneList`, `SetCurrentProgramScene`, `StartStream`, `StopStream`, 
+   `GetStreamStatus`
+4. Test: Stream Deck veya Companion ile bağlantı doğrulama
+
+Not: Reji'nin kendi WebSocket API'si zaten çalışıyor — bu faz üzerine bir uyumluluk 
+adaptör katmanı ekler, mevcut API'yi değiştirmez.
 
 ---
 
-## Kullanım Alışkanlıkları
+## Dış Araçlar
 
-### AI Araç Kullanımı
-- **Claude Code CLI** — kod yazma, commit (build ortamı sorunu var, cmake çalıştıramıyor)
-- **Aider + MiniMax M3** — basit değişiklikler, ucuz ($0.01/mesaj)
-- **Aider + Sonnet** — kritik FFI/Vulkan değişiklikleri
-- **Fusion** — mimari analiz, multi-model karşılaştırma
-- **Manuel Python script** — Claude Code/Aider uygulamadığında dosya patch'leme
-
-### Build Akışı
-1. Claude Code / Aider ile kod değişikliği + commit
-2. x64 Native Tools Command Prompt'ta `cmake --build --preset release`
-3. `reji_app.exe 2>&1 | more` ile test
-4. Log'da beklenen satırları kontrol et
-
-### Sık Karşılaşılan Sorunlar
-- **Aider dosyaya yazmadı** → `git diff` ile kontrol et, Python patch script kullan
-- **Claude Code build edemedi** → x64 Native Tools'ta manuel build
-- **Git pack permission** → `git config gc.auto 0` (kalıcı çözüm uygulandı)
-- **Build dizini bozuldu** → `rmdir /S /Q build && cmake --preset release`
-- **PowerShell build hatası** → x64 Native Tools CMD kullan (cstdint sorunu)
-
-### Patch Script Şablonu
-```python
-# scripts/patch_XXX.py
-content = open('src/ui/XXX.cpp', 'r', encoding='utf-8').read()
-old = 'eski kod'
-new = 'yeni kod'
-result = content.replace(old, new, 1)
-print('Changed:', content != result)
-open('src/ui/XXX.cpp', 'w', encoding='utf-8').write(result)
-```
+- **Linear** — linear.app/reji-studio — issue/sprint takibi (REJ-5 ila REJ-13)
+- **Notion** — "Reji Studio — Proje Merkezi" sayfası — genel proje referansı
+- **Todoist** — "Reji Studio" projesi — günlük açık kalem takibi
+- **GitHub** — Claude Code üzerinden yönetiliyor (resmi connector henüz yok)
+- ~~Telegram bridge~~ — kaldırıldı (kullanılmıyor)
 
 ---
 
-## Kod Kuralları
+## Bilinen Açık Kalemler / Teknik Borç
 
-### C++
-- Tüm public fonksiyonlar `bool` döner — `void` yasak
-- Hot-path'de heap allocation yasak
-- Hot-path'de blocking call yasak (`vkWaitForFences`, `vkDeviceWaitIdle` yasak)
-- SEH bloğu içinde C++ nesnesi yasak — `__declspec(noinline)` leaf kullan
-- `rj_command_drain` dönüşü `[0, max]` clamp zorunlu
-
-### Rust
-- `unwrap()` production'da yasak
-- `extern "C"` fonksiyonlarda `catch_unwind` zorunlu
-
-### Git
-- Commit mesajı: `feat:`, `fix:`, `refactor:`, `docs:`, `build:` prefix
-- Her task sonrası commit + push
-- Versiyon tamamlandığında tag: `git tag -a v0.X.Y -m "..."`
+- `rj_action_approve` şu an stub, her zaman `1` dönüyor — gerçek implementasyon gerekebilir
+- Zig modül-global state (`external_memory_bridge.zig`, `vulkan_initializer.zig`) — 
+  çoklu instance senaryosunda gerçek çözüm gerekiyor (Faz 5)
+- Audio metrikleri izlenmiyor (WASAPI tarafı self-healing için kör nokta)
+- `default_mode` alanı `rules.json`'da parse ediliyor ama kullanılmıyor
 
 ---
 
-## Yol Haritası Özeti
+## Kaynak Dosyalar
 
-```
-v0.5.1 ✅  D3D11↔Vulkan zero-copy pipeline
-v0.5.2     paintGL VkImage→GL transfer, cbindgen, benchmark
-v0.6.0     reji-bridge-guard (FFI macro), SEH cleanup
-v0.7.0     reji-zero-copy (izole crate), NVENC gerçek impl
-v0.8.0     reji-sys-metrics (Rust crate), SRT gerçek impl
-v1.0.0     NDI, multi-monitor, WASM plugin sandbox
-v2.0.0     Stream Deck, OBS entegrasyon, Extism zorunlu
-```
-
+- `docs/CONTEXT.md` — bu dosya
+- `docs/SESSION_NOTES.md` — kronolojik oturum geçmişi, detaylı
+- `docs/ROADMAP.md` — Zig migration planı + modülerlik/endüstri uyumluluğu 5 fazı
+- `docs/FFI_CONTRACT.md` — Rust/C++ FFI sınırının resmi sözleşmesi
