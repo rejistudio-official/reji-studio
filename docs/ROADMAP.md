@@ -923,8 +923,10 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
 ## Faz 0 — Temel Hazırlık
 
 - [x] docs/FFI_CONTRACT.md tamamlandı (2026-07-01)
-- [ ] Pipeline::Impl God Object refactoring — 7 alt sistemi ayır,
-      run_frame()/paintGL() fonksiyonlarını böl (Opus ile yapılmalı, yüksek risk)
+- [x] Pipeline::Impl God Object refactoring — 9 alt sisteme ayrıldı
+      (FramePacer, MetricsSubsystem, AudioSubsystem, OutputSubsystem, CommandRouter,
+      EncodeSubsystem, GpuInteropSubsystem, CaptureSubsystem, RecoveryCoordinator),
+      sıfır davranışsal regresyonla tamamlandı (2026-07-02)
 
 ## Faz 1 — OBS-WebSocket Protokol Uyumluluğu
 
