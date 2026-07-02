@@ -39,6 +39,7 @@
 #include "output/srt_output.h"
 #include "include/output_subsystem.h"
 #include "include/gpu_interop_subsystem.h"
+#include "include/recovery_coordinator.h"
 #include "ffi_bridge.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -126,11 +127,7 @@ static void seh_start_monitor() noexcept {
     __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-__declspec(noinline)
-static void seh_connection_lost(const char* reason) noexcept {
-    __try   { rj_connection_lost(reason); }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
-}
+// seh_connection_lost Aşama 9'da RecoveryCoordinator'a taşındı (tek kullanıcıydı).
 
 __declspec(noinline)
 static void seh_uninit_com(bool* ok) noexcept {
@@ -276,88 +273,9 @@ struct Pipeline::Impl {
             self->frame_drops.fetch_add(1, std::memory_order_relaxed);
     }
 
-    // GPU TDR recovery: query GetDeviceRemovedReason; reinit if device was lost.
-    // MUST NOT be called from within a __try block (uses C++ objects).
-    // Only applicable to the DXGI capture path; WGC path returns false immediately.
-    bool handle_device_lost() {
-        if (!capture_sub_.dxgi()) {
-            // WGC path — capture device lost kontrolü
-            ID3D11Device* dev = capture_sub_.d3d_device();
-            if (!dev) return false;
-            HRESULT reason = dev->GetDeviceRemovedReason();
-            if (reason == S_OK) return false;
-
-            dbglog("[Pipeline] WGC device lost: 0x%08lX — reinit",
-                   static_cast<unsigned long>(reason));
-            seh_connection_lost("wgc-device-lost");
-
-            capture_sub_.shutdown();
-            rj::IScreenCapture::Config cap_cfg;
-            cap_cfg.timeout_ms          = kCaptureTimeout;
-            cap_cfg.allow_cross_adapter = true;
-            // Yeni WGC capture recast'te null'a düşer → capture_dxgi_ null kalır
-            // (eski davranışla aynı; WGC→DXGI mid-session bir senaryo değil).
-            if (!capture_sub_.init(cap_cfg)) {
-                dbglog("[Pipeline] WGC reinit failed");
-                return false;
-            }
-            dbglog("[Pipeline] WGC reinit OK");
-            return true;
-        }
-
-        ID3D11Device* dev = capture_sub_.dxgi()->encode_gpu()
-                            ? capture_sub_.dxgi()->encode_gpu()->d3d_device()
-                            : nullptr;
-        if (!dev) return false;
-
-        HRESULT reason = dev->GetDeviceRemovedReason();
-        if (reason == S_OK) return false;  // transient encode error, not TDR
-
-        dbglog("[Pipeline] TDR device removed reason=0x%08lX",
-               static_cast<unsigned long>(reason));
-        seh_connection_lost("gpu-device-lost");
-
-        encode_sub_.shutdown();   // native teardown (~NvencEncoder) + reset
-        capture_sub_.shutdown();  // capture_ reset + capture_dxgi_ null
-
-        rj::IScreenCapture::Config cap_cfg;
-        cap_cfg.timeout_ms          = kCaptureTimeout;
-        cap_cfg.allow_cross_adapter = true;
-        if (!capture_sub_.init(cap_cfg)) {
-            dbglog("[Pipeline] TDR capture reinit failed");
-            return false;
-        }
-        width.store(capture_sub_.width(), std::memory_order_release);
-        height.store(capture_sub_.height(), std::memory_order_release);
-
-        ID3D11Device* encode_device = nullptr;
-        if (capture_sub_.dxgi() && capture_sub_.dxgi()->encode_gpu()) {
-            encode_device = capture_sub_.dxgi()->encode_gpu()->d3d_device();
-        } else if (capture_sub_.has_capture()) {
-            encode_device = capture_sub_.d3d_device();  // WGC path
-        }
-        if (!encode_device) {
-            dbglog("[Pipeline] TDR: no encode device — encoder reinit skipped");
-            return true;
-        }
-
-        reji::NvencEncoder::Config enc_cfg;
-        enc_cfg.width            = width.load(std::memory_order_acquire);
-        enc_cfg.height           = height.load(std::memory_order_acquire);
-        enc_cfg.fps_num          = cfg.fps;
-        enc_cfg.fps_den          = 1;
-        const uint32_t bps       = bitrate_kbps.load(std::memory_order_relaxed);
-        enc_cfg.bitrate_kbps     = bps;
-        enc_cfg.max_bitrate_kbps = bps + bps / 4;
-        // Saklı packet_cb ile yeniden kur (EncodeSubsystem::reinit).
-        if (!encode_sub_.reinit(encode_device, enc_cfg)) {
-            dbglog("[Pipeline] TDR encoder reinit failed");
-            return false;
-        }
-
-        dbglog("[Pipeline] TDR recovery complete");
-        return true;
-    }
+    // GPU TDR / capture-loss recovery Aşama 9'da RecoveryCoordinator'a taşındı.
+    // run_frame() (frame thread, __try DIŞINDA) doğrudan
+    // RecoveryCoordinator::handle_device_lost(...) çağırır.
 };
 #else
 struct Pipeline::Impl {};
@@ -666,7 +584,10 @@ bool Pipeline::run_frame() {
             if (!s.encode_sub_.encode_frame(tex, pts_us)) {
                 s.frame_drops.fetch_add(1, std::memory_order_relaxed);
                 // 3) GPU TDR check  outside __try, free to use C++ objects
-                (void)s.handle_device_lost();
+                (void)RecoveryCoordinator::handle_device_lost(
+                    s.capture_sub_, s.encode_sub_, s.cfg,
+                    s.bitrate_kbps.load(std::memory_order_relaxed),
+                    s.width, s.height);
             }
             // v0.5.1: Zero-copy D3D11 frame callback (GPU-side operations, DXGI only)
             // get_frame_images + cache GpuInterop'a taşındı; callback'in kendisi burada.
@@ -712,10 +633,13 @@ bool Pipeline::run_frame() {
         } else {
             s.frame_drops.fetch_add(1, std::memory_order_relaxed);
             // Null-streak sayacı CaptureSubsystem'de; eşiğe (60) ulaşınca true döner.
-            // Gerçek reinit (handle_device_lost) orkestratörde kalır.
+            // Gerçek reinit RecoveryCoordinator'a delege edilir (cross-subsystem).
             if (s.capture_sub_.handle_null_frame()) {
                 dbglog("[Pipeline] Capture loss detected (60 frames) — reinit");
-                (void)s.handle_device_lost();
+                (void)RecoveryCoordinator::handle_device_lost(
+                    s.capture_sub_, s.encode_sub_, s.cfg,
+                    s.bitrate_kbps.load(std::memory_order_relaxed),
+                    s.width, s.height);
             }
         }
     }

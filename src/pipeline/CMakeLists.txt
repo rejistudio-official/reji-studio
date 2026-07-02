@@ -22,6 +22,7 @@ if(WIN32)
         capture_subsystem.cpp
         encode/encode_nvenc.cpp
         encode_subsystem.cpp
+        recovery_coordinator.cpp
         screen_capture_factory.cpp
     )
 
