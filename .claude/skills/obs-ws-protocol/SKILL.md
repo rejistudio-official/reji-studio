@@ -81,9 +81,16 @@ Aşama 2 (Request op 6 / RequestResponse op 7) ✅ — dispatch mekanizması + 4
   - `GetVersion` — obsWebSocketVersion, rpcVersion=1, platform, rejiStudioVersion
   - `StartStream` — cmd_tx→"stream_start"e delege (legacy ile aynı kanal)
   - `StopStream` — cmd_tx→"stream_stop"e delege
-  - `GetStreamStatus` — outputActive (streaming_active'ten); bytes/duration/congestion=0 (Aşama 3)
+  - `GetStreamStatus` — Aşama 3'te tam 8 alana tamamlandı (aşağı bak)
   Bilinmeyen requestType → 204, bağlantı kapatılmaz. Identify zorunlu değil (Request için de).
   `streaming_active` tek yazma noktası: `ws_server::process_stream_cmd()` (cmd tüketici tarafı).
+Aşama 3 (GetStreamStatus tam alan seti + MetricState) ✅ — obs-websocket v5 spec'inin 8 alanı:
+  - Gerçek: `outputActive`, `outputDuration` (stream_started_at_ms'ten), `outputTimecode`
+    (`obs_protocol::format_timecode`), `outputSkippedFrames` (`MetricState.frame_drops()`)
+  - 0/false (bilinçli, dürüstlük ilkesi — stub/sayaç yok): `outputBytes` (SRT stub),
+    `outputReconnecting`, `outputCongestion`, `outputTotalFrames`
+  - `WsState.metric_state` = FfiState._metric_state ile AYNI Arc; `stream_started_at_ms` de
+    `process_stream_cmd` içinde (tek yazma noktası) güncellenir.
 
 Sonraki aşamaları TASK dosyası/CONTEXT.md'den doğrula; bu skill'i her aşama
 tamamlandığında güncelle (tamamlanan requestType'ların listesini buraya ekle).

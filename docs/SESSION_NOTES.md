@@ -341,3 +341,46 @@ Testler (`tests/ws_obs_protocol_test.rs`, +4 yeni):
 
 Sıradaki: Aşama 3 — GetStreamStatus metrik alanları (bytes/duration/bitrate) metrics
 state'inden doldurma; Aşama 4-5 — GetSceneList/SetCurrentProgramScene (FFI/scene-list).
+
+### Faz 1 — Aşama 3 (GetStreamStatus tam alan seti + MetricState entegrasyonu)
+
+İki iş yapıldı: (1) Aşama 2'nin eksik GetStreamStatus yanıtı obs-websocket v5 spec'inin
+**tam 8 alanına** tamamlandı; (2) `MetricState` (metrics.rs, atomic/lock-free) WsState'e
+bağlandı — artık gerçek `frame_drops` okunuyor.
+
+- `obs_protocol.rs`: `format_timecode(ms) -> "HH:MM:SS.mmm"` eklendi (spec örneğiyle birebir).
+- `ws_server.rs`: `now_epoch_ms()` yardımcısı; `WsState`'e `metric_state: Arc<MetricState>` ve
+  `stream_started_at_ms: Arc<AtomicU64>` (0 = akış kapalı). `process_stream_cmd()` genişletildi:
+  stream_start→started_at=now, stream_stop→started_at=0 (TEK yazma noktası korunur).
+  `GetStreamStatus` kolu tam alan setiyle yeniden yazıldı.
+- `ffi.rs`: WsState'e `metric_state.clone()` geçirildi — **FfiState._metric_state ile AYNI Arc**
+  (üretimde `MetricState::new()` tek çağrı, satır 122; iki instance yok, kod incelemesiyle doğrulandı).
+
+Dürüstlük ilkesi — her alan gerçek mi, değil mi ve NEDEN:
+
+| Alan | Değer | Karar |
+|---|---|---|
+| `outputActive` | streaming_active | **Gerçek** |
+| `outputDuration` | now − stream_started_at_ms (aktifken) | **Gerçek** — stub encode'a bağımlı değil |
+| `outputTimecode` | duration'dan formatlanır | **Gerçek** (duration gerçekse timecode da) |
+| `outputSkippedFrames` | MetricState.frame_drops() | **Gerçek** — atomic olarak tutuluyor |
+| `outputBytes` | 0 | SRT output stub (README: "output layer stub"); bitrate×duration tahmini yanıltıcı olur → üretilmedi |
+| `outputReconnecting` | false | Reconnect mantığı yok |
+| `outputCongestion` | 0.0 | Network congestion sinyali yok |
+| `outputTotalFrames` | 0 | Toplam kare sayacı tutulmuyor |
+
+0/false bırakılan 4 alan **bilinçli** — SRT/NVENC gerçek implementasyonu (şu an stub) ve/veya
+yeni sayaçlar gerektiriyor. Sahte/tahmini değer ÜRETİLMEDİ: gerçek bir obs istemcisi (Stream
+Deck) bu sayılara güvenip kullanıcıya gösterebilir; yanlış bilgi "hiç bilgi vermemekten" kötü.
+
+Testler (`tests/ws_obs_protocol_test.rs`, +4 yeni):
+- `get_stream_status_tam_alan_seti` → PASS (8 alanın da isim+tip varlığı — regresyon guard'ı)
+- `stream_start_sonrasi_duration_artar` → PASS (outputDuration > 0, timecode ilerliyor)
+- `stream_stop_sonrasi_duration_sifirlanir` → PASS (outputDuration == 0)
+- `frame_drops_metric_state_uzerinden_yansir` → PASS (MetricState'e 42 yazıldı → outputSkippedFrames 42)
+- Regresyon: Aşama 1+2'nin 9 testi hâlâ PASS.
+
+`cargo test -p reji-orchestrator`: 29 + 5 + 13 = 47 test PASS, regresyon yok.
+
+Sıradaki: Aşama 4-5 — GetSceneList/SetCurrentProgramScene (FFI/scene-list state); ileride
+outputBytes/outputTotalFrames gerçek SRT/NVENC sayaçlarına bağlanınca doldurulacak.

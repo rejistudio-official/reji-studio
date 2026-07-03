@@ -8,11 +8,22 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::broadcast;
 
+use crate::metrics::MetricState;
 use crate::obs_protocol::{self, op as obs_op};
+
+/// Şu anki Unix epoch zamanı, milisaniye. Stream süre hesapları için;
+/// saat geriye giderse `unwrap_or(0)` ile 0 döner.
+pub fn now_epoch_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Identify için bekleme süresi. Toleranslı mod: süre dolarsa bağlantı KAPATILMAZ,
 /// istemci legacy (obs handshake yapmayan) olarak kabul edilir ve akış sürer.
@@ -45,6 +56,12 @@ pub struct WsState {
     /// Yayının aktif olup olmadığı. TEK yazma noktası `process_stream_cmd` (cmd tüketici
     /// tarafı); StartStream/StopStream handler'ı burayı YAZMAZ, yalnızca cmd_tx'e delege eder.
     pub streaming_active: Arc<AtomicBool>,
+    /// Metrik durumu — FfiState'teki `_metric_state` ile AYNI Arc (iki instance değil).
+    /// GetStreamStatus gerçek `frame_drops` (outputSkippedFrames) buradan okur.
+    pub metric_state: Arc<MetricState>,
+    /// Yayının başladığı epoch ms; `0` = akış aktif değil. `process_stream_cmd` günceller,
+    /// GetStreamStatus outputDuration/outputTimecode'u bundan hesaplar.
+    pub stream_started_at_ms: Arc<AtomicU64>,
 }
 
 /// Legacy `{cmd:...}` ve obs-websocket StartStream/StopStream yollarının ORTAK stream-komut
@@ -55,14 +72,22 @@ pub struct WsState {
 ///
 /// Not: Flag "komut gönderildi" anlamında iyimser güncellenir — encode/output tarafının
 /// gerçekten başladığını doğrulayan bir onay mekanizması henüz yok (bkz. SESSION_NOTES Aşama 2).
-pub fn process_stream_cmd(cmd: &str, streaming_active: &AtomicBool) -> Option<i32> {
+/// `stream_started_at_ms` de burada güncellenir (stream_start ⇒ now, stream_stop ⇒ 0);
+/// böylece süre/timecode hesabı tek doğruluk kaynağından beslenir.
+pub fn process_stream_cmd(
+    cmd: &str,
+    streaming_active: &AtomicBool,
+    stream_started_at_ms: &AtomicU64,
+) -> Option<i32> {
     match cmd {
         "stream_start" => {
             streaming_active.store(true, Ordering::Relaxed);
+            stream_started_at_ms.store(now_epoch_ms(), Ordering::Relaxed);
             Some(1)
         }
         "stream_stop" => {
             streaming_active.store(false, Ordering::Relaxed);
+            stream_started_at_ms.store(0, Ordering::Relaxed);
             Some(2)
         }
         "scene_cut" => Some(3),
@@ -101,17 +126,30 @@ fn dispatch_request(
             let _ = state.cmd_tx.send("stream_stop".to_string());
             request_response_ok(request_type, request_id, json!({}))
         }
-        "GetStreamStatus" => request_response_ok(
-            request_type,
-            request_id,
-            json!({
-                "outputActive": state.streaming_active.load(Ordering::Relaxed),
-                // outputBytes/outputDuration/outputCongestion: Aşama 2 kapsamı dışı (bkz. SESSION_NOTES).
-                "outputBytes": 0,
-                "outputDuration": 0,
-                "outputCongestion": 0.0,
-            }),
-        ),
+        "GetStreamStatus" => {
+            // Tam obs-websocket v5 alan seti (8 alan). Dürüstlük ilkesi: gerçek veri varsa
+            // doldurulur, yoksa 0/false — tahmini/sahte değer üretilmez (bkz. SESSION_NOTES Aşama 3).
+            let active = state.streaming_active.load(Ordering::Relaxed);
+            let duration_ms = if active {
+                now_epoch_ms().saturating_sub(state.stream_started_at_ms.load(Ordering::Relaxed))
+            } else {
+                0
+            };
+            request_response_ok(
+                request_type,
+                request_id,
+                json!({
+                    "outputActive": active,                                    // gerçek
+                    "outputReconnecting": false,                              // reconnect mantığı yok
+                    "outputTimecode": obs_protocol::format_timecode(duration_ms), // gerçek (duration'dan)
+                    "outputDuration": duration_ms,                            // gerçek (started_at'ten)
+                    "outputCongestion": 0.0,                                  // congestion sinyali yok
+                    "outputBytes": 0,                                         // SRT output stub
+                    "outputSkippedFrames": state.metric_state.frame_drops(),  // gerçek (MetricState)
+                    "outputTotalFrames": 0,                                   // toplam kare sayacı yok
+                }),
+            )
+        }
         _ => request_response_err(
             request_type,
             request_id,

@@ -222,6 +222,9 @@ fn rj_start_monitor_impl() {
             cmd_tx: broadcast::channel(64).0,
             evt_rx: broadcast::channel(64).0,
             streaming_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            // FfiState._metric_state ile AYNI Arc — tek doğruluk kaynağı, iki instance yok.
+            metric_state: metric_state.clone(),
+            stream_started_at_ms: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         });
         {
             // Spawn öncesi log
@@ -242,9 +245,12 @@ fn rj_start_monitor_impl() {
             let mut cmd_rx = ws_state.cmd_tx.subscribe();
             let ws_cmd_q = ws_command_queue.clone();
             let streaming_active = ws_state.streaming_active.clone();
+            let stream_started_at_ms = ws_state.stream_started_at_ms.clone();
             runtime.spawn(async move {
                 while let Ok(cmd) = cmd_rx.recv().await {
-                    let Some(code) = ws_server::process_stream_cmd(&cmd, &streaming_active) else {
+                    let Some(code) =
+                        ws_server::process_stream_cmd(&cmd, &streaming_active, &stream_started_at_ms)
+                    else {
                         continue;
                     };
                     match ws_cmd_q.push((code, 0)) {

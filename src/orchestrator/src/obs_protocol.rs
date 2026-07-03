@@ -84,3 +84,14 @@ pub fn request_response_err(request_type: &str, request_id: &str, code: u32, com
         }),
     }
 }
+
+/// Milisaniyeyi obs-websocket timecode formatına çevirir: `"HH:MM:SS.mmm"`.
+/// Spec örneğiyle aynı: 0 ms → `"00:00:00.000"`.
+pub fn format_timecode(ms: u64) -> String {
+    let millis = ms % 1000;
+    let total_secs = ms / 1000;
+    let secs = total_secs % 60;
+    let mins = (total_secs / 60) % 60;
+    let hours = total_secs / 3600;
+    format!("{:02}:{:02}:{:02}.{:03}", hours, mins, secs, millis)
+}

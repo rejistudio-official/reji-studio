@@ -9,8 +9,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use reji_orchestrator::metrics::MetricState;
 use reji_orchestrator::ws_server::{self, WsState};
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message;
@@ -39,18 +41,24 @@ fn make_state() -> (Arc<WsState>, broadcast::Receiver<String>, broadcast::Sender
     let state = Arc::new(WsState {
         cmd_tx,
         evt_rx: evt_tx.clone(),
-        streaming_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        streaming_active: Arc::new(AtomicBool::new(false)),
+        metric_state: MetricState::new(),
+        stream_started_at_ms: Arc::new(AtomicU64::new(0)),
     });
     (state, cmd_rx, evt_tx)
 }
 
-/// Üretimdeki ffi.rs cmd_rx döngüsünün test karşılığı: cmd_tx'i tüketip streaming_active'i
-/// TEK yazma noktası `process_stream_cmd` üzerinden günceller (C++ kuyruğu yok).
+/// Üretimdeki ffi.rs cmd_rx döngüsünün test karşılığı: cmd_tx'i tüketip streaming_active +
+/// stream_started_at_ms'i TEK yazma noktası `process_stream_cmd` üzerinden günceller (C++ kuyruğu yok).
 fn spawn_cmd_consumer(state: Arc<WsState>) {
     let mut rx = state.cmd_tx.subscribe();
     tokio::spawn(async move {
         while let Ok(cmd) = rx.recv().await {
-            let _ = ws_server::process_stream_cmd(&cmd, &state.streaming_active);
+            let _ = ws_server::process_stream_cmd(
+                &cmd,
+                &state.streaming_active,
+                &state.stream_started_at_ms,
+            );
         }
     });
 }
@@ -347,4 +355,129 @@ async fn identify_olmadan_request_yine_islenir() {
     assert_eq!(resp["d"]["requestStatus"]["code"], 100, "Identify'sız Request de işlenmeli");
     assert_eq!(resp["d"]["responseData"]["rpcVersion"], 1);
     assert_eq!(resp["d"]["requestId"], "n1");
+}
+
+// ── Faz 1 Aşama 3: GetStreamStatus tam alan seti + gerçek metrikler ────────────
+
+/// GetStreamStatus'un responseData'sını döndürür (handshake tamamlanmış istemcide).
+async fn get_stream_status(ws: &mut Client) -> Value {
+    send_request(ws, "GetStreamStatus", "st").await;
+    let r = next_json(ws).await;
+    r["d"]["responseData"].clone()
+}
+
+#[tokio::test]
+async fn get_stream_status_tam_alan_seti() {
+    // Regresyon guard'ı: obs-websocket v5 spec'inin 8 alanı da (isim + tip) yanıtta olmalı.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    let data = get_stream_status(&mut ws).await;
+
+    assert!(data["outputActive"].is_boolean(), "outputActive bool olmalı");
+    assert!(data["outputReconnecting"].is_boolean(), "outputReconnecting bool olmalı");
+    assert!(data["outputTimecode"].is_string(), "outputTimecode string olmalı");
+    assert!(data["outputDuration"].is_u64(), "outputDuration number olmalı");
+    assert!(data["outputCongestion"].is_number(), "outputCongestion number olmalı");
+    assert!(data["outputBytes"].is_u64(), "outputBytes number olmalı");
+    assert!(data["outputSkippedFrames"].is_u64(), "outputSkippedFrames number olmalı");
+    assert!(data["outputTotalFrames"].is_u64(), "outputTotalFrames number olmalı");
+
+    // Yayın kapalıyken timecode başlangıç değeri
+    assert_eq!(data["outputActive"], false);
+    assert_eq!(data["outputTimecode"], "00:00:00.000");
+    assert_eq!(data["outputDuration"], 0);
+}
+
+#[tokio::test]
+async fn stream_start_sonrasi_duration_artar() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    spawn_cmd_consumer(state.clone());
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    // StartStream
+    send_request(&mut ws, "StartStream", "s1").await;
+    let _ = next_json(&mut ws).await;
+
+    // outputDuration > 0 olana kadar polla (async tüketici + geçen süre)
+    let mut duration = 0u64;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let data = get_stream_status(&mut ws).await;
+        duration = data["outputDuration"].as_u64().unwrap_or(0);
+        if duration > 0 {
+            // timecode da duration ile tutarlı gerçek olmalı (sıfır değil)
+            assert_ne!(data["outputTimecode"], "00:00:00.000", "timecode duration ile ilerlemeli");
+            assert_eq!(data["outputActive"], true);
+            break;
+        }
+    }
+    assert!(duration > 0, "StartStream sonrası outputDuration > 0 olmalı");
+}
+
+#[tokio::test]
+async fn stream_stop_sonrasi_duration_sifirlanir() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    spawn_cmd_consumer(state.clone());
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    // Başlat, biraz beklet, durdur
+    send_request(&mut ws, "StartStream", "s1").await;
+    let _ = next_json(&mut ws).await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    send_request(&mut ws, "StopStream", "s2").await;
+    let _ = next_json(&mut ws).await;
+
+    // Stop sonrası duration 0'a dönmeli (tüketici işleyene kadar polla)
+    let mut ok = false;
+    for _ in 0..50 {
+        let data = get_stream_status(&mut ws).await;
+        if data["outputDuration"].as_u64() == Some(0) && data["outputActive"] == false {
+            assert_eq!(data["outputTimecode"], "00:00:00.000");
+            ok = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(ok, "StopStream sonrası outputDuration 0 olmalı");
+}
+
+#[tokio::test]
+async fn frame_drops_metric_state_uzerinden_yansir() {
+    // MetricState'e doğrudan frame_drops yaz; GetStreamStatus.outputSkippedFrames yansıtmalı.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let observer = state.clone(); // aynı Arc — sunucunun okuduğu MetricState ile birebir
+    observer.metric_state.frame_drops.store(42, Ordering::Relaxed);
+
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    let data = get_stream_status(&mut ws).await;
+    assert_eq!(
+        data["outputSkippedFrames"], 42,
+        "outputSkippedFrames MetricState.frame_drops'u yansıtmalı"
+    );
 }
