@@ -58,21 +58,20 @@ zig-cache/
 .zig-cache/
 zig-out/
 
-# Yanlışlıkla eklenen çıktı/log dosyaları
-debug_output.txt
-test_output.txt
-build_log.txt
-ts.txt
-log_err.txt
-log_out.txt
-
 # Bozuk shell yönlendirmesinden oluşan dosyalar (parantezli isimler)
 device()*
 physical_device()*
 
-# Geçici kaynak dosya kopyaları
-*.tmp[0-9]
-*.cpp.tmp*
+# Log ve çıktılar
+*.txt
+!tests/baseline_metrics.txt
+!**/CMakeLists.txt
+
+# Geçici dosyalar
+*.tmp*
+*.bak
+*_output.txt
+repo_snapshot.txt
 
 # Alternatif build dizinleri
 build_debug_srt/
