@@ -44,6 +44,9 @@ fn make_state() -> (Arc<WsState>, broadcast::Receiver<String>, broadcast::Sender
         streaming_active: Arc::new(AtomicBool::new(false)),
         metric_state: MetricState::new(),
         stream_started_at_ms: Arc::new(AtomicU64::new(0)),
+        scene_names: Arc::new(std::sync::Mutex::new(Vec::new())),
+        current_scene_idx: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+        ws_command_queue: Arc::new(crossbeam::queue::ArrayQueue::new(32)),
     });
     (state, cmd_rx, evt_tx)
 }

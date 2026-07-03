@@ -384,3 +384,67 @@ Testler (`tests/ws_obs_protocol_test.rs`, +4 yeni):
 
 Sıradaki: Aşama 4-5 — GetSceneList/SetCurrentProgramScene (FFI/scene-list state); ileride
 outputBytes/outputTotalFrames gerçek SRT/NVENC sayaçlarına bağlanınca doldurulacak.
+
+### Faz 1 — Aşama 4 (FFI + C++ boru hattı: scene names push + gerçek scene_switch + SetScene)
+
+Amaç: sahne senkronizasyonunun FFI/C++ altyapısını kurmak (Aşama 5'teki GetSceneList/
+SetCurrentProgramScene handler'ları için zemin). Handler'lar bu commit'te YOK — Aşama 5.
+
+**Rust (ffi.rs):**
+- `rj_push_scene_names(names, count)` — C++ UI sahne isimlerini WsState.scene_names'e yazar.
+  Ownership: C++ pointer verir, Rust HEMEN kopyalar (`into_owned`), dönünce ham pointer saklamaz.
+  Güvenlik: null-check, MAX_SCENES=256 clamp, char-sınırında güvenli truncate (ham byte slice
+  UTF-8 ortasında panik yapabilirdi → `is_char_boundary`), catch_unwind.
+- `rj_user_event_scene_switch(scene_id)` — C++ stub'ı GERÇEK impl'e taşındı; WsState.current_scene_idx'i
+  yazar. Tek gerçek kaynak: Rust tahmin etmez, C++'ın gerçekte yaptığını dinler (sendSceneSwitchEvent
+  her sahne değişiminde çağrılıyor: UI tıklaması + legacy cut + Aşama 5 SetScene geçişi).
+- `RJ_WS_CMD_SET_SCENE = 5` sabiti (Aşama 5'te ws_server kullanacak, şimdilik #[allow(dead_code)]).
+- WsState'e alanlar: `scene_names: Arc<Mutex<Vec<String>>>`, `current_scene_idx: Arc<AtomicU32>`,
+  `ws_command_queue`: FfiState'teki ile AYNI Arc (metric_state deseni — iki kuyruk yok).
+
+**sizeof_check neden ATLANDI (ffi-safety checklist'te N/A):** Yeni `#[repr(C)]` struct EKLENMEDİ —
+yalnızca pointer+count parametreli fonksiyonlar ve mevcut WsState'e (FFI ABI'sinde olmayan, tamamen
+Rust-içi bir struct) alan eklemesi var. ABI boyut/offset sözleşmesi değişmedi, dolayısıyla
+sizeof_check.cpp/.zig'e yeni giriş gerekmez.
+
+**cbindgen sızıntısı düzeltildi (Aşama 1'den gizli kalan bug, C++ ilk kez şimdi derlendi):**
+cbindgen `obs_protocol.rs`'in `pub` sabitlerini (`RPC_VERSION`, `HELLO`, `SUCCESS`, …) ffi_auto.h'a
+export ediyordu; `RPC_VERSION` Windows SDK `rpcdcep.h` ile çakışıp C2378 veriyordu (`SUCCESS` de riskliydi).
+Bu sabitler obs protokolünün İÇ değerleri, FFI ABI'si değil → `pub(crate)` yapıldı (ws_server yine
+crate-içi kullanıyor, cbindgen artık export etmiyor). ffi_auto.h gitignore'lı üretilmiş artefakt.
+
+**C++ tarafı:**
+- rust_bridge.cpp/.h: `rj_user_event_scene_switch` no-op stub SİLİNDİ → gerçek Rust sembolüne
+  (ffi_auto.h) bağlandı. stream_start/stop hâlâ stub (kapsam dışı).
+- SceneCommandCallback/SceneCallback imzası `void(int)` → `void(int cmd, uint32_t param)` genişletildi
+  (pipeline.h, command_router.h, pipeline.cpp invoke_scene_cmd_, main_window.cpp lambda).
+- command_router.cpp switch: case 3/4 param'ı geçiriyor (cut/fade'de kullanılmaz, imza tutarlı);
+  case 5 (SetScene) EKLENDİ.
+- main_window.cpp: cmd==5 → `setCurrentRow(param)` + `onCutTransition()` (sendSceneSwitchEvent zaten
+  içinde). Sınır dışı idx sessizce yok sayılır + log (crash yok). `pushSceneNamesToRust()` yardımcısı:
+  buildCentralWidget/addScene/removeScene sonunda çağrılır. QByteArray ömür uyarısı yorumda.
+
+**Test sonuçları:**
+- Rust: 31 (lib, +2 yeni: `test_scene_switch_event_updates_current_idx`,
+  `test_push_scene_names_null_does_not_crash`) + 5 + 13 = 49 PASS.
+- C++ (release/NMake, gerçek Vulkan — bkz. aşağıdaki mock notu): 4 değişen dosya (pipeline.cpp,
+  command_router.cpp, main_window.cpp, rust_bridge.cpp) derlendi; reji_app.exe linklendi.
+  (İlk link LNK2019 verdi — `target/release/reji_orchestrator.lib` bayattı; `cargo build --release`
+  ile çözüldü. Not: C++ build CMAKE_BUILD_TYPE=Release → release Rust lib'ini link eder.)
+- ctest: **ffi_boundary PASS**, **PipelineIntegration PASS**, PipelineCharacterization PASS
+  (scene callback + FFI ile ilgili olanlar). FrameProfilerTest & ShaderCacheTest FAILED —
+  **önceden var olan, ilgisiz** başarısızlıklar (frame zamanlama sampleCount / shader hash eşitliği;
+  diff'im bu alt sistemlere dokunmuyor).
+
+**mock preset ÇALIŞMIYOR (önceden var olan repo sorunu, değişikliklerimle ilgisiz):**
+`cmake --preset mock` derlenemiyor çünkü `copy_optimizer.cpp`/`gpu_query_timing.cpp` koşulsuz
+`#include <vulkan/vulkan.h>` yapıyor; ama mock modda CMake `find_package(Vulkan)` çağırmıyor
+(header yolu yok) VE `pipeline.h` mock dalı `using VkDevice = void*` tanımlıyor → gerçek vulkan.h
+eklenirse C2371 çakışması. Repo'da mock vulkan.h shim yok. Bu yüzden doğrulama gerçek-Vulkan
+**release** build'iyle yapıldı (çalışan konfigürasyon). Mock config'in düzeltilmesi kapsam dışı.
+
+**Manuel test (Qt UI, otomatikleştirilemez):** Sahneye tıklama → crash yok / run.log HATA yok
+doğrulaması HENÜZ YAPILMADI (headless ortamda GUI güvenilir çalıştırılamıyor). reji_app.exe başarıyla
+üretildi; sahne-tıklama davranışı elle doğrulanmalı (talimatta kabul edilebilir işaretli).
+
+Sıradaki: Aşama 5 — GetSceneList / SetCurrentProgramScene handler'ları (ws_server dispatch_request).

@@ -295,7 +295,7 @@ bool Pipeline::stop_stream()                              { return false; }
 bool Pipeline::is_running() const                         { return false; }
 bool Pipeline::set_preview_callback(PreviewCallback)      { return false; }
 bool Pipeline::set_scene_command_callback(SceneCommandCallback) { return false; }
-void Pipeline::invoke_scene_cmd_(int) noexcept            {}
+void Pipeline::invoke_scene_cmd_(int, uint32_t) noexcept  {}
 bool Pipeline::run_frame()                                { return false; }
 bool Pipeline::shutdown()                                 { return true;  }
 #else
@@ -447,8 +447,8 @@ bool Pipeline::init(const Config& cfg_in) {
     // scene_cb geç-bağlanır (invoke_scene_cmd_ çağrı anında scene_cmd_cb'i okur);
     // on_action → apply_action (bitrate/res/fps → SPSC ring push).
     s.command_router_.start(
-        [this](int cmd)            { invoke_scene_cmd_(cmd); },
-        [this](const RjAction& a)  { (void)apply_action(a); });
+        [this](int cmd, uint32_t param) { invoke_scene_cmd_(cmd, param); },
+        [this](const RjAction& a)       { (void)apply_action(a); });
 
     s.initialized.store(true, std::memory_order_release);
     dbglog("[Pipeline] init OK %ux%u@%u fps %u kbps audio=%d loopback=%d",
@@ -521,8 +521,8 @@ bool Pipeline::set_scene_command_callback(SceneCommandCallback cb) {
     return true;
 }
 
-void Pipeline::invoke_scene_cmd_(int cmd) noexcept {
-    if (impl_ && impl_->scene_cmd_cb) impl_->scene_cmd_cb(cmd);
+void Pipeline::invoke_scene_cmd_(int cmd, uint32_t param) noexcept {
+    if (impl_ && impl_->scene_cmd_cb) impl_->scene_cmd_cb(cmd, param);
 }
 
 bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device) {

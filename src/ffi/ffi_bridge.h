@@ -59,7 +59,9 @@ uint32_t rj_ffi_version(void);
 
 /* ── WS command queue: Rust → C++ (data-driven, no handle/registry) ─────── */
 /* cmd=1 stream_start  cmd=2 stream_stop  cmd=3 scene_cut  cmd=4 scene_fade  */
+/* cmd=5 set_scene (param = 0-based sahne indeksi)                            */
 /* rj_ws_command_v2 / rj_ws_command_dequeue declared in ffi_auto.h           */
+/* rj_push_scene_names / rj_user_event_scene_switch declared in ffi_auto.h    */
 
 #ifdef __cplusplus
 }

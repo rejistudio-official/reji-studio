@@ -14,20 +14,25 @@ pub struct WsEnvelope {
     pub d: Value,
 }
 
+// NOT: Bu sabitler `pub(crate)` — obs-websocket protokolünün İÇ değerleri, FFI ABI'si DEĞİL.
+// `pub` olsalardı cbindgen bunları ffi_auto.h'a export ederdi ve `RPC_VERSION`/`SUCCESS` gibi
+// jenerik isimler Windows SDK başlıklarıyla çakışırdı (rpcdcep.h: RPC_VERSION → C2378).
+// Crate içinde (ws_server) kullanım için pub(crate) yeterli; sınırın dışına çıkmazlar.
+
 /// obs-websocket opcode'ları (bu aşamada yalnızca handshake kısmı kullanılıyor).
-pub mod op {
-    pub const HELLO: u8 = 0;
-    pub const IDENTIFY: u8 = 1;
-    pub const IDENTIFIED: u8 = 2;
-    pub const REQUEST: u8 = 6;
-    pub const REQUEST_RESPONSE: u8 = 7;
+pub(crate) mod op {
+    pub(crate) const HELLO: u8 = 0;
+    pub(crate) const IDENTIFY: u8 = 1;
+    pub(crate) const IDENTIFIED: u8 = 2;
+    pub(crate) const REQUEST: u8 = 6;
+    pub(crate) const REQUEST_RESPONSE: u8 = 7;
 }
 
 /// Desteklenen tek RPC versiyonu.
-pub const RPC_VERSION: u8 = 1;
+pub(crate) const RPC_VERSION: u8 = 1;
 
 /// Server tanıtım stringi — auth gerektirmediğimiz için `-reji-compat` soneki.
-pub const OBS_WS_VERSION: &str = "5.0.0-reji-compat";
+pub(crate) const OBS_WS_VERSION: &str = "5.0.0-reji-compat";
 
 /// Bağlantı açılışında gönderilen Hello (op 0) zarfı.
 /// `rpcVersion` server'ın desteklediği versiyonu bildirir; `authentication` alanı yok.
@@ -52,11 +57,13 @@ pub fn identified() -> WsEnvelope {
 }
 
 /// obs-websocket RequestStatus kodları (spec: obsproject/obs-websocket).
-pub mod request_status {
+/// `pub(crate)`: iç protokol değerleri, FFI ABI'si değil (bkz. üstteki not — `SUCCESS`
+/// gibi isimler C++ global namespace'inde çakışabilir).
+pub(crate) mod request_status {
     /// İstek başarıyla işlendi.
-    pub const SUCCESS: u32 = 100;
+    pub(crate) const SUCCESS: u32 = 100;
     /// requestType tanınmadı.
-    pub const UNKNOWN_REQUEST_TYPE: u32 = 204;
+    pub(crate) const UNKNOWN_REQUEST_TYPE: u32 = 204;
 }
 
 /// Başarılı RequestResponse (op 7) zarfı. `data`, spec'teki `responseData` alanına yazılır.

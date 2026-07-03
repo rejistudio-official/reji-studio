@@ -41,6 +41,12 @@ const RJ_CMD_SCENE_SWITCH: u32 = 0;
 const RJ_CMD_BITRATE_SET:  u32 = 1;
 const RJ_CMD_PREVIEW_FPS:  u32 = 2;
 
+/// WS komut kuyruğu kodu: SetScene. (1=stream_start, 2=stream_stop, 3=scene_cut,
+/// 4=scene_fade zaten kullanımda — bkz. ffi_bridge.h.) Aşama 5'te ws_server'ın
+/// SetCurrentProgramScene handler'ı tarafından push edilir.
+#[allow(dead_code)] // Aşama 5'te ws_server::dispatch_request tarafından kullanılır
+pub(crate) const RJ_WS_CMD_SET_SCENE: i32 = 5;
+
 /// v0.4+: Adaptation action — `ffi_bridge.h`'daki RjAction ile #[repr(C)] eşleşmeli.
 #[repr(u32)]  // E1: kesin u32 discriminant — repr(C) ABI implementation-defined
 #[derive(Copy, Clone, Debug)]
@@ -225,6 +231,10 @@ fn rj_start_monitor_impl() {
             // FfiState._metric_state ile AYNI Arc — tek doğruluk kaynağı, iki instance yok.
             metric_state: metric_state.clone(),
             stream_started_at_ms: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            scene_names: Arc::new(Mutex::new(Vec::new())),
+            current_scene_idx: Arc::new(AtomicU32::new(0)),
+            // FfiState.ws_command_queue ile AYNI Arc — iki ayrı kuyruk yok (metric_state deseni).
+            ws_command_queue: ws_command_queue.clone(),
         });
         {
             // Spawn öncesi log
@@ -599,6 +609,65 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
     })
 }
 
+/// C++ UI → Rust: mevcut sahne isimlerini WsState'e yazar (GetSceneList için).
+///
+/// Ownership: C++ pointer'ları verir, Rust HEMEN kopyalar (`into_owned`); fonksiyon
+/// dönünce hiçbir ham pointer saklanmaz — C++ hemen sonra belleği serbest bırakabilir.
+/// Bloklamaz (kısa Mutex kilidi, hot-path değil). Panik sınırı geçmez (catch_unwind).
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_push_scene_names(names: *const *const c_char, count: u32) {
+    let _ = catch_unwind(AssertUnwindSafe(move || {
+        if names.is_null() {
+            return;
+        }
+        const MAX_SCENES: u32 = 256; // sınırsız okuma riski yok (I24 dersi)
+        const MAX_NAME_LEN: usize = 256;
+        let count = count.min(MAX_SCENES);
+        let mut result = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            // SAFETY: names[0..count] geçerli pointer dizisi (C++ sözleşmesi); count clamp'lendi.
+            let ptr = unsafe { *names.add(i as usize) };
+            if ptr.is_null() {
+                continue;
+            }
+            // SAFETY: ptr geçerli, NUL-sonlu C string (C++ QByteArray::constData).
+            let s = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+            // char-sınırında güvenli kes: ham byte slice UTF-8 ortasında panik yapabilir.
+            let s = if s.len() > MAX_NAME_LEN {
+                let mut end = MAX_NAME_LEN;
+                while end > 0 && !s.is_char_boundary(end) {
+                    end -= 1;
+                }
+                s[..end].to_string()
+            } else {
+                s
+            };
+            result.push(s);
+        }
+        let Some(state) = FFI_STATE.get() else {
+            return;
+        };
+        if let Ok(mut guard) = state._ws_state.scene_names.lock() {
+            *guard = result;
+        }
+    }));
+}
+
+/// C++ UI → Rust: aktif sahne değiştiğinde çağrılır (UI tıklaması / legacy cut /
+/// SetCurrentProgramScene'in gerçek geçişi). WsState.current_scene_idx'i günceller —
+/// tek gerçek kaynak: Rust tahmin etmez, C++'ın gerçekte yaptığını dinler.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_user_event_scene_switch(scene_id: u32) {
+    let _ = catch_unwind(AssertUnwindSafe(move || {
+        let Some(state) = FFI_STATE.get() else {
+            return;
+        };
+        state._ws_state.current_scene_idx.store(scene_id, Ordering::Relaxed);
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,5 +815,42 @@ mod tests {
         // Null action dequeue
         let n = rj_action_dequeue(std::ptr::null_mut());
         assert_eq!(n, 0, "Null output ptr must return 0");
+    }
+
+    // ===== Aşama 4: sahne senkronizasyonu =====
+
+    #[test]
+    fn test_scene_switch_event_updates_current_idx() {
+        rj_start_monitor();
+        let state = FFI_STATE.get().expect("FFI_STATE init");
+
+        // Bu testten başka hiçbir yer current_scene_idx'i yazmaz → başlangıç 0.
+        assert_eq!(
+            state._ws_state.current_scene_idx.load(Ordering::Relaxed),
+            0,
+            "current_scene_idx başlangıçta 0 olmalı"
+        );
+
+        rj_user_event_scene_switch(3);
+        assert_eq!(
+            state._ws_state.current_scene_idx.load(Ordering::Relaxed),
+            3,
+            "scene_switch(3) sonrası 3 olmalı"
+        );
+
+        rj_user_event_scene_switch(7);
+        assert_eq!(
+            state._ws_state.current_scene_idx.load(Ordering::Relaxed),
+            7,
+            "scene_switch(7) sonrası 7 olmalı"
+        );
+    }
+
+    #[test]
+    fn test_push_scene_names_null_does_not_crash() {
+        // SECURITY: null pointer → sessizce dön (panik/crash yok)
+        rj_start_monitor();
+        rj_push_scene_names(std::ptr::null(), 0);
+        rj_push_scene_names(std::ptr::null(), 5); // count > 0 ama null ptr → yine güvenli
     }
 }

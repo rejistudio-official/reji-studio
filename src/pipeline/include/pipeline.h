@@ -78,14 +78,15 @@ public:
     using D3D11FrameCallback = std::function<void(void* staging_texture, uint32_t width, uint32_t height)>;
     bool set_d3d11_frame_callback(D3D11FrameCallback cb);
 
-    /// WebSocket scene command callback — fired for cmd=3 (scene_cut) and cmd=4 (scene_fade).
+    /// WebSocket scene command callback — fired for cmd=3 (scene_cut), cmd=4 (scene_fade),
+    /// cmd=5 (set_scene, param = 0-based sahne indeksi). param cut/fade'de kullanılmaz.
     /// Called from run_frame() via ws_command_queue drain; use QMetaObject::invokeMethod for UI.
-    using SceneCommandCallback = std::function<void(int cmd)>;
+    using SceneCommandCallback = std::function<void(int cmd, uint32_t param)>;
     bool set_scene_command_callback(SceneCommandCallback cb);
 
-    /// Dispatches cmd=3 (scene_cut) / cmd=4 (scene_fade) to the registered callback.
+    /// Dispatches cmd=3/4/5 to the registered callback (param SetScene için sahne indeksi).
     /// Called from run_frame() on the frame thread.
-    void invoke_scene_cmd_(int cmd) noexcept;
+    void invoke_scene_cmd_(int cmd, uint32_t param) noexcept;
 
     /// Late Vulkan device binding — updates ExternalMemoryBridge with real device handles.
     /// Call after VulkanInitializer::initialize() succeeds. Safe to call multiple times.

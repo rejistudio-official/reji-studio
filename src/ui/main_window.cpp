@@ -12,6 +12,7 @@
 #include "settings_dialog.h"
 #include "../pipeline/gpu/vulkan_initializer.h"
 
+#include <vector>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDebug>
@@ -153,10 +154,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         );
 
         // WebSocket scene commands → GUI thread via QueuedConnection
-        pipeline_->set_scene_command_callback([this](int cmd) {
-            QMetaObject::invokeMethod(this, [this, cmd]() {
+        pipeline_->set_scene_command_callback([this](int cmd, uint32_t param) {
+            QMetaObject::invokeMethod(this, [this, cmd, param]() {
                 if (cmd == 3) onCutTransition();
                 if (cmd == 4) onFadeTransition();
+                if (cmd == 5) {  // SetCurrentProgramScene → satırı seç + cut
+                    if (param < static_cast<uint32_t>(scene_list_->count())) {
+                        scene_list_->setCurrentRow(static_cast<int>(param));
+                        onCutTransition();  // sendSceneSwitchEvent zaten içinde (tek gerçek kaynak)
+                    } else {
+                        qWarning("[MainWindow] SetScene: idx %u sınır dışı (count=%d), yok sayıldı",
+                                 param, scene_list_->count());
+                    }
+                }
             }, Qt::QueuedConnection);
         });
 
@@ -229,6 +239,7 @@ void MainWindow::buildCentralWidget() {
         scene_list_->addItem(item);
     }
     scene_list_->setCurrentRow(0);
+    pushSceneNamesToRust();  // ilk sahne isimlerini Rust'a bildir (GetSceneList için)
     connect(scene_list_, &QListWidget::itemActivated,
             this, [this](QListWidgetItem* item) {
                 const int idx = scene_list_->currentRow();
@@ -456,6 +467,7 @@ void MainWindow::addScene() {
     scene_list_->addItem(item);
     scene_list_->setCurrentItem(item);
     scene_list_->editItem(item);
+    pushSceneNamesToRust();  // yeni sahne listesini Rust'a bildir
 }
 
 void MainWindow::removeScene() {
@@ -464,6 +476,7 @@ void MainWindow::removeScene() {
     delete scene_list_->takeItem(row);
     if (scene_list_->currentRow() < 0)
         scene_list_->setCurrentRow(0);
+    pushSceneNamesToRust();  // güncel sahne listesini Rust'a bildir
 }
 
 void MainWindow::onCutTransition() {
@@ -476,6 +489,22 @@ void MainWindow::onCutTransition() {
 void MainWindow::onFadeTransition() {
     program_widget_->beginTransition(reji::ProgramWidget::Transition::Fade, 300);
     lbl_status_->setText(tr("FADE"));
+}
+
+void MainWindow::pushSceneNamesToRust() {
+    if (!scene_list_) return;
+    // DİKKAT: utf8_names (QByteArray'ler) rj_push_scene_names çağrısı bitene kadar
+    // scope'ta kalmalı — ptrs constData()'ları bunlara işaret ediyor. Rust HEMEN
+    // kopyaladığı için çağrı SONRASI serbest, ama çağrı SIRASINDA canlı olmaları şart.
+    std::vector<QByteArray>  utf8_names;
+    std::vector<const char*> ptrs;
+    utf8_names.reserve(scene_list_->count());
+    ptrs.reserve(scene_list_->count());
+    for (int i = 0; i < scene_list_->count(); ++i) {
+        utf8_names.push_back(scene_list_->item(i)->text().toUtf8());
+        ptrs.push_back(utf8_names.back().constData());
+    }
+    rj_push_scene_names(ptrs.data(), static_cast<uint32_t>(ptrs.size()));
 }
 
 void MainWindow::onSettingsClicked() {

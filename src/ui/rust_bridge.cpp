@@ -8,10 +8,10 @@
 
 // ---------------------------------------------------------------------------
 // v0.1 no-op implementations — linker stubs until Rust ships UserEvent FFI.
-// Replace in v0.2 by deleting these and implementing #[no_mangle] in ffi.rs.
+// scene_switch artık GERÇEK: ffi.rs #[no_mangle] rj_user_event_scene_switch
+// (ffi_auto.h'tan gelir) — stub SİLİNDİ. stream_start/stop hâlâ stub (kapsam dışı).
 // ---------------------------------------------------------------------------
 extern "C" {
-    void rj_user_event_scene_switch(uint32_t) {}
     void rj_user_event_stream_start()          {}
     void rj_user_event_stream_stop()           {}
 }

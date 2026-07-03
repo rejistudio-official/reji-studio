@@ -95,6 +95,8 @@ private:
     void buildMenuBar();
     void buildCentralWidget();
     void buildStatusBar();
+    /// Sahne isimlerini Rust'a (rj_push_scene_names) bildirir — GetSceneList için.
+    void pushSceneNamesToRust();
     void saveWindowState();
     void loadWindowState();
     void stopFrameThread();

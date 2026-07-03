@@ -96,7 +96,12 @@ void CommandRouter::drain_and_apply(CommandApplier apply_command,
                 case 1:
                 case 2: handle_start_stop(ws_cmd);            break;  // start/stop_stream
                 case 3:
-                case 4: if (scene_cb_) scene_cb_(ws_cmd);     break;  // scene_cut/fade
+                case 4:  // scene_cut/fade — param cut/fade'de kullanılmaz ama imza tutarlı
+                    if (scene_cb_) scene_cb_(ws_cmd, static_cast<uint32_t>(ws_param));
+                    break;
+                case 5:  // set_scene — param = 0-based sahne indeksi
+                    if (scene_cb_) scene_cb_(ws_cmd, static_cast<uint32_t>(ws_param));
+                    break;
                 default: dbglog("[Pipeline] unknown ws_cmd=%d", ws_cmd); break;
             }
         }

@@ -7,9 +7,10 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
+use crossbeam::queue::ArrayQueue;
 use tokio::sync::broadcast;
 
 use crate::metrics::MetricState;
@@ -62,6 +63,15 @@ pub struct WsState {
     /// Yayının başladığı epoch ms; `0` = akış aktif değil. `process_stream_cmd` günceller,
     /// GetStreamStatus outputDuration/outputTimecode'u bundan hesaplar.
     pub stream_started_at_ms: Arc<AtomicU64>,
+    /// Sahne isimleri — C++ UI'dan `rj_push_scene_names` ile beslenir. Düşük frekans,
+    /// kısa kilit (hot-path değil). GetSceneList (Aşama 5) buradan okur.
+    pub scene_names: Arc<Mutex<Vec<String>>>,
+    /// C++'ın DOĞRULADIĞI aktif sahne indeksi. `rj_user_event_scene_switch` yazar
+    /// (UI tıklaması / legacy cut / SetCurrentProgramScene'in gerçek geçişi). Tek gerçek kaynak.
+    pub current_scene_idx: Arc<AtomicU32>,
+    /// WS→C++ komut kuyruğu — FfiState'teki ile AYNI Arc (metric_state deseni). SetScene (5)
+    /// komutu (Aşama 5) buraya push edilir; iki ayrı kuyruk oluşturulmaz.
+    pub ws_command_queue: Arc<ArrayQueue<(i32, i32)>>,
 }
 
 /// Legacy `{cmd:...}` ve obs-websocket StartStream/StopStream yollarının ORTAK stream-komut

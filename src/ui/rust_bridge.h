@@ -8,11 +8,11 @@
 #include <cstdint>
 
 // ---------------------------------------------------------------------------
-// v0.1 stub declarations — compiled as no-ops in rust_bridge.cpp.
-// v0.2: Rust implements these with #[no_mangle] in src/orchestrator/src/ffi.rs.
+// stream_start/stop: hâlâ v0.1 no-op stub (rust_bridge.cpp'de tanımlı).
+// scene_switch: GERÇEK Rust FFI — ffi_bridge.h → ffi_auto.h'tan bildirilir,
+// burada TEKRAR bildirilmez (çift bildirim önlenir).
 // ---------------------------------------------------------------------------
 extern "C" {
-    void rj_user_event_scene_switch(uint32_t scene_id);
     void rj_user_event_stream_start();
     void rj_user_event_stream_stop();
 }

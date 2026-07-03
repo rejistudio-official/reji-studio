@@ -29,7 +29,7 @@ public:
     // C6: action_processor (producer) → run_frame (consumer) arası komut.
     struct FrameCmd { int action_type; int32_t param1; };
 
-    using SceneCallback    = std::function<void(int)>;              // ws_cmd 3/4
+    using SceneCallback    = std::function<void(int, uint32_t)>;    // ws_cmd 3/4/5 (param: SetScene idx)
     using ActionHandler    = std::function<void(const RjAction&)>;  // action thread
     using CommandApplier   = std::function<void(const RjCommand&)>; // rj_command_drain
     using FrameCmdApplier  = std::function<void(const FrameCmd&)>;  // SPSC drain
