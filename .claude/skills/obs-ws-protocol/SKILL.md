@@ -77,5 +77,13 @@ Detay gerekirse resmi spec: obsproject/obs-websocket → docs/generated/protocol
 ## Faz 1 kapsam takibi
 
 Aşama 1 (Hello/Identify/Identified) ✅ — commit 61c8057.
+Aşama 2 (Request op 6 / RequestResponse op 7) ✅ — dispatch mekanizması + 4 requestType:
+  - `GetVersion` — obsWebSocketVersion, rpcVersion=1, platform, rejiStudioVersion
+  - `StartStream` — cmd_tx→"stream_start"e delege (legacy ile aynı kanal)
+  - `StopStream` — cmd_tx→"stream_stop"e delege
+  - `GetStreamStatus` — outputActive (streaming_active'ten); bytes/duration/congestion=0 (Aşama 3)
+  Bilinmeyen requestType → 204, bağlantı kapatılmaz. Identify zorunlu değil (Request için de).
+  `streaming_active` tek yazma noktası: `ws_server::process_stream_cmd()` (cmd tüketici tarafı).
+
 Sonraki aşamaları TASK dosyası/CONTEXT.md'den doğrula; bu skill'i her aşama
 tamamlandığında güncelle (tamamlanan requestType'ların listesini buraya ekle).

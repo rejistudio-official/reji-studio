@@ -295,3 +295,49 @@ Testler (`tests/ws_obs_protocol_test.rs`, tokio-tungstenite dev-dependency):
 
 Sıradaki: Aşama 2 — Request/RequestResponse (op 6/7), GetVersion/StartStream/
 GetSceneList gibi requestType'ların işlenmesi.
+
+### Faz 1 — Aşama 2 (GetVersion/StartStream/StopStream/GetStreamStatus)
+
+Request (op 6) / RequestResponse (op 7) genel dispatch mekanizması kuruldu; dört
+requestType gerçek işleve bağlandı: **GetVersion, StartStream, StopStream, GetStreamStatus**.
+(GetSceneList/SetCurrentProgramScene bu aşamada YOK — FFI/scene-list state'i gerektiriyor,
+Aşama 4-5.)
+
+- `obs_protocol.rs`: `request_response_ok()` / `request_response_err()` zarf üreticileri
+  ve `request_status` sabitleri (100 Success, 204 UnknownRequestType). Başarılı yanıt
+  verisi spec'e uygun `responseData` alanına konur.
+- `ws_server.rs`: `ClientMsg::Request` dalı + `classify()` op 6 ayrımı; `dispatch_request()`
+  requestType eşleşmesini tek `match`'te toplar. Bilinmeyen tip → 204, **bağlantı
+  kapatılmaz** (aynı soketten sonraki istek çalışmaya devam eder).
+
+Tasarım kararları:
+- **Identify zorunlu değil (Request için de).** Aşama 1'in toleranslı felsefesiyle tutarlı:
+  Identify gelmeden gelen `{"op":6,...}` de işlenir (yalnızca log'lanır, reddedilmez).
+- **`streaming_active` tek yazma noktası:** `StartStream`/`StopStream` handler'ı bayrağı
+  YAZMAZ; mevcut `cmd_tx.send("stream_start"|"stream_stop")` yoluna (legacy `{cmd}` ile
+  **aynı kanal**) delege eder. Bayrak, komutu tüketen tek noktada güncellenir:
+  `ws_server::process_stream_cmd()` (üretimde ffi.rs cmd_rx döngüsünden çağrılır). Böylece
+  hem legacy hem obs-websocket yolu tek doğruluk kaynağından geçer, iki yerden yazma yok.
+- **İyimser flag:** `process_stream_cmd` bayrağı "komut gönderildi" anlamında günceller.
+  Encode/output tarafının yayının gerçekten başladığını doğrulayan bir onay mekanizması
+  **henüz yok** → gerçek durum senkronizasyonu ayrı bir iş (ileri aşama).
+
+Kapsam sınırı (bilinçli, eksiklik değil): `GetStreamStatus` yanıtında **`outputBytes`,
+`outputDuration`, `outputCongestion` sabit 0** bırakıldı. Neden: WsState'te düşük maliyetle
+erişilebilen bir MetricSample/son-örnek kaynağı yok (evt_rx yalnızca serialize edilmiş event
+string broadcast'i); gerçek metrik entegrasyonu Aşama 2'nin dört-komut kapsamının dışında bir
+genişletme. Bitrate/bytes/duration alanları Aşama 3'te metrics state'i bağlanınca doldurulacak.
+
+Testler (`tests/ws_obs_protocol_test.rs`, +4 yeni):
+- `get_version_doner_dogru_alanlar` → PASS (responseData.rpcVersion==1, requestStatus.code==100)
+- `start_stop_stream_streaming_active_gunceller` → PASS (StartStream→outputActive true,
+  StopStream→false; tüketici üretimdeki ffi döngüsünün test karşılığı)
+- `bilinmeyen_request_type_204_doner_baglanti_kapanmaz` → PASS (204 sonrası aynı soketten
+  GetVersion hâlâ çalışıyor = bağlantı kapanmadı kanıtı)
+- `identify_olmadan_request_yine_islenir` → PASS (tasarım kararı 1)
+- Regresyon: Aşama 1'in 5 testi hâlâ PASS.
+
+`cargo test -p reji-orchestrator`: 29 + 5 + 9 = 43 test PASS, regresyon yok.
+
+Sıradaki: Aşama 3 — GetStreamStatus metrik alanları (bytes/duration/bitrate) metrics
+state'inden doldurma; Aşama 4-5 — GetSceneList/SetCurrentProgramScene (FFI/scene-list).

@@ -221,6 +221,7 @@ fn rj_start_monitor_impl() {
         let ws_state = Arc::new(WsState {
             cmd_tx: broadcast::channel(64).0,
             evt_rx: broadcast::channel(64).0,
+            streaming_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
         {
             // Spawn öncesi log
@@ -236,17 +237,15 @@ fn rj_start_monitor_impl() {
                 ws_server::serve(vec![7070, 7071, 7072, 7073], "127.0.0.1", ws_state_clone).await;
             });
 
-            // WS komutu → ws_command_queue (lock-free, C++ run_frame() tarafından drain edilir)
+            // WS komutu → ws_command_queue (lock-free, C++ run_frame() tarafından drain edilir).
+            // streaming_active bayrağı process_stream_cmd içinde (TEK yazma noktası) güncellenir.
             let mut cmd_rx = ws_state.cmd_tx.subscribe();
             let ws_cmd_q = ws_command_queue.clone();
+            let streaming_active = ws_state.streaming_active.clone();
             runtime.spawn(async move {
                 while let Ok(cmd) = cmd_rx.recv().await {
-                    let code: i32 = match cmd.as_str() {
-                        "stream_start" => 1,
-                        "stream_stop"  => 2,
-                        "scene_cut"    => 3,
-                        "scene_fade"   => 4,
-                        _              => continue,
+                    let Some(code) = ws_server::process_stream_cmd(&cmd, &streaming_active) else {
+                        continue;
                     };
                     match ws_cmd_q.push((code, 0)) {
                         Ok(_) => {}

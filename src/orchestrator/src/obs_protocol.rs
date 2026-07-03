@@ -1,8 +1,9 @@
 // obs_protocol.rs — obs-websocket v5 protokol tipleri (Faz 1)
 //
-// Bu modül obs-websocket v5 mesaj zarfını ve handshake yardımcılarını sağlar.
-// Aşama 1 kapsamı yalnızca handshake'tir: Hello (op 0) → Identify (op 1) → Identified (op 2).
-// Request/RequestResponse (op 6/7) sonraki aşamada eklenecek.
+// Bu modül obs-websocket v5 mesaj zarfını, handshake ve request/response yardımcılarını sağlar.
+// Aşama 1: handshake — Hello (op 0) → Identify (op 1) → Identified (op 2).
+// Aşama 2: Request (op 6) / RequestResponse (op 7) — GetVersion, StartStream, StopStream,
+//          GetStreamStatus. Bilinmeyen requestType → code 204 (bağlantı kapatılmaz).
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -46,6 +47,40 @@ pub fn identified() -> WsEnvelope {
         op: op::IDENTIFIED,
         d: json!({
             "negotiatedRpcVersion": RPC_VERSION,
+        }),
+    }
+}
+
+/// obs-websocket RequestStatus kodları (spec: obsproject/obs-websocket).
+pub mod request_status {
+    /// İstek başarıyla işlendi.
+    pub const SUCCESS: u32 = 100;
+    /// requestType tanınmadı.
+    pub const UNKNOWN_REQUEST_TYPE: u32 = 204;
+}
+
+/// Başarılı RequestResponse (op 7) zarfı. `data`, spec'teki `responseData` alanına yazılır.
+pub fn request_response_ok(request_type: &str, request_id: &str, data: Value) -> WsEnvelope {
+    WsEnvelope {
+        op: op::REQUEST_RESPONSE,
+        d: json!({
+            "requestType": request_type,
+            "requestId": request_id,
+            "requestStatus": { "result": true, "code": request_status::SUCCESS },
+            "responseData": data,
+        }),
+    }
+}
+
+/// Hatalı RequestResponse (op 7) zarfı. `code`/`comment` spec'e uygun verilir;
+/// bağlantı kapatılmaz — istemci aynı soket üzerinden yeni istek gönderebilir.
+pub fn request_response_err(request_type: &str, request_id: &str, code: u32, comment: &str) -> WsEnvelope {
+    WsEnvelope {
+        op: op::REQUEST_RESPONSE,
+        d: json!({
+            "requestType": request_type,
+            "requestId": request_id,
+            "requestStatus": { "result": false, "code": code, "comment": comment },
         }),
     }
 }

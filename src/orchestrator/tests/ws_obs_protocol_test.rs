@@ -36,8 +36,50 @@ fn spawn_server(port: u16, state: Arc<WsState>) {
 fn make_state() -> (Arc<WsState>, broadcast::Receiver<String>, broadcast::Sender<String>) {
     let (cmd_tx, cmd_rx) = broadcast::channel(16);
     let (evt_tx, _evt_rx) = broadcast::channel(16);
-    let state = Arc::new(WsState { cmd_tx, evt_rx: evt_tx.clone() });
+    let state = Arc::new(WsState {
+        cmd_tx,
+        evt_rx: evt_tx.clone(),
+        streaming_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    });
     (state, cmd_rx, evt_tx)
+}
+
+/// Üretimdeki ffi.rs cmd_rx döngüsünün test karşılığı: cmd_tx'i tüketip streaming_active'i
+/// TEK yazma noktası `process_stream_cmd` üzerinden günceller (C++ kuyruğu yok).
+fn spawn_cmd_consumer(state: Arc<WsState>) {
+    let mut rx = state.cmd_tx.subscribe();
+    tokio::spawn(async move {
+        while let Ok(cmd) = rx.recv().await {
+            let _ = ws_server::process_stream_cmd(&cmd, &state.streaming_active);
+        }
+    });
+}
+
+/// obs-websocket Request (op 6) gönderir.
+async fn send_request(ws: &mut Client, request_type: &str, request_id: &str) {
+    send_text(
+        ws,
+        json!({"op": 6, "d": {"requestType": request_type, "requestId": request_id}}),
+    )
+    .await;
+}
+
+/// GetStreamStatus isteyip yanıttaki outputActive'i okur.
+async fn get_output_active(ws: &mut Client) -> bool {
+    send_request(ws, "GetStreamStatus", "q").await;
+    let r = next_json(ws).await;
+    r["d"]["responseData"]["outputActive"].as_bool().unwrap_or(false)
+}
+
+/// outputActive istenen değere ulaşana kadar (async tüketici yarışını aşmak için) pollar.
+async fn poll_output_active(ws: &mut Client, want: bool) -> bool {
+    for _ in 0..50 {
+        if get_output_active(ws).await == want {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    false
 }
 
 /// Sunucu dinlemeye başlayana kadar tekrar deneyerek bağlanır.
@@ -197,4 +239,112 @@ async fn identify_timeout_sonrasi_legacy_olarak_surer() {
         .expect("timeout sonrası bağlantı kapanmış olabilir")
         .expect("cmd kanalı kapandı");
     assert_eq!(received, "stream_stop");
+}
+
+// ── Faz 1 Aşama 2: Request (op 6) / RequestResponse (op 7) ─────────────────────
+
+#[tokio::test]
+async fn get_version_doner_dogru_alanlar() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    send_request(&mut ws, "GetVersion", "v1").await;
+    let resp = next_json(&mut ws).await;
+
+    assert_eq!(resp["op"], 7, "RequestResponse (op 7) beklenir");
+    assert_eq!(resp["d"]["requestType"], "GetVersion");
+    assert_eq!(resp["d"]["requestId"], "v1", "requestId bire bir geri dönmeli");
+    assert_eq!(resp["d"]["requestStatus"]["result"], true);
+    assert_eq!(resp["d"]["requestStatus"]["code"], 100, "Success = 100");
+    assert_eq!(resp["d"]["responseData"]["rpcVersion"], 1);
+    assert!(
+        resp["d"]["responseData"]["obsWebSocketVersion"].is_string(),
+        "obsWebSocketVersion alanı olmalı"
+    );
+}
+
+#[tokio::test]
+async fn start_stop_stream_streaming_active_gunceller() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    // Tek yazma noktası tüketicisi (üretimde ffi.rs cmd_rx döngüsü)
+    spawn_cmd_consumer(state.clone());
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    // Başlangıçta yayın kapalı
+    assert!(!get_output_active(&mut ws).await, "başta outputActive false olmalı");
+
+    // StartStream → outputActive true olmalı
+    send_request(&mut ws, "StartStream", "s1").await;
+    let start_resp = next_json(&mut ws).await;
+    assert_eq!(start_resp["d"]["requestStatus"]["code"], 100);
+    assert!(
+        poll_output_active(&mut ws, true).await,
+        "StartStream sonrası outputActive true olmalı"
+    );
+
+    // StopStream → outputActive false olmalı
+    send_request(&mut ws, "StopStream", "s2").await;
+    let stop_resp = next_json(&mut ws).await;
+    assert_eq!(stop_resp["d"]["requestStatus"]["code"], 100);
+    assert!(
+        poll_output_active(&mut ws, false).await,
+        "StopStream sonrası outputActive false olmalı"
+    );
+}
+
+#[tokio::test]
+async fn bilinmeyen_request_type_204_doner_baglanti_kapanmaz() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    // Bilinmeyen requestType → code 204, result false
+    send_request(&mut ws, "SomeBogusRequest", "b1").await;
+    let err = next_json(&mut ws).await;
+    assert_eq!(err["op"], 7);
+    assert_eq!(err["d"]["requestStatus"]["result"], false);
+    assert_eq!(err["d"]["requestStatus"]["code"], 204, "UnknownRequestType = 204");
+    assert_eq!(err["d"]["requestId"], "b1");
+
+    // Bağlantı kapanmadı kanıtı: AYNI soketten geçerli GetVersion hâlâ çalışmalı
+    send_request(&mut ws, "GetVersion", "b2").await;
+    let ok = next_json(&mut ws).await;
+    assert_eq!(ok["d"]["requestStatus"]["code"], 100, "hatadan sonra bağlantı sürmeli");
+    assert_eq!(ok["d"]["requestId"], "b2");
+}
+
+#[tokio::test]
+async fn identify_olmadan_request_yine_islenir() {
+    // Tasarım kararı 1: Identify GÖNDERİLMEDEN doğrudan Request → yine de işlenir.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    // Identify YOK — doğrudan GetVersion
+    send_request(&mut ws, "GetVersion", "n1").await;
+    let resp = next_json(&mut ws).await;
+
+    assert_eq!(resp["op"], 7);
+    assert_eq!(resp["d"]["requestStatus"]["code"], 100, "Identify'sız Request de işlenmeli");
+    assert_eq!(resp["d"]["responseData"]["rpcVersion"], 1);
+    assert_eq!(resp["d"]["requestId"], "n1");
 }
