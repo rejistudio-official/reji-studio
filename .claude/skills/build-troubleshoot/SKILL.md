@@ -35,6 +35,7 @@ Hatanın hangi halkada olduğunu önce tespit et, sonra çöz.
 | Ninja `multiple rules generate` | Preset karışması; `just rebuild` |
 | `MSB8036` / toolset sürümü | vswhere en yeniyi buluyor ama proje eskiyle configure edilmiş; temiz build |
 | Mock preset'te Vulkan sembol hatası | Vulkan'a dokunan yeni dosya `NOT REJI_VULKAN_MOCK` bloğu DIŞINA eklenmiş — `src/pipeline/CMakeLists.txt`'te doğru bloğa taşı |
+| Mock preset'te `C2371` (VkDevice redefinition) | copy_optimizer.cpp/gpu_query_timing.cpp koşulsuz <vulkan/vulkan.h> include ediyor; mock modda pipeline.h'nin VkDevice=void* tanımıyla çakışıyor. Mock şu an TAMAMEN KIRIK (bilinen durum, 3a93110 öncesi de muhtemelen böyleydi — henüz düzeltilmedi) |
 | cargo `linker link.exe not found` | cargo MSVC ortamı dışında çağrılmış; `just build` üzerinden git |
 | CI'da geçiyor lokalde geçmiyor (veya tersi) | `.github/workflows/` içindeki sürümlerle (Qt/SDK/Rust) lokali karşılaştır; sürüm sabitleme farkı |
 
