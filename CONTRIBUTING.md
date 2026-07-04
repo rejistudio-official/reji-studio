@@ -72,7 +72,7 @@ Key rules: all shared structs are `#[repr(C)]` (enums `#[repr(u32)]`), FFI funct
 - Branch from `master`: `feat/short-description`, `fix/short-description`
 - **Keep PRs small and focused** — one logical change per PR. Large refactors should be split into stages (see the Stage 1–9 commits in history for the house style)
 - Behavior changes and refactoring never mix in the same commit
-- Direct pushes to `master` are disabled; all changes go through PRs with green CI
+- Direct pushes to `master` are currently allowed while the project has a single maintainer; this will move to a required-PR workflow as external contributors join. CODEOWNERS is in place in preparation for that transition.
 
 ### Commit messages
 

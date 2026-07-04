@@ -107,7 +107,7 @@ just abi-check
 ## Roadmap
 
 - [x] **Phase 0** — Pipeline modularization: subsystem extraction, recovery coordinator, thin orchestrator core
-- [ ] **Phase 1** — obs-websocket protocol: Hello/Identify handshake ✅, request/event coverage *(in progress)*
+- [x] **Phase 1** — obs-websocket protocol: Hello/Identify handshake, full request/event coverage (GetVersion, StartStream/StopStream, GetStreamStatus, GetSceneList, SetCurrentProgramScene), JSON + msgpack subprotocols. Physical Stream Deck / Companion hardware verification still pending.
 - [ ] NVENC encode integration
 - [ ] SRT output
 - [ ] Scene composition & sources
