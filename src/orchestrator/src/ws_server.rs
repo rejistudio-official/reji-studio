@@ -232,7 +232,14 @@ pub async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<WsState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    // obs-websocket istemcileri (obs-websocket-js, Touch Portal) Sec-WebSocket-Protocol ile
+    // bir alt-protokol teklif eder ve sunucunun onu SEÇMESİNİ bekler; seçilmezse istemci
+    // "Server sent no subprotocol" ile kopar (Faz 1 Aşama 6 bulgusu). `.protocols` yalnızca
+    // istemci `obswebsocket.json` teklif ederse onu echo'lar; `obswebsocket.msgpack` veya hiç
+    // teklif yoksa hiçbir şey seçilmez — legacy istemciler (control.html, alt-protokol teklif
+    // etmez) etkilenmez, geriye tam uyumlu.
+    ws.protocols([obs_protocol::SUBPROTOCOL_JSON])
+        .on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 /// Gelen bir istemci mesajının türü.

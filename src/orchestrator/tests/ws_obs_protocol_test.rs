@@ -623,3 +623,80 @@ async fn set_current_program_scene_bulunamadi() {
     assert_eq!(ok["d"]["requestStatus"]["code"], 100, "hatadan sonra bağlantı sürmeli");
     assert_eq!(ok["d"]["requestId"], "after");
 }
+
+// ── Faz 1 Aşama 6: Sec-WebSocket-Protocol alt-protokol müzakeresi ──────────────
+//
+// Gerçek obs-websocket istemcileri (obs-websocket-js/Companion, Touch Portal) handshake'te
+// bir alt-protokol teklif eder ve sunucunun onu SEÇMESİNİ bekler; seçilmezse "Server sent no
+// subprotocol" ile koparlar. Reji JSON konuşur → yalnızca `obswebsocket.json` echo'lanmalı;
+// `obswebsocket.msgpack` (henüz desteklenmiyor) veya teklif yoksa hiçbir şey seçilmemeli.
+
+/// Verilen alt-protokolü teklif ederek bağlanır; (soket, sunucunun SEÇTİĞİ alt-protokol) döndürür.
+async fn connect_with_subprotocol(port: u16, offered: &str) -> (Client, Option<String>) {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::header::SEC_WEBSOCKET_PROTOCOL;
+    let url = format!("ws://127.0.0.1:{port}/ws");
+    for _ in 0..50 {
+        let mut req = url.clone().into_client_request().unwrap();
+        req.headers_mut()
+            .insert(SEC_WEBSOCKET_PROTOCOL, offered.parse().unwrap());
+        if let Ok((ws, resp)) = tokio_tungstenite::connect_async(req).await {
+            let selected = resp
+                .headers()
+                .get(SEC_WEBSOCKET_PROTOCOL)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+            return (ws, selected);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("sunucuya bağlanılamadı");
+}
+
+#[tokio::test]
+async fn subprotocol_json_teklif_edilirse_secilir_ve_handshake_calisir() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let (mut ws, selected) = connect_with_subprotocol(port, "obswebsocket.json").await;
+    assert_eq!(
+        selected.as_deref(),
+        Some("obswebsocket.json"),
+        "sunucu obswebsocket.json alt-protokolünü echo'lamalı (obs-websocket-js aksi halde kopar)"
+    );
+
+    // Alt-protokol seçilse de akış normal JSON obs-ws handshake'i: Hello → Identify → Identified.
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["op"], 0, "Hello (op 0) gelmeli");
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let identified = next_json(&mut ws).await;
+    assert_eq!(identified["op"], 2, "Identified (op 2) gelmeli");
+}
+
+#[tokio::test]
+async fn subprotocol_msgpack_teklif_edilirse_secilmez_ve_istemci_koparir() {
+    // Reji msgpack konuşmadığından, msgpack-only teklifte HİÇBİR alt-protokol seçilmemeli
+    // (yanlışlıkla msgpack seçip JSON frame göndermek istemciyi bozardı). Spec'e uyan istemci
+    // (tungstenite, obs-websocket-js) teklif ettiği alt-protokol seçilmezse handshake'i reddeder
+    // → msgpack-only istemciler DÜRÜSTÇE bağlanamaz (Aşama 7'de msgpack eklenene dek beklenen).
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::header::SEC_WEBSOCKET_PROTOCOL;
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    // Önce sunucunun hazır olduğunu (ve alt-protokolsüz legacy yolun çalıştığını) doğrula.
+    let _ = connect(port).await;
+
+    // msgpack-only teklif → axum hiçbir şey seçmez → tungstenite handshake'i Err ile reddeder.
+    let url = format!("ws://127.0.0.1:{port}/ws");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut()
+        .insert(SEC_WEBSOCKET_PROTOCOL, "obswebsocket.msgpack".parse().unwrap());
+    let result = tokio_tungstenite::connect_async(req).await;
+    assert!(
+        result.is_err(),
+        "msgpack-only teklifte sunucu alt-protokol seçmemeli → istemci koparmalı (bağlanmamalı)"
+    );
+}
