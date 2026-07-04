@@ -112,13 +112,30 @@ Aşama 6 (gerçek istemci doğrulaması) ✅ — obs-websocket-js 5.0.8 / simple
   - **Alt-protokol seçimi eklendi (commit 1fa47d5):** `ws_handler` `obswebsocket.json` teklif
     edilirse echo'lar. ÖNCESİNDE hiçbir alt-protokol seçilmiyordu → TÜM obs-websocket-js istemcileri
     *"Server sent no subprotocol"* ile kopuyordu (kök blokör). Legacy istemciler (alt-protokol teklif
-    etmez) etkilenmez. **`obswebsocket.msgpack` (binary) DESTEKLENMİYOR → Aşama 7 adayı** — Companion'ın
-    Node-varsayılan msgpack modu ve simpleobsws hâlâ bağlanamaz.
+    etmez) etkilenmez. (`obswebsocket.msgpack` o aşamada desteklenmiyordu → Aşama 7'de eklendi, aşağı bak.)
   - Sahne sırası ters çevrildi (yukarı bak). pseudo-UUID zararsız doğrulandı. Paralel Identify'lı +
     legacy bağlantı çalışıyor, legacy soft-timeout'ta kapatılmıyor. StartStream/StopStream
     obs-ws seviyesinde çalışıyor (`outputActive`/süre/timecode gerçek) ama `outputBytes=0` (SRT stub).
   - Doğrulama araçları: `scripts/test_obs_json.py`, `test_obs_parallel.py`, `test_obs_websocket_js.js`.
   - Fiziksel Stream Deck/Companion donanımı test edilmedi (yok) — istemci kütüphaneleriyle doğrulandı.
+
+Aşama 7 (msgpack serileştirme) ✅ — `obswebsocket.msgpack` alt-protokolü tam destekli:
+  - **Tek mantık, iki kodlama:** `ws_server::WireMode { Json, Msgpack }` (bağlantı bazlı yerel,
+    WsState'e KONMAZ) + `encode()` — aynı `{op, d}` zarfı Text+JSON veya Binary+MessagePack
+    (`rmp_serde::to_vec_named`) olarak yazılır. Gelen tarafta `classify_value` iki telin ortak
+    sınıflandırıcısı. Alt-protokol seçimini axum upgrade sonrası `WebSocket::protocol()` raporlar;
+    teklif yoksa Json varsayılan (control.html/legacy birebir korunur).
+  - **Yanlış çerçeve = protokol ihlali → KAPAT** (spec MessageDecodeError): msgpack telinde Text
+    frame veya çözülemeyen binary gövde bağlantıyı kapatır. Bu, Aşama 1'in toleranslı handshake'iyle
+    ÇELİŞMEZ — orada belirsizlik (Identify gelmedi), burada net ihlal (istemci kodlamayı zaten seçti).
+  - **op'suz legacy metrik eventi msgpack teline YAZILMAZ** (canlı bulgu: simpleobsws'in recv
+    döngüsü KeyError('op') ile ölüyor, sonraki request'ler timeout). JSON telinde event davranışı
+    değişmedi. Regresyon testi: `msgpack_modunda_legacy_event_iletilmez`.
+  - Canlı doğrulama: obs-websocket-js Node-varsayılan (msgpack) modu artık PASS (Aşama 6'da FAIL),
+    simpleobsws (msgpack-only) uçtan uca çalışıyor. Fiziksel Stream Deck/Companion kurulumu yine
+    test edilmedi (yok) — kütüphane seviyesinde doğrulandı.
+  - Bağımlılık: `rmp-serde = "1"` (workspace). Testler: ws suite 19 → 23 (5 yeni msgpack/json-guard
+    testi; Aşama 6'nın geçici "msgpack seçilmez" testi kaldırıldı — davranış bilinçli tersine döndü).
 
 Sonraki aşamaları TASK dosyası/CONTEXT.md'den doğrula; bu skill'i her aşama
 tamamlandığında güncelle (tamamlanan requestType'ların listesini buraya ekle).

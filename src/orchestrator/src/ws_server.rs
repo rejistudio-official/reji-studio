@@ -242,12 +242,62 @@ pub async fn ws_handler(
 ) -> impl IntoResponse {
     // obs-websocket istemcileri (obs-websocket-js, Touch Portal) Sec-WebSocket-Protocol ile
     // bir alt-protokol teklif eder ve sunucunun onu SEÇMESİNİ bekler; seçilmezse istemci
-    // "Server sent no subprotocol" ile kopar (Faz 1 Aşama 6 bulgusu). `.protocols` yalnızca
-    // istemci `obswebsocket.json` teklif ederse onu echo'lar; `obswebsocket.msgpack` veya hiç
-    // teklif yoksa hiçbir şey seçilmez — legacy istemciler (control.html, alt-protokol teklif
-    // etmez) etkilenmez, geriye tam uyumlu.
-    ws.protocols([obs_protocol::SUBPROTOCOL_JSON])
-        .on_upgrade(move |socket| handle_socket(socket, state))
+    // "Server sent no subprotocol" ile kopar (Faz 1 Aşama 6 bulgusu). `.protocols` istemcinin
+    // teklif ettiklerinden sunucu listesindeki İLK eşleşeni seçer (axum 0.7 `find` sırası) —
+    // ikisini de teklif eden istemcide JSON kazanır. Hiç teklif yoksa hiçbir şey seçilmez —
+    // legacy istemciler (control.html, alt-protokol teklif etmez) etkilenmez, geriye tam uyumlu.
+    ws.protocols([obs_protocol::SUBPROTOCOL_JSON, obs_protocol::SUBPROTOCOL_MSGPACK])
+        .on_upgrade(move |socket| {
+            // axum, seçtiği alt-protokolü hem yanıtın Sec-WebSocket-Protocol header'ına yazar
+            // hem de upgrade sonrası `WebSocket::protocol()` ile raporlar (axum 0.7.9
+            // extract/ws.rs — kaynak koddan doğrulandı). WireMode bağlantı ömrü boyunca sabit
+            // yerel bir özelliktir; WsState'e KONMAZ (global değil, bağlantı bazlı).
+            let wire_mode = match socket.protocol().and_then(|p| p.to_str().ok()) {
+                Some(p) if p == obs_protocol::SUBPROTOCOL_MSGPACK => WireMode::Msgpack,
+                // json seçildi VEYA hiç alt-protokol yok (legacy) → JSON varsayılan
+                _ => WireMode::Json,
+            };
+            handle_socket(socket, state, wire_mode)
+        })
+}
+
+/// Bağlantının tel kodlaması — seçilen alt-protokole göre bağlantı ömrü boyunca sabittir.
+/// Aynı mantıksal `{op, d}` zarfının iki farklı "teli": JSON/Text veya MessagePack/Binary.
+/// Tüm iş mantığı (dispatch_request, hello, identified) WsEnvelope üzerinde moddan bağımsız
+/// çalışır; yalnızca tele yazış/okuyuş biçimi değişir.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WireMode {
+    Json,
+    Msgpack,
+}
+
+/// Zarfı seçili tel kodlamasıyla WebSocket mesajına çevirir. Serileştirme hatası pratikte
+/// beklenmez (zarflar kendi ürettiğimiz Value'lar); hata çağıran tarafta log'lanıp bağlantı
+/// kapatılır.
+fn encode(mode: WireMode, env: &obs_protocol::WsEnvelope) -> Result<Message, String> {
+    match mode {
+        WireMode::Json => serde_json::to_string(env)
+            .map(|s| Message::Text(s.into()))
+            .map_err(|e| e.to_string()),
+        WireMode::Msgpack => rmp_serde::to_vec_named(env)
+            .map(|b| Message::Binary(b.into()))
+            .map_err(|e| e.to_string()),
+    }
+}
+
+/// Zarfı kodlayıp gönderir; `false` dönerse bağlantı sonlandırılmalıdır.
+async fn send_env(
+    socket: &mut WebSocket,
+    mode: WireMode,
+    env: &obs_protocol::WsEnvelope,
+) -> bool {
+    match encode(mode, env) {
+        Ok(msg) => socket.send(msg).await.is_ok(),
+        Err(e) => {
+            eprintln!("[WS] zarf kodlanamadı: {}", e);
+            false
+        }
+    }
 }
 
 /// Gelen bir istemci mesajının türü.
@@ -266,37 +316,42 @@ enum ClientMsg {
     Legacy,
 }
 
-/// Text mesajını sınıflandırır. `op` alanına göre obs/legacy ayrımı yapılır.
+/// Text mesajını sınıflandırır (JSON teli). JSON olmayan metin legacy yoluna düşer.
 fn classify(text: &str) -> ClientMsg {
     match serde_json::from_str::<Value>(text) {
-        Ok(v) => match v.get("op").and_then(Value::as_u64) {
-            Some(op) if op as u8 == obs_op::IDENTIFY => ClientMsg::Identify {
-                rpc: v.get("d").and_then(|d| d.get("rpcVersion")).and_then(Value::as_u64),
-            },
-            Some(op) if op as u8 == obs_op::REQUEST => {
-                let d = v.get("d");
-                ClientMsg::Request {
-                    request_type: d
-                        .and_then(|d| d.get("requestType"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string(),
-                    request_id: d
-                        .and_then(|d| d.get("requestId"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string(),
-                    request_data: d
-                        .and_then(|d| d.get("requestData"))
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                }
-            }
-            Some(_) => ClientMsg::Obs,
-            None => ClientMsg::Legacy, // op yok → legacy (cmd dahil)
-        },
+        Ok(v) => classify_value(&v),
         // JSON değil → eski davranışla uyumlu şekilde legacy yolundan geçir
         Err(_) => ClientMsg::Legacy,
+    }
+}
+
+/// Çözülmüş değeri `op` alanına göre sınıflandırır — JSON ve msgpack tellerinin ortak noktası.
+fn classify_value(v: &Value) -> ClientMsg {
+    match v.get("op").and_then(Value::as_u64) {
+        Some(op) if op as u8 == obs_op::IDENTIFY => ClientMsg::Identify {
+            rpc: v.get("d").and_then(|d| d.get("rpcVersion")).and_then(Value::as_u64),
+        },
+        Some(op) if op as u8 == obs_op::REQUEST => {
+            let d = v.get("d");
+            ClientMsg::Request {
+                request_type: d
+                    .and_then(|d| d.get("requestType"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                request_id: d
+                    .and_then(|d| d.get("requestId"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                request_data: d
+                    .and_then(|d| d.get("requestData"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            }
+        }
+        Some(_) => ClientMsg::Obs,
+        None => ClientMsg::Legacy, // op yok → legacy (cmd dahil)
     }
 }
 
@@ -316,17 +371,75 @@ fn handle_legacy_cmd(text: &str, state: &WsState) {
     }
 }
 
-async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>) {
+/// Sınıflandırılmış istemci mesajını işler; `false` dönerse bağlantı kapatılmalıdır.
+/// `raw_text`: yalnızca JSON telinde ham metin (legacy `{cmd}` yolu + log için). msgpack
+/// telinde `None` — legacy yol msgpack'te anlamsızdır (control.html alt-protokol teklif
+/// etmez, dolayısıyla hiç tetiklenmez) ama kırılmaz: op'suz mesaj yalnızca log'lanır.
+async fn process_client_msg(
+    socket: &mut WebSocket,
+    wire_mode: WireMode,
+    msg: ClientMsg,
+    identified: &mut bool,
+    state: &WsState,
+    raw_text: Option<&str>,
+) -> bool {
+    match msg {
+        ClientMsg::Identify { rpc } => {
+            if *identified {
+                eprintln!("[WS] tekrar Identify geldi (yok sayıldı)");
+                return true;
+            }
+            // rpcVersion 1 değilse yine de 1 olarak negotiate et (esnek)
+            if rpc != Some(obs_protocol::RPC_VERSION as u64) {
+                eprintln!(
+                    "[WS] Identify rpcVersion={:?}, {} olarak negotiate ediliyor",
+                    rpc, obs_protocol::RPC_VERSION
+                );
+            }
+            if !send_env(socket, wire_mode, &obs_protocol::identified()).await {
+                return false;
+            }
+            *identified = true;
+            eprintln!("[WS] obs-websocket istemcisi identified");
+            true
+        }
+        // op 6 Request → dispatch. Identify zorunlu değil (toleranslı mod):
+        // Identify gelmeden gelen Request de işlenir, reddedilmez.
+        ClientMsg::Request { request_type, request_id, request_data } => {
+            if !*identified {
+                eprintln!(
+                    "[WS] Identify'sız Request işleniyor (toleranslı mod): {}",
+                    request_type
+                );
+            }
+            let resp = dispatch_request(&request_type, &request_id, &request_data, state);
+            send_env(socket, wire_mode, &resp).await
+        }
+        // Identify/Request dışı obs mesajları yalnızca log'lanır
+        ClientMsg::Obs => {
+            eprintln!(
+                "[WS] obs mesajı (bu aşamada işlenmiyor): {}",
+                raw_text.unwrap_or("<binary msgpack>")
+            );
+            true
+        }
+        // Legacy komut yolu — JSON telinde davranış değişmez; msgpack telinde tetiklenmez.
+        ClientMsg::Legacy => {
+            match raw_text {
+                Some(text) => handle_legacy_cmd(text, state),
+                None => eprintln!("[WS] op'suz msgpack mesajı yok sayıldı (legacy yol yalnızca JSON telinde)"),
+            }
+            true
+        }
+    }
+}
+
+async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: WireMode) {
     // Hello (op 0) gönder — hemen ardından normal select! döngüsüne girilir.
     // AYRI BLOKLAYAN "Identify bekleniyor" adımı YOK: Identify ve soft-timeout
     // döngü içinde ele alınır; evt_rx metrik akışı ilk andan itibaren kesintisiz iletilir.
-    match serde_json::to_string(&obs_protocol::hello()) {
-        Ok(hello) => {
-            if socket.send(Message::Text(hello.into())).await.is_err() {
-                return;
-            }
-        }
-        Err(_) => return,
+    if !send_env(&mut socket, wire_mode, &obs_protocol::hello()).await {
+        return;
     }
 
     let mut evt_rx = state.evt_rx.subscribe();
@@ -340,67 +453,65 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>) {
 
     loop {
         tokio::select! {
-            // Metrik eventleri → istemciye (handshake beklenirken DE paralel çalışır)
+            // Metrik eventleri → istemciye (handshake beklenirken DE paralel çalışır).
+            // JSON telinde davranış değişmez: event_bus'un ürettiği string aynen gider
+            // (control.html + Aşama 6'da canlı doğrulanan obs-websocket-js/json buna dayanır).
+            // msgpack telinde YALNIZCA {op, d} zarfı olan eventler kodlanıp gönderilir;
+            // op'suz legacy metrik eventi ({"fps":..}) bu tele HİÇ yazılmaz — CANLI BULGU
+            // (Aşama 7, simpleobsws): zarf dışı gövde strict istemcinin recv döngüsünü
+            // KeyError('op') ile öldürüyor, sonraki tüm request'ler timeout oluyor.
+            // (Log yok: metrik akışı ~saniyelik, stderr'i boğardı.)
             evt = evt_rx.recv() => {
                 if let Ok(data) = evt {
-                    if socket.send(Message::Text(data.into())).await.is_err() {
-                        break;
+                    let msg = match wire_mode {
+                        WireMode::Json => Some(Message::Text(data.into())),
+                        WireMode::Msgpack => serde_json::from_str::<Value>(&data)
+                            .ok()
+                            .filter(|v| v.get("op").is_some())
+                            .and_then(|v| rmp_serde::to_vec_named(&v).ok())
+                            .map(|b| Message::Binary(b.into())),
+                    };
+                    if let Some(m) = msg {
+                        if socket.send(m).await.is_err() {
+                            break;
+                        }
                     }
                 }
             }
-            // Gelen mesajlar
+            // Gelen mesajlar — çerçeve tipi tel moduna uymalı. Yanlış çerçeve tipi bir
+            // PROTOKOL İHLALİDİR (istemci kodlamayı alt-protokolle ZATEN seçti) → spec'in
+            // MessageDecodeError davranışıyla kapatılır. Bu, Aşama 1'in toleranslı
+            // handshake'i ile KARIŞTIRILMAMALI: orada "Identify hiç gelmedi" belirsizliği
+            // vardı (legacy istemci olabilir); burada net bir kural ihlali var.
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        match classify(&text) {
-                            ClientMsg::Identify { rpc } => {
-                                if identified {
-                                    eprintln!("[WS] tekrar Identify geldi (yok sayıldı)");
-                                } else {
-                                    // rpcVersion 1 değilse yine de 1 olarak negotiate et (esnek)
-                                    if rpc != Some(obs_protocol::RPC_VERSION as u64) {
-                                        eprintln!(
-                                            "[WS] Identify rpcVersion={:?}, {} olarak negotiate ediliyor",
-                                            rpc, obs_protocol::RPC_VERSION
-                                        );
-                                    }
-                                    match serde_json::to_string(&obs_protocol::identified()) {
-                                        Ok(id) => {
-                                            if socket.send(Message::Text(id.into())).await.is_err() {
-                                                break;
-                                            }
-                                            identified = true;
-                                            eprintln!("[WS] obs-websocket istemcisi identified");
-                                        }
-                                        Err(_) => break,
-                                    }
+                        if wire_mode == WireMode::Msgpack {
+                            eprintln!("[WS] msgpack telinde Text frame — protokol ihlali, bağlantı kapatılıyor");
+                            break;
+                        }
+                        let m = classify(&text);
+                        if !process_client_msg(&mut socket, wire_mode, m, &mut identified, &state, Some(&text)).await {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Binary(bin))) => {
+                        if wire_mode != WireMode::Msgpack {
+                            // JSON telinde binary frame beklenmez — önceki davranış (kapat) korunur.
+                            break;
+                        }
+                        match rmp_serde::from_slice::<Value>(&bin) {
+                            Ok(v) => {
+                                let m = classify_value(&v);
+                                if !process_client_msg(&mut socket, wire_mode, m, &mut identified, &state, None).await {
+                                    break;
                                 }
                             }
-                            // op 6 Request → dispatch. Identify zorunlu değil (toleranslı mod):
-                            // Identify gelmeden gelen Request de işlenir, reddedilmez.
-                            ClientMsg::Request { request_type, request_id, request_data } => {
-                                if !identified {
-                                    eprintln!(
-                                        "[WS] Identify'sız Request işleniyor (toleranslı mod): {}",
-                                        request_type
-                                    );
-                                }
-                                let resp = dispatch_request(&request_type, &request_id, &request_data, &state);
-                                match serde_json::to_string(&resp) {
-                                    Ok(s) => {
-                                        if socket.send(Message::Text(s.into())).await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                    Err(_) => break,
-                                }
+                            Err(e) => {
+                                // Seçili kodlamayla çözülemeyen gövde — spec: MessageDecodeError → kapat.
+                                eprintln!("[WS] msgpack çözülemedi, bağlantı kapatılıyor: {}", e);
+                                break;
                             }
-                            // Identify/Request dışı obs mesajları yalnızca log'lanır
-                            ClientMsg::Obs => {
-                                eprintln!("[WS] obs mesajı (bu aşamada işlenmiyor): {}", text);
-                            }
-                            // Legacy komut yolu — davranış değişmez
-                            ClientMsg::Legacy => handle_legacy_cmd(&text, &state),
                         }
                     }
                     _ => break,

@@ -543,3 +543,58 @@ Testler (4 yeni/güncel ws): `subprotocol_json_teklif_edilirse_secilir_ve_handsh
 `get_scene_list_obs_konvansiyonu_ters_sira` (eski `..._isimler_dogru`'nun ters-sıra güncellemesi).
 ws suite: 17 → 19 test PASS. Commit'ler: `1fa47d5` (subprotocol), `3f6e2cf` (sahne sırası),
 `7ca56a1` (doğrulama script'leri), + bu docs commit'i.
+
+### Faz 1 — Aşama 7 (msgpack serileştirme desteği)
+
+Amaç: Aşama 6'nın bilinen açığını kapatmak — `obswebsocket.msgpack` teklif eden istemciler
+(Node-varsayılan obs-websocket-js = Companion'ın bağımlılığı, ve simpleobsws) artık bağlanabiliyor.
+
+**Mimari: tek mantık, iki kodlama.** Tüm iş mantığı (dispatch_request, hello, identified)
+`WsEnvelope`/`Value` üzerinde moddan bağımsız; yalnızca tele yazış/okuyuş değişir:
+- `ws_server::WireMode { Json, Msgpack }` — bağlantı bazlı yerel değişken (`handle_socket`
+  parametresi), WsState'e KONMADI (global değil, bağlantının ömrü boyunca sabit özelliği).
+- `encode(mode, env)` — Json→Text+serde_json, Msgpack→Binary+`rmp_serde::to_vec_named`.
+- Seçim: `ws.protocols([json, msgpack])` + upgrade sonrası `WebSocket::protocol()` (axum 0.7.9
+  kaynak kodundan doğrulandı: seçilen protokol hem yanıt header'ına yazılır hem `protocol()`
+  ile raporlanır; sunucu listesindeki İLK eşleşen kazanır → ikisini teklif edene JSON).
+  Hiç teklif yoksa Json varsayılan (control.html teklif etmez → legacy yol birebir korunur).
+- Gelen tarafta `classify` → `classify_value` refaktörü: op-sınıflandırma iki telin ortak noktası.
+- **Yanlış çerçeve tipi = PROTOKOL İHLALİ → kapat** (spec MessageDecodeError). Aşama 1'in
+  toleranslı handshake'iyle karıştırılmadı: orada "Identify gelmedi" belirsizliği vardı (legacy
+  olabilir); burada istemci kodlamayı alt-protokolle ZATEN seçti, sonra kuralını çiğnedi.
+  msgpack modunda Text frame ve çözülemeyen binary gövde bağlantıyı kapatır.
+- Bağımlılık: `rmp-serde = "1"` (workspace; cargo tree ile doğrulandı — tek örnek 1.3.1,
+  serde 1.0.228 ortak, çakışma yok).
+
+**CANLI BULGU (Aşama 6'nın deney-öncelikli yaklaşımı yine işledi):** İlk implementasyonda
+op'suz legacy metrik eventi (`{"fps":..}`) msgpack teline de aynen kodlanıp gönderiliyordu.
+simpleobsws bağlandı, identify oldu, 3 request çalıştı — sonra recv döngüsü `KeyError('op')`
+ile öldü ve kalan tüm request'ler timeout oldu (strict istemci zarf dışı mesajı kaldırmıyor).
+**Fix:** msgpack teline YALNIZCA `{op, d}` zarfı olan eventler yazılır; op'suz legacy eventler
+bu tele hiç sızmaz (JSON telinde davranış değişmedi — control.html ve obs-websocket-js/json
+Aşama 6'da bu akışla canlı doğrulanmıştı). Regresyon testi: `msgpack_modunda_legacy_event_iletilmez`.
+
+**Testler (5 yeni, TDD red→green):** `msgpack_handshake_calisir`,
+`msgpack_identify_ve_request_calisir`, `msgpack_modunda_text_frame_reddedilir`,
+`msgpack_modunda_legacy_event_iletilmez`, `json_modu_hala_calisir` (regresyon guard'ı).
+Aşama 6'nın geçici `subprotocol_msgpack_teklif_edilirse_secilmez_ve_istemci_koparir` testi
+KALDIRILDI — doğruladığı davranış (msgpack'in dürüst reddi) bu aşamada bilinçli olarak tersine
+çevrildi; yerini msgpack_* testleri aldı. Suite: 32 lib + 5 rules + 23 ws = 60 PASS.
+
+**Gerçek istemci doğrulaması** (gerçek build: `cargo build --release` + `scripts/build.py`,
+çalışan reji_app.exe, port 7071 — 7070 yine AnyDesk'te; ham çıktılar `docs/reviews/`):
+- `scripts/test_obs_websocket_js.js` — **msgpack varyantı (Node/Companion default) artık PASS**
+  (Aşama 6'da "Server sent no subprotocol" ile FAIL'di): Identify OK (5.0.0-reji-compat rpc=1),
+  GetSceneList doğru ters sırada. JSON varyantı da PASS (regresyon yok).
+- `scripts/test_obs_client.py` (simpleobsws, msgpack-only) — **artık uçtan uca çalışıyor**:
+  connect+identify, GetVersion/GetSceneList/GetStreamStatus, SetCurrentProgramScene (100 + 600
+  yolları), StartStream→duration ilerliyor→StopStream→sıfırlanıyor, temiz disconnect.
+- control.html regresyonu: alt-protokol teklif etmediği için Json varsayılanına düşer; mevcut
+  legacy testleri (identify'sız {cmd}, soft-timeout, event akışı) hepsi PASS — davranış birebir.
+
+**Sınır (dürüstlük):** Fiziksel Stream Deck donanımı ve gerçek Bitfocus Companion kurulumu bu
+aşamada da test EDİLMEDİ — doğrulama kütüphane seviyesinde (obs-websocket-js 5.0.8, simpleobsws).
+ROADMAP'teki 4. checkbox'ın niteliği güncellendi; tam [x] yapılmadı.
+
+Not: script'leri tekrar koşmak için `npm install obs-websocket-js --no-save` (repo'da tutulmuyor)
+ve `py -3.12` (simpleobsws 3.12'de kurulu) gerekir.

@@ -34,13 +34,17 @@ pub(crate) const RPC_VERSION: u8 = 1;
 /// Server tanıtım stringi — auth gerektirmediğimiz için `-reji-compat` soneki.
 pub(crate) const OBS_WS_VERSION: &str = "5.0.0-reji-compat";
 
-/// obs-websocket v5 WebSocket alt-protokol adı (JSON serileştirme).
+/// obs-websocket v5 WebSocket alt-protokol adı (JSON serileştirme, Text frame).
 /// Gerçek obs-websocket istemcileri (obs-websocket-js, Touch Portal) handshake'te
 /// `Sec-WebSocket-Protocol` ile bir alt-protokol teklif eder ve sunucunun onu SEÇMESİNİ
 /// bekler; seçilmezse "Server sent no subprotocol" ile koparlar (Faz 1 Aşama 6 bulgusu).
-/// Reji JSON konuşur → yalnızca bu teklif edilirse echo'lanır. Karşılığı `obswebsocket.msgpack`
-/// (binary) henüz DESTEKLENMİYOR (Aşama 7 adayı) — msgpack-only istemciler bu yüzden bağlanamaz.
 pub(crate) const SUBPROTOCOL_JSON: &str = "obswebsocket.json";
+
+/// obs-websocket v5 alt-protokol adı (MessagePack serileştirme, Binary frame) — Aşama 7.
+/// Node-varsayılan obs-websocket-js (Companion'ın bağımlılığı) ve simpleobsws bunu teklif
+/// eder. Seçildiğinde TÜM trafik binary + msgpack'tir; aynı mantıksal {op, d} zarfının
+/// ikinci "teli" (bkz. ws_server::WireMode).
+pub(crate) const SUBPROTOCOL_MSGPACK: &str = "obswebsocket.msgpack";
 
 /// Bağlantı açılışında gönderilen Hello (op 0) zarfı.
 /// `rpcVersion` server'ın desteklediği versiyonu bildirir; `authentication` alanı yok.

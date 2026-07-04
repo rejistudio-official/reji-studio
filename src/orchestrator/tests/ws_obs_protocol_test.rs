@@ -632,8 +632,8 @@ async fn set_current_program_scene_bulunamadi() {
 //
 // Gerçek obs-websocket istemcileri (obs-websocket-js/Companion, Touch Portal) handshake'te
 // bir alt-protokol teklif eder ve sunucunun onu SEÇMESİNİ bekler; seçilmezse "Server sent no
-// subprotocol" ile koparlar. Reji JSON konuşur → yalnızca `obswebsocket.json` echo'lanmalı;
-// `obswebsocket.msgpack` (henüz desteklenmiyor) veya teklif yoksa hiçbir şey seçilmemeli.
+// subprotocol" ile koparlar. `obswebsocket.json` → JSON/Text teli, `obswebsocket.msgpack`
+// (Aşama 7) → MessagePack/Binary teli; teklif yoksa JSON varsayılır (legacy istemciler).
 
 /// Verilen alt-protokolü teklif ederek bağlanır; (soket, sunucunun SEÇTİĞİ alt-protokol) döndürür.
 async fn connect_with_subprotocol(port: u16, offered: &str) -> (Client, Option<String>) {
@@ -678,29 +678,183 @@ async fn subprotocol_json_teklif_edilirse_secilir_ve_handshake_calisir() {
     assert_eq!(identified["op"], 2, "Identified (op 2) gelmeli");
 }
 
+// NOT (Aşama 7): Aşama 6'daki `subprotocol_msgpack_teklif_edilirse_secilmez_ve_istemci_koparir`
+// testi KALDIRILDI — doğruladığı davranış (msgpack teklifinin dürüstçe reddi) geçiciydi ve
+// Aşama 7 bunu bilinçli olarak tersine çevirdi: msgpack artık seçiliyor ve destekleniyor.
+// Yerini aşağıdaki `msgpack_*` testleri aldı.
+
+// ── Faz 1 Aşama 7: obswebsocket.msgpack serileştirme ───────────────────────────
+//
+// msgpack seçildiğinde TÜM trafik binary frame + MessagePack'tir; aynı mantıksal {op, d}
+// zarfının ikinci "teli". JSON yolu değişmez. msgpack modunda Text frame bir PROTOKOL
+// İHLALİDİR (istemci kodlamayı zaten seçti) → spec'in MessageDecodeError davranışı: kapat.
+// Bu, Aşama 1'in toleranslı handshake'iyle karıştırılmamalı (orada belirsizlik vardı).
+
+/// Value'yu MessagePack'e kodlar (isimli alanlar — obs-websocket map biçimi).
+fn msgpack_encode(v: &Value) -> Vec<u8> {
+    rmp_serde::to_vec_named(v).expect("msgpack encode")
+}
+
+/// Binary MessagePack gövdesini Value'ya çözer.
+fn msgpack_decode(b: &[u8]) -> Value {
+    rmp_serde::from_slice(b).expect("msgpack decode")
+}
+
+/// Sıradaki binary mesajı bekler (ping/pong'ları atlar); Text gelirse test başarısız.
+async fn next_binary(ws: &mut Client) -> Vec<u8> {
+    loop {
+        match ws.next().await {
+            Some(Ok(Message::Binary(b))) => return b.to_vec(),
+            Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => continue,
+            other => panic!("binary frame beklenirdi, gelen: {:?}", other),
+        }
+    }
+}
+
 #[tokio::test]
-async fn subprotocol_msgpack_teklif_edilirse_secilmez_ve_istemci_koparir() {
-    // Reji msgpack konuşmadığından, msgpack-only teklifte HİÇBİR alt-protokol seçilmemeli
-    // (yanlışlıkla msgpack seçip JSON frame göndermek istemciyi bozardı). Spec'e uyan istemci
-    // (tungstenite, obs-websocket-js) teklif ettiği alt-protokol seçilmezse handshake'i reddeder
-    // → msgpack-only istemciler DÜRÜSTÇE bağlanamaz (Aşama 7'de msgpack eklenene dek beklenen).
-    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-    use tokio_tungstenite::tungstenite::http::header::SEC_WEBSOCKET_PROTOCOL;
+async fn msgpack_handshake_calisir() {
+    // obswebsocket.msgpack teklif edilirse sunucu SEÇMELİ ve Hello binary+msgpack gelmeli.
     let (state, _cmd_rx, _evt_tx) = make_state();
     let port = free_port();
     spawn_server(port, state);
 
-    // Önce sunucunun hazır olduğunu (ve alt-protokolsüz legacy yolun çalıştığını) doğrula.
-    let _ = connect(port).await;
-
-    // msgpack-only teklif → axum hiçbir şey seçmez → tungstenite handshake'i Err ile reddeder.
-    let url = format!("ws://127.0.0.1:{port}/ws");
-    let mut req = url.into_client_request().unwrap();
-    req.headers_mut()
-        .insert(SEC_WEBSOCKET_PROTOCOL, "obswebsocket.msgpack".parse().unwrap());
-    let result = tokio_tungstenite::connect_async(req).await;
-    assert!(
-        result.is_err(),
-        "msgpack-only teklifte sunucu alt-protokol seçmemeli → istemci koparmalı (bağlanmamalı)"
+    let (mut ws, selected) = connect_with_subprotocol(port, "obswebsocket.msgpack").await;
+    assert_eq!(
+        selected.as_deref(),
+        Some("obswebsocket.msgpack"),
+        "sunucu obswebsocket.msgpack alt-protokolünü seçmeli (yanıt header'ı)"
     );
+
+    let hello = msgpack_decode(&next_binary(&mut ws).await);
+    assert_eq!(hello["op"], 0, "Hello (op 0) binary+msgpack gelmeli");
+    assert_eq!(hello["d"]["rpcVersion"], 1);
+    assert!(
+        hello["d"]["obsWebSocketVersion"].is_string(),
+        "obsWebSocketVersion alanı olmalı"
+    );
+}
+
+#[tokio::test]
+async fn msgpack_identify_ve_request_calisir() {
+    // msgpack modunda tam akış: Identify (binary) → Identified (binary) → GetVersion →
+    // RequestResponse (binary+msgpack, doğru alanlarla).
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let (mut ws, _) = connect_with_subprotocol(port, "obswebsocket.msgpack").await;
+    let _hello = next_binary(&mut ws).await;
+
+    ws.send(Message::Binary(msgpack_encode(&json!({"op": 1, "d": {"rpcVersion": 1}}))))
+        .await
+        .expect("Identify gönder");
+    let identified = msgpack_decode(&next_binary(&mut ws).await);
+    assert_eq!(identified["op"], 2, "Identified (op 2) binary+msgpack gelmeli");
+    assert_eq!(identified["d"]["negotiatedRpcVersion"], 1);
+
+    ws.send(Message::Binary(msgpack_encode(
+        &json!({"op": 6, "d": {"requestType": "GetVersion", "requestId": "m1"}}),
+    )))
+    .await
+    .expect("GetVersion gönder");
+    let resp = msgpack_decode(&next_binary(&mut ws).await);
+    assert_eq!(resp["op"], 7, "RequestResponse (op 7) beklenir");
+    assert_eq!(resp["d"]["requestType"], "GetVersion");
+    assert_eq!(resp["d"]["requestId"], "m1", "requestId bire bir geri dönmeli");
+    assert_eq!(resp["d"]["requestStatus"]["result"], true);
+    assert_eq!(resp["d"]["requestStatus"]["code"], 100);
+    assert_eq!(resp["d"]["responseData"]["rpcVersion"], 1);
+}
+
+#[tokio::test]
+async fn msgpack_modunda_text_frame_reddedilir() {
+    // İstemci msgpack'i SEÇTİ, sonra Text frame gönderdi → net protokol ihlali; spec'in
+    // MessageDecodeError davranışına uygun olarak bağlantı KAPATILMALI (Aşama 1'in
+    // toleranslı "Identify gelmedi" durumunun tersine — orada ihlal değil belirsizlik vardı).
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let (mut ws, _) = connect_with_subprotocol(port, "obswebsocket.msgpack").await;
+    let _hello = next_binary(&mut ws).await;
+
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+
+    // Bağlantı kapanmalı: Close/None/Err kabul; yeni veri mesajı gelirse hata.
+    let closed = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return true,
+                Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => continue,
+                Some(Ok(m)) => panic!("bağlantı kapanmalıydı, mesaj geldi: {:?}", m),
+            }
+        }
+    })
+    .await
+    .expect("kapanış 3sn içinde gözlenmeli");
+    assert!(closed, "msgpack modunda Text frame sonrası bağlantı kapanmalı");
+}
+
+#[tokio::test]
+async fn msgpack_modunda_legacy_event_iletilmez() {
+    // CANLI BULGU (Aşama 7, simpleobsws): op'suz legacy metrik eventi ({"fps":..}) msgpack
+    // teline aktarılırsa strict obs-ws istemcilerinin recv döngüsü KeyError('op') ile ölüyor
+    // ve sonraki tüm request'ler timeout oluyor. msgpack teli obs-ws istemcilerine özeldir →
+    // op'suz (zarf olmayan) eventler bu tele HİÇ yazılmamalı. JSON telinde davranış değişmez
+    // (control.html ve Aşama 6'da canlı doğrulanan obs-websocket-js/json buna dayanır).
+    let (state, _cmd_rx, evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let (mut ws, _) = connect_with_subprotocol(port, "obswebsocket.msgpack").await;
+    let _hello = next_binary(&mut ws).await;
+
+    // Legacy metrik eventini sürekli yayınla (subscribe race'ini aşmak için tekrarla).
+    let publisher = tokio::spawn(async move {
+        for _ in 0..40 {
+            let _ = evt_tx.send(r#"{"fps":60.0,"kbps":6000}"#.to_string());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+    // Eventlerin aktığından emin olacak kadar bekle, sonra request gönder.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    ws.send(Message::Binary(msgpack_encode(
+        &json!({"op": 6, "d": {"requestType": "GetVersion", "requestId": "e1"}}),
+    )))
+    .await
+    .expect("GetVersion gönder");
+
+    // Gelen İLK binary mesaj RequestResponse olmalı — op'suz fps eventi ARAYA GİRMEMELİ.
+    let first = msgpack_decode(&next_binary(&mut ws).await);
+    assert_eq!(
+        first["op"], 7,
+        "msgpack teline op'suz legacy event sızmamalı (simpleobsws KeyError('op') bulgusu); gelen: {first}"
+    );
+    assert_eq!(first["d"]["requestId"], "e1");
+    publisher.abort();
+}
+
+#[tokio::test]
+async fn json_modu_hala_calisir() {
+    // Aşama 7 regresyon guard'ı: msgpack eklenmesi JSON telini DEĞİŞTİRMEMELİ —
+    // obswebsocket.json seçilen bağlantıda tüm akış Text+JSON olarak sürer.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let (mut ws, selected) = connect_with_subprotocol(port, "obswebsocket.json").await;
+    assert_eq!(selected.as_deref(), Some("obswebsocket.json"));
+
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["op"], 0);
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let identified = next_json(&mut ws).await;
+    assert_eq!(identified["op"], 2);
+
+    send_request(&mut ws, "GetVersion", "j1").await;
+    let resp = next_json(&mut ws).await;
+    assert_eq!(resp["op"], 7);
+    assert_eq!(resp["d"]["requestStatus"]["code"], 100);
+    assert_eq!(resp["d"]["requestId"], "j1");
 }

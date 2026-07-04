@@ -2,11 +2,10 @@
 
 Kurulum: pip install simpleobsws
 
-DİKKAT (Aşama 6 bulgusu): simpleobsws msgpack-only bir istemcidir
-(subprotocols=['obswebsocket.msgpack'], yalnızca binary frame okur). Reji şimdilik
-yalnızca JSON konuşur (msgpack Aşama 7 adayı) → bu script Reji'ye BAĞLANAMAZ
-("obs-ws sunucusu bulunamadı" ile biter). JSON-modu doğrulama için test_obs_json.py
-kullan. Bu script gerçek OBS'e veya msgpack eklendiğinde Reji'ye karşı geçerlidir.
+simpleobsws msgpack-only bir istemcidir (subprotocols=['obswebsocket.msgpack'],
+yalnızca binary frame okur). Aşama 7 ile Reji msgpack konuşuyor → bu script artık
+Reji'ye uçtan uca bağlanıp çalışır (Aşama 6'da bağlanamıyordu — o dönemin bulgusu).
+JSON-modu doğrulama için test_obs_json.py kullan.
 
 Port: ffi.rs → ws_server::serve(vec![7070, 7071, 7072, 7073]) — 7070 öncelikli.
 """

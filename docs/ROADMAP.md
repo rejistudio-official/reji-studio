@@ -933,13 +933,15 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
 - [x] obs-websocket v5 protokol alt kümesi araştırması (hangi request/response tipleri gerekli)
 - [x] Mevcut ws_server.rs üzerine protokol adaptör katmanı (Aşama 1-5)
 - [x] Temel komutlar: GetSceneList, SetCurrentProgramScene, StartStream, StopStream, GetStreamStatus
-- [x] Stream Deck veya Companion ile bağlantı doğrulama (JSON-modu obs-websocket-js
-      istemcileri canlı doğrulandı; Companion'ın Node-varsayılan msgpack modu ve
-      fiziksel Stream Deck donanımı → Aşama 7)
+- [x] Stream Deck veya Companion ile bağlantı doğrulama (JSON VE msgpack modları kütüphane
+      seviyesinde canlı doğrulandı — obs-websocket-js json+msgpack varyantları ve simpleobsws
+      (msgpack-only) uçtan uca çalışıyor; fiziksel Stream Deck donanımı / gerçek Companion
+      kurulumu hâlâ test EDİLMEDİ, mevcut değil)
 
-> **Aşama 7 adayı — msgpack serileştirme:** obs-websocket-js Node varsayılanı ve simpleobsws
-> `obswebsocket.msgpack` alt-protokolünü zorunlu kılar. Reji şimdilik yalnızca JSON konuşuyor;
-> msgpack (`rmp-serde` + binary frame yolu + subprotocol seçimi) eklenerek bu istemciler açılabilir.
+> **Aşama 7 — msgpack serileştirme ✅ (2026-07-04):** `obswebsocket.msgpack` alt-protokolü tam
+> destekli (`rmp-serde` + binary frame + subprotocol seçimi; `WireMode` ile tek mantık/iki kodlama).
+> Node-varsayılan obs-websocket-js (Companion'ın bağımlılığı) ve simpleobsws artık bağlanıyor.
+> Kalan açık yalnızca fiziksel donanım/gerçek Companion doğrulaması.
 
 ## Faz 2 — RTMP Çıkışı
 

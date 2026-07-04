@@ -12,8 +12,8 @@
 //   - Her iki modda da sunucunun teklif edilen alt-protokolü SEÇMESİNİ bekler; seçilmezse
 //     "Server sent no subprotocol" ile koparır.
 //
-// Reji (Aşama 6 sonrası): obswebsocket.json seçer → JSON modu ÇALIŞIR; msgpack modu
-// hâlâ bağlanamaz (msgpack serileştirme Aşama 7 adayı). Bu script iki modu da dener.
+// Reji (Aşama 7 sonrası): obswebsocket.json VE obswebsocket.msgpack seçilir → İKİ MOD DA
+// ÇALIŞIR (msgpack Aşama 7'de eklendi; Aşama 6'da msgpack FAIL idi). Bu script iki modu da dener.
 
 const URL = process.argv[2] || 'ws://127.0.0.1:7071/ws';
 
