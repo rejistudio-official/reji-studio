@@ -527,8 +527,10 @@ async fn get_scene_list_bos_liste() {
 }
 
 #[tokio::test]
-async fn get_scene_list_isimler_dogru() {
-    // scene_names'e 3 isim yaz; GetSceneList yanıtında sceneIndex/sceneName eşleşmesini doğrula.
+async fn get_scene_list_obs_konvansiyonu_ters_sira() {
+    // scene_names C++'tan UI sırasıyla (üstten alta) gelir: [Sahne A(üst), Sahne B, Sahne C(alt)].
+    // obs-websocket v5 konvansiyonu (Aşama 6): sceneIndex 0 = UI'nın EN ALTI, dizi alttan üste.
+    // Yani beklenen: sceneIndex 0=Sahne C, 1=Sahne B, 2=Sahne A (somut isimlerle doğrulanır).
     let (state, _cmd_rx, _evt_tx) = make_state();
     let seeder = state.clone(); // aynı Arc — sunucunun okuduğu scene_names ile birebir
     *seeder.scene_names.lock().unwrap() =
@@ -545,14 +547,16 @@ async fn get_scene_list_isimler_dogru() {
     let data = get_scene_list(&mut ws).await;
     let scenes = data["scenes"].as_array().expect("scenes dizisi");
     assert_eq!(scenes.len(), 3);
+    // Ters sıra: sceneIndex 0 = en alt (Sahne C), 2 = en üst (Sahne A)
     assert_eq!(scenes[0]["sceneIndex"], 0);
-    assert_eq!(scenes[0]["sceneName"], "Sahne A");
+    assert_eq!(scenes[0]["sceneName"], "Sahne C");
     assert_eq!(scenes[1]["sceneIndex"], 1);
     assert_eq!(scenes[1]["sceneName"], "Sahne B");
     assert_eq!(scenes[2]["sceneIndex"], 2);
-    assert_eq!(scenes[2]["sceneName"], "Sahne C");
+    assert_eq!(scenes[2]["sceneName"], "Sahne A");
     assert!(scenes[0]["sceneUuid"].is_string(), "sceneUuid alanı olmalı");
-    // current_scene_idx varsayılan 0 → currentProgramSceneName ilk sahne
+    // current_scene_idx varsayılan 0 → iç index (UI row 0 = Sahne A); sunum ters çevrilse de
+    // currentProgramSceneName isimle çözülür ve ters çevirmeden ETKİLENMEZ.
     assert_eq!(data["currentProgramSceneName"], "Sahne A");
 }
 

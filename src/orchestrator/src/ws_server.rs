@@ -164,14 +164,22 @@ fn dispatch_request(
         "GetSceneList" => {
             // scene_names + current_scene_idx yalnızca C++'ın DOĞRULADIĞI son durumu yansıtır
             // (tek gerçek kaynak): GetStreamStatus gibi iyimser değildir. sceneUuid isimden
-            // deterministik üretilir (bkz. obs_protocol::pseudo_uuid). Sahne SIRASI ters
-            // çevrilmeden scene_names sırasıyla verilir (gerçek istemciyle doğrulanacak —
-            // bkz. SESSION_NOTES Aşama 5). currentPreviewScene* studio mode olmadığından null.
+            // deterministik üretilir (bkz. obs_protocol::pseudo_uuid).
+            //
+            // Sahne SIRASI: obs-websocket v5 konvansiyonu sceneIndex 0'ı UI'nın EN ALTINA koyar
+            // ve diziyi alttan üste verir (OBS kaynağı Obs_ArrayHelper.cpp — azalan indeks +
+            // std::reverse; Aşama 6'da obs-websocket-js/simpleobsws ile doğrulandı). scene_names
+            // C++'tan UI sırasıyla (üstten alta, row 0 = ilk) gelir → `.rev()` ile alttan üste
+            // çevrilip enumerate edilir: sceneIndex 0 = en ALT sahne. Örn. [S1,S2,S3] (üstten
+            // alta) → sceneIndex 0=S3, 1=S2, 2=S1. current_scene_idx ve SetCurrentProgramScene
+            // bu SUNUM sırasından ETKİLENMEZ (isimle / iç index ile çalışırlar — tek gerçek
+            // kaynak). currentPreviewScene* studio mode olmadığından null.
             let names = state.scene_names.lock().unwrap().clone();
             let cur_idx = state.current_scene_idx.load(Ordering::Relaxed) as usize;
             let cur_name = names.get(cur_idx).cloned().unwrap_or_default();
             let scenes: Vec<Value> = names
                 .iter()
+                .rev()
                 .enumerate()
                 .map(|(i, n)| {
                     json!({
