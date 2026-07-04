@@ -482,3 +482,64 @@ Testler (5 yeni): `pseudo_uuid_kararli` (obs_protocol birim testi) + `get_scene_
 `get_scene_list_isimler_dogru`, `set_current_program_scene_basarili`,
 `set_current_program_scene_bulunamadi` (ws entegrasyon). Tüm suite yeşil: 32 lib + 5 rules +
 17 ws = 54 test PASS, `cargo build -p reji-orchestrator` temiz (yalnızca önceden var olan uyarılar).
+
+### Faz 1 — Aşama 6 (gerçek obs-websocket istemcisiyle doğrulama)
+
+Amaç: Aşama 1-5'te yazılan obs-ws v5 sunucusunu GERÇEK üçüncü-parti istemcilerle sınamak;
+4 açık soruyu (sahne sırası, pseudo-UUID, paralel bağlantı, StartStream/StopStream) kesin
+sonuca bağlamak. Gerçek build (`cargo build --release` + `scripts/build.py`) + çalışan uygulama
+üzerinde yapıldı. Ham çıktılar `docs/reviews/` (gitignore'lı) altında; script'ler `scripts/test_obs_*`.
+
+**Kullanılan araçlar:** `simpleobsws` (Python), spec-uyumlu ham JSON istemcisi (`websockets`),
+`obs-websocket-js` 5.0.8 (Node — Companion'ın kullandığı kütüphane). **Fiziksel Stream Deck /
+Companion donanımı/yazılımı test EDİLMEDİ** (mevcut değil) — doğrulama gerçek istemci
+kütüphaneleriyle yapıldı; bunu eksiklik olarak not düşüyoruz (dürüstlük ilkesi).
+
+**BAŞLIK BULGU — alt-protokol müzakeresi kök blokörü (düzeltildi):**
+Gerçek obs-websocket istemcileri handshake'te `Sec-WebSocket-Protocol` ile bir alt-protokol
+teklif eder ve sunucunun onu SEÇMESİNİ bekler; Reji hiçbirini seçmiyordu → TÜM obs-websocket-js
+istemcileri (json/msgpack fark etmez) daha Hello'ya varmadan *"Server sent no subprotocol"* ile
+kopuyordu. `simpleobsws` de msgpack-only olduğu (JSON text frame'leri yok sayar) için hiç identify
+olamadı. **Fix (commit 1fa47d5):** `ws_handler` artık `obswebsocket.json` teklif edilirse echo'lar.
+Canlı doğrulama: `obs-websocket-js/json` artık bağlanıp identify oluyor (5.0.0-reji-compat, rpc 1).
+`obswebsocket.msgpack` (binary serileştirme) HÂLÂ desteklenmiyor → **Aşama 7 adayı**; Companion'ın
+Node-varsayılan msgpack modu ve simpleobsws bu yüzden hâlâ bağlanamaz (dürüst, beklenen).
+
+**4 açık sorunun kesin sonuçları:**
+1. **Sahne sırası — TERSTİ, düzeltildi (commit 3f6e2cf).** obs-websocket v5 konvansiyonu (OBS
+   kaynağı `Obs_ArrayHelper.cpp`: azalan indeks + `std::reverse`; GitHub issue #1034 / disc #1022)
+   `sceneIndex 0`'ı UI'nın EN ALTINA koyar, diziyi alttan üste verir (v5.0.1+, kasıtlı). Reji
+   scene_names'i üstten alta veriyordu → sceneIndex 0 = üst (OBS'in tam tersi). `.rev().enumerate()`
+   ile düzeltildi. Canlı doğrulama: [Sahne 1, 2, 3] (üstten alta) → sceneIndex 0=Sahne 3, 2=Sahne 1.
+   `current_scene_idx`/`SetCurrentProgramScene` (isimle/iç index) bu sunum sırasından etkilenmiyor.
+2. **pseudo-UUID — sorun yok.** Deterministik UUID'ler üretiliyor; hiçbir istemci akışı UUID ile
+   seçim yapmıyor (SetCurrentProgramScene `sceneName` kullanır). Gerçek RFC-4122 UUID değil ama
+   istemci tarafında kimse doğrulamıyor → zararsız. Çözüm gerektirmedi (Aşama 5 dürüstlük notu geçerli).
+3. **Paralel bağlantı — ÇALIŞIYOR.** Identify'lı (A) + hiç Identify göndermeyen legacy (B) aynı
+   anda: her ikisi de aynı metrik event akışını aldı (ör. 405/405), legacy 5s soft-timeout'ta
+   KAPATILMADI, A'nın timeout sonrası request'i çalıştı, B'nin geç Identify'ı başarılı. Aşama 1'in
+   temel iddiası (`test_obs_parallel.py`) gerçek dünyada doğrulandı. Not: legacy metrik akışı
+   (`{"fps":..}`) yalnızca uygulama aktif render ederken akıyor (pencere arka plandayken duraklıyor).
+4. **StartStream/StopStream — protokol seviyesinde çalışıyor, gerçek çıktı yok.** StartStream sonrası
+   `outputActive=true`, `outputDuration`/`outputTimecode` gerçek zamanlı ilerliyor (2005ms →
+   "00:00:02.005"); StopStream sıfırlıyor. Ama `outputBytes=0` (SRT stub) — yani obs-websocket
+   seviyesinde çalışıyor, gerçek yayın çıktısı henüz yok (SRT stub, README ile tutarlı).
+
+**Yan bulgular:**
+- **Port fallback (olumlu):** 7070'i AnyDesk tuttuğu için Reji 7071'e düştü — fallback mantığı
+  gerçek dünyada doğru çalıştı. Test script'leri portu otomatik tespit ediyor.
+- **Build süreci açığı:** `scripts/build.py` (= `just build`) yalnızca C++ relink yapar, Rust'ı
+  DERLEMEZ. Önce elle `cargo build --release` gerekir — yoksa stale Rust lib linklenir (ilk testte
+  GetSceneList `204 Unknown request type` dönüyordu; Rust yeniden derlenince düzeldi). İleride
+  build.py'ye cargo adımı eklenmesi düşünülebilir.
+- **Encoding (Türkçe):** C++ `text().toUtf8().constData()` → Rust `CStr::to_string_lossy()` →
+  serde_json → uçtan uca UTF-8, yapısal olarak güvenli (char-sınırında kesme dahil). Default
+  isimler byte-exact round-trip ediyor (`"Sahne 1"` = `5361686e652031`). Türkçe isimle GUI rename
+  otomasyonu (SendKeys+F2) QListWidget'ı edit moduna sokamadı (scripted focus sınırı, Reji kusuru
+  değil) — GetSceneList'te Türkçe isim görsel round-trip'i elle test için açık kaldı.
+
+Testler (4 yeni/güncel ws): `subprotocol_json_teklif_edilirse_secilir_ve_handshake_calisir`,
+`subprotocol_msgpack_teklif_edilirse_secilmez_ve_istemci_koparir` (yeni),
+`get_scene_list_obs_konvansiyonu_ters_sira` (eski `..._isimler_dogru`'nun ters-sıra güncellemesi).
+ws suite: 17 → 19 test PASS. Commit'ler: `1fa47d5` (subprotocol), `3f6e2cf` (sahne sırası),
+`7ca56a1` (doğrulama script'leri), + bu docs commit'i.

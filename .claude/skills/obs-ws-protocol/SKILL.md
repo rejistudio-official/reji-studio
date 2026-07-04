@@ -102,9 +102,23 @@ Aşama 5 (GetSceneList / SetCurrentProgramScene) ✅ — iki sahne handler'ı:
     güncellemez (gerçek geçiş C++'tan `rj_user_event_scene_switch` ile geri döner — tek gerçek kaynak).
   - **pseudo-UUID:** `obs_protocol::pseudo_uuid(name)` — isimden deterministik 8-4-4-4-12 hex.
     Gerçek/çakışmasız UUID DEĞİL, isim-başına kararlı tanımlayıcı (dürüstlük ilkesi).
-  - **Sahne sırası:** ters çevrilmeden `scene_names` sırasıyla — gerçek istemciyle (Aşama 6)
-    doğrulanacak, ters çıkarsa düzeltilecek.
+    (Aşama 6'da KESİNLEŞTİ: hiçbir istemci akışı UUID ile seçim yapmıyor → zararsız.)
+  - **Sahne sırası:** Aşama 6'da KESİNLEŞTİ — obs-ws v5 konvansiyonu `sceneIndex 0`'ı UI'nın
+    EN ALTINA koyar, diziyi alttan üste verir. `scene_names` (üstten alta) `.rev().enumerate()`
+    ile ters çevrilir. Artık "belirsiz" DEĞİL; ters çevirme GEREKLİ ve uygulandı (commit 3f6e2cf).
   - Kapsam dışı: `CreateScene`/`RemoveScene`/`SetSceneName` (sahne CRUD'u yalnızca UI'dan).
+
+Aşama 6 (gerçek istemci doğrulaması) ✅ — obs-websocket-js 5.0.8 / simpleobsws / ham JSON ile test:
+  - **Alt-protokol seçimi eklendi (commit 1fa47d5):** `ws_handler` `obswebsocket.json` teklif
+    edilirse echo'lar. ÖNCESİNDE hiçbir alt-protokol seçilmiyordu → TÜM obs-websocket-js istemcileri
+    *"Server sent no subprotocol"* ile kopuyordu (kök blokör). Legacy istemciler (alt-protokol teklif
+    etmez) etkilenmez. **`obswebsocket.msgpack` (binary) DESTEKLENMİYOR → Aşama 7 adayı** — Companion'ın
+    Node-varsayılan msgpack modu ve simpleobsws hâlâ bağlanamaz.
+  - Sahne sırası ters çevrildi (yukarı bak). pseudo-UUID zararsız doğrulandı. Paralel Identify'lı +
+    legacy bağlantı çalışıyor, legacy soft-timeout'ta kapatılmıyor. StartStream/StopStream
+    obs-ws seviyesinde çalışıyor (`outputActive`/süre/timecode gerçek) ama `outputBytes=0` (SRT stub).
+  - Doğrulama araçları: `scripts/test_obs_json.py`, `test_obs_parallel.py`, `test_obs_websocket_js.js`.
+  - Fiziksel Stream Deck/Companion donanımı test edilmedi (yok) — istemci kütüphaneleriyle doğrulandı.
 
 Sonraki aşamaları TASK dosyası/CONTEXT.md'den doğrula; bu skill'i her aşama
 tamamlandığında güncelle (tamamlanan requestType'ların listesini buraya ekle).

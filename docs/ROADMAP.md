@@ -930,10 +930,16 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
 
 ## Faz 1 — OBS-WebSocket Protokol Uyumluluğu
 
-- [ ] obs-websocket v5 protokol alt kümesi araştırması (hangi request/response tipleri gerekli)
-- [ ] Mevcut ws_server.rs üzerine protokol adaptör katmanı
-- [ ] Temel komutlar: GetSceneList, SetCurrentProgramScene, StartStream, StopStream, GetStreamStatus
-- [ ] Test: Stream Deck veya Companion ile bağlantı doğrulama
+- [x] obs-websocket v5 protokol alt kümesi araştırması (hangi request/response tipleri gerekli)
+- [x] Mevcut ws_server.rs üzerine protokol adaptör katmanı (Aşama 1-5)
+- [x] Temel komutlar: GetSceneList, SetCurrentProgramScene, StartStream, StopStream, GetStreamStatus
+- [x] Stream Deck veya Companion ile bağlantı doğrulama (JSON-modu obs-websocket-js
+      istemcileri canlı doğrulandı; Companion'ın Node-varsayılan msgpack modu ve
+      fiziksel Stream Deck donanımı → Aşama 7)
+
+> **Aşama 7 adayı — msgpack serileştirme:** obs-websocket-js Node varsayılanı ve simpleobsws
+> `obswebsocket.msgpack` alt-protokolünü zorunlu kılar. Reji şimdilik yalnızca JSON konuşuyor;
+> msgpack (`rmp-serde` + binary frame yolu + subprotocol seçimi) eklenerek bu istemciler açılabilir.
 
 ## Faz 2 — RTMP Çıkışı
 
