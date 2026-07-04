@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose new functionality or an improvement
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For larger design questions ("should Reji Studio do X?"), please open a
+        **Discussion** first — issues work best for concrete, scoped proposals.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What can't you do today, or what is painful?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should happen? Rough sketch is fine.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - obs-websocket protocol
+        - Rule engine / self-healing
+        - Capture
+        - Encode / output
+        - UI
+        - Build / tooling / CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to implement this myself
+        - label: I can test on dual-GPU hardware

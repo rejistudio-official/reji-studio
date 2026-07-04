@@ -1,0 +1,71 @@
+name: Bug report
+description: Something isn't working
+labels: ["bug", "needs-triage"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Clear description of the bug and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Build with `just build`
+        2. Run `just run`
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build-type
+    attributes:
+      label: Build preset
+      options:
+        - release (real Vulkan)
+        - mock (REJI_VULKAN_MOCK=ON)
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area (best guess)
+      options:
+        - Orchestrator / WebSocket (Rust)
+        - Pipeline — capture
+        - Pipeline — GPU interop / Vulkan
+        - Pipeline — audio
+        - UI (Qt6)
+        - FFI boundary
+        - Build system
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, GPU(s), driver versions, Qt/Vulkan SDK versions.
+      placeholder: |
+        OS: Windows 11 23H2
+        GPU (display): AMD Radeon 780M, driver xx.x
+        GPU (encode): NVIDIA RTX 4070 Laptop, driver xxx.xx
+        Qt: 6.8.0 / Vulkan SDK: 1.4.x
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Attach the tail of run.log (`just log`) or paste the error output.
+        For device-lost/TDR issues, include lines around the recovery attempt.
+      render: text

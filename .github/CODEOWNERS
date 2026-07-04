@@ -1,0 +1,21 @@
+# CODEOWNERS — PRs touching these paths require the listed reviewer's approval.
+# Requires branch protection with "Require review from Code Owners" enabled.
+
+# Default owner for everything (can be relaxed as maintainers join)
+*                                       @rejistudio-official
+
+# ── Protected: C++ ↔ Rust FFI boundary ──────────────────────────────
+/src/ffi/                               @rejistudio-official
+/src/orchestrator/src/ffi.rs            @rejistudio-official
+/src/orchestrator/cbindgen.toml         @rejistudio-official
+/src/orchestrator/build.rs              @rejistudio-official
+
+# ── Protected: hardware-dependent GPU / capture code ────────────────
+/src/pipeline/gpu/                      @rejistudio-official
+/src/pipeline/capture/                  @rejistudio-official
+
+# ── Protected: build & CI infrastructure ────────────────────────────
+/.github/workflows/                     @rejistudio-official
+/CMakeLists.txt                         @rejistudio-official
+/CMakePresets.json                      @rejistudio-official
+/build.zig                              @rejistudio-official
