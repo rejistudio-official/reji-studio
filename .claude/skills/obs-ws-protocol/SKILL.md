@@ -91,6 +91,20 @@ Aşama 3 (GetStreamStatus tam alan seti + MetricState) ✅ — obs-websocket v5 
     `outputReconnecting`, `outputCongestion`, `outputTotalFrames`
   - `WsState.metric_state` = FfiState._metric_state ile AYNI Arc; `stream_started_at_ms` de
     `process_stream_cmd` içinde (tek yazma noktası) güncellenir.
+Aşama 4 (FFI/C++ scene altyapısı) ✅ — `rj_push_scene_names` (C++ UI → `scene_names`),
+  `rj_user_event_scene_switch` (C++ → `current_scene_idx`, tek gerçek kaynak),
+  `RJ_WS_CMD_SET_SCENE=5` komut kodu + C++ drain. Handler'lar bu aşamada YOK (Aşama 5).
+Aşama 5 (GetSceneList / SetCurrentProgramScene) ✅ — iki sahne handler'ı:
+  - `GetSceneList` — `scene_names` + `current_scene_idx`'ten yanıt; C++'ın DOĞRULADIĞI son
+    durum (iyimser değil). `scenes[]`: sceneIndex/sceneName/sceneUuid. currentPreviewScene* = null.
+  - `SetCurrentProgramScene` — isim `scene_names`'te bulunursa `ws_command_queue`'ya (5, idx)
+    push + code 100; bulunamazsa code **600** (ResourceNotFound). `current_scene_idx`'i BURADA
+    güncellemez (gerçek geçiş C++'tan `rj_user_event_scene_switch` ile geri döner — tek gerçek kaynak).
+  - **pseudo-UUID:** `obs_protocol::pseudo_uuid(name)` — isimden deterministik 8-4-4-4-12 hex.
+    Gerçek/çakışmasız UUID DEĞİL, isim-başına kararlı tanımlayıcı (dürüstlük ilkesi).
+  - **Sahne sırası:** ters çevrilmeden `scene_names` sırasıyla — gerçek istemciyle (Aşama 6)
+    doğrulanacak, ters çıkarsa düzeltilecek.
+  - Kapsam dışı: `CreateScene`/`RemoveScene`/`SetSceneName` (sahne CRUD'u yalnızca UI'dan).
 
 Sonraki aşamaları TASK dosyası/CONTEXT.md'den doğrula; bu skill'i her aşama
 tamamlandığında güncelle (tamamlanan requestType'ların listesini buraya ekle).

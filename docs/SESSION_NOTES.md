@@ -448,3 +448,37 @@ doğrulaması HENÜZ YAPILMADI (headless ortamda GUI güvenilir çalıştırıla
 üretildi; sahne-tıklama davranışı elle doğrulanmalı (talimatta kabul edilebilir işaretli).
 
 Sıradaki: Aşama 5 — GetSceneList / SetCurrentProgramScene handler'ları (ws_server dispatch_request).
+
+### Faz 1 — Aşama 5 (GetSceneList / SetCurrentProgramScene handler'ları)
+
+Amaç: Aşama 4'te kurulan FFI/scene-state altyapısı üzerine iki WS handler'ı bağlamak.
+Yalnızca `ws_server::dispatch_request` + `obs_protocol` değişti; FFI/C++ dokunulmadı.
+
+- `GetSceneList` — `scene_names` (C++'ın `rj_push_scene_names` ile beslediği) + `current_scene_idx`
+  (C++'ın `rj_user_event_scene_switch` ile doğruladığı) üzerinden yanıt üretir. GetStreamStatus
+  gibi iyimser DEĞİL: her zaman C++'ın DOĞRULADIĞI son durumu yansıtır (tek gerçek kaynak).
+- `SetCurrentProgramScene` — isim `scene_names`'te aranır; bulunursa `ws_command_queue`'ya
+  `(RJ_WS_CMD_SET_SCENE=5, idx)` push edilir, `{}` + code 100 döner. `current_scene_idx` BURADA
+  güncellenmez — gerçek geçiş C++'ta olup `rj_user_event_scene_switch` üzerinden geri bildirilene
+  kadar beklenir (tek gerçek kaynak; iyimser güncelleme yok). Bulunamazsa code **600**
+  (ResourceNotFound, resmi obs-websocket protokolünden doğrulandı), bağlantı kapatılmaz.
+
+**Dürüstlük notları (kritik):**
+- **pseudo-UUID sınırlaması:** Reji'de gerçek UUID kavramı yok. `obs_protocol::pseudo_uuid`
+  isimden `DefaultHasher` ile deterministik 8-4-4-4-12 hex üretir (aynı isim → aynı UUID). Bu
+  kriptografik olarak çakışmasız gerçek bir UUID DEĞİLDİR — yalnızca isim-başına kararlı bir
+  tanımlayıcıdır (Aşama 3'teki 0/false dürüstlük ilkesiyle aynı çizgi). Aynı isimli iki sahne
+  olursa UUID'leri çakışır; obs-websocket'te sahne isimleri zaten benzersiz olduğundan pratikte sorun değil.
+- **Sahne sırası belirsizliği:** Gerçek OBS'in `scenes` dizisini ters çevirip çevirmediği
+  DOĞRULANMADI (belirsiz bilgi). Şu an ters çevirmeden `scene_names` sırasıyla gönderiliyor.
+  **Gerçek istemciyle (Aşama 6) doğrulanmalı** — sıra ters görünürse GetSceneList'in `scenes`
+  üretimi burada düzeltilecek.
+- `currentPreviewSceneName`/`currentPreviewSceneUuid` = `null` (studio mode yok, spec'e uygun).
+
+Kapsam sınırı: `CreateScene`/`RemoveScene`/`SetSceneName` YOK — sahne CRUD'u obs-websocket
+üzerinden yapılamıyor (yalnızca UI'dan). ROADMAP'in beş temel komutundan ikisi tamamlandı.
+
+Testler (5 yeni): `pseudo_uuid_kararli` (obs_protocol birim testi) + `get_scene_list_bos_liste`,
+`get_scene_list_isimler_dogru`, `set_current_program_scene_basarili`,
+`set_current_program_scene_bulunamadi` (ws entegrasyon). Tüm suite yeşil: 32 lib + 5 rules +
+17 ws = 54 test PASS, `cargo build -p reji-orchestrator` temiz (yalnızca önceden var olan uyarılar).

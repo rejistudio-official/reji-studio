@@ -13,6 +13,7 @@ use std::time::Duration;
 use crossbeam::queue::ArrayQueue;
 use tokio::sync::broadcast;
 
+use crate::ffi::RJ_WS_CMD_SET_SCENE;
 use crate::metrics::MetricState;
 use crate::obs_protocol::{self, op as obs_op};
 
@@ -112,7 +113,7 @@ pub fn process_stream_cmd(
 fn dispatch_request(
     request_type: &str,
     request_id: &str,
-    _request_data: &Value,
+    request_data: &Value,
     state: &WsState,
 ) -> obs_protocol::WsEnvelope {
     use obs_protocol::{request_response_err, request_response_ok, request_status};
@@ -159,6 +160,64 @@ fn dispatch_request(
                     "outputTotalFrames": 0,                                   // toplam kare sayacı yok
                 }),
             )
+        }
+        "GetSceneList" => {
+            // scene_names + current_scene_idx yalnızca C++'ın DOĞRULADIĞI son durumu yansıtır
+            // (tek gerçek kaynak): GetStreamStatus gibi iyimser değildir. sceneUuid isimden
+            // deterministik üretilir (bkz. obs_protocol::pseudo_uuid). Sahne SIRASI ters
+            // çevrilmeden scene_names sırasıyla verilir (gerçek istemciyle doğrulanacak —
+            // bkz. SESSION_NOTES Aşama 5). currentPreviewScene* studio mode olmadığından null.
+            let names = state.scene_names.lock().unwrap().clone();
+            let cur_idx = state.current_scene_idx.load(Ordering::Relaxed) as usize;
+            let cur_name = names.get(cur_idx).cloned().unwrap_or_default();
+            let scenes: Vec<Value> = names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    json!({
+                        "sceneIndex": i,
+                        "sceneName": n,
+                        "sceneUuid": obs_protocol::pseudo_uuid(n),
+                    })
+                })
+                .collect();
+            request_response_ok(
+                request_type,
+                request_id,
+                json!({
+                    "currentProgramSceneName": cur_name,
+                    "currentProgramSceneUuid": obs_protocol::pseudo_uuid(&cur_name),
+                    "currentPreviewSceneName": null,
+                    "currentPreviewSceneUuid": null,
+                    "scenes": scenes,
+                }),
+            )
+        }
+        "SetCurrentProgramScene" => {
+            // Not: current_scene_idx BURADA güncellenmez — gerçek geçiş C++'ta olup
+            // rj_user_event_scene_switch üzerinden geri bildirilene kadar beklenir (tek gerçek
+            // kaynak). Yalnızca SetScene komutu C++ kuyruğuna push edilir. Bulunamayan sahne
+            // ResourceNotFound (600) döner; bağlantı kapatılmaz.
+            let scene_name = request_data
+                .get("sceneName")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let position = {
+                let names = state.scene_names.lock().unwrap();
+                names.iter().position(|n| n == scene_name)
+            };
+            match position {
+                Some(idx) => {
+                    let _ = state.ws_command_queue.push((RJ_WS_CMD_SET_SCENE, idx as i32));
+                    request_response_ok(request_type, request_id, json!({}))
+                }
+                None => request_response_err(
+                    request_type,
+                    request_id,
+                    request_status::RESOURCE_NOT_FOUND,
+                    "Scene not found",
+                ),
+            }
         }
         _ => request_response_err(
             request_type,

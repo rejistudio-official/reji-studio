@@ -484,3 +484,142 @@ async fn frame_drops_metric_state_uzerinden_yansir() {
         "outputSkippedFrames MetricState.frame_drops'u yansıtmalı"
     );
 }
+
+// ── Faz 1 Aşama 5: GetSceneList / SetCurrentProgramScene ───────────────────────
+
+/// GetSceneList isteyip responseData'yı döndürür (handshake tamamlanmış istemcide).
+async fn get_scene_list(ws: &mut Client) -> Value {
+    send_request(ws, "GetSceneList", "sl").await;
+    let r = next_json(ws).await;
+    r["d"]["responseData"].clone()
+}
+
+/// requestData taşıyan bir Request (op 6) gönderir (SetCurrentProgramScene için).
+async fn send_request_data(ws: &mut Client, request_type: &str, request_id: &str, data: Value) {
+    send_text(
+        ws,
+        json!({"op": 6, "d": {"requestType": request_type, "requestId": request_id, "requestData": data}}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn get_scene_list_bos_liste() {
+    // Hiç rj_push_scene_names çağrılmadan (scene_names boş) GetSceneList → boş scenes dizisi,
+    // boş currentProgramSceneName; crash yok, bağlantı sürer.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    let data = get_scene_list(&mut ws).await;
+    assert_eq!(
+        data["scenes"].as_array().map(|a| a.len()),
+        Some(0),
+        "boş scenes dizisi olmalı"
+    );
+    assert_eq!(data["currentProgramSceneName"], "", "boş currentProgramSceneName");
+    assert!(data["currentPreviewSceneName"].is_null(), "preview null olmalı");
+}
+
+#[tokio::test]
+async fn get_scene_list_isimler_dogru() {
+    // scene_names'e 3 isim yaz; GetSceneList yanıtında sceneIndex/sceneName eşleşmesini doğrula.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let seeder = state.clone(); // aynı Arc — sunucunun okuduğu scene_names ile birebir
+    *seeder.scene_names.lock().unwrap() =
+        vec!["Sahne A".to_string(), "Sahne B".to_string(), "Sahne C".to_string()];
+
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    let data = get_scene_list(&mut ws).await;
+    let scenes = data["scenes"].as_array().expect("scenes dizisi");
+    assert_eq!(scenes.len(), 3);
+    assert_eq!(scenes[0]["sceneIndex"], 0);
+    assert_eq!(scenes[0]["sceneName"], "Sahne A");
+    assert_eq!(scenes[1]["sceneIndex"], 1);
+    assert_eq!(scenes[1]["sceneName"], "Sahne B");
+    assert_eq!(scenes[2]["sceneIndex"], 2);
+    assert_eq!(scenes[2]["sceneName"], "Sahne C");
+    assert!(scenes[0]["sceneUuid"].is_string(), "sceneUuid alanı olmalı");
+    // current_scene_idx varsayılan 0 → currentProgramSceneName ilk sahne
+    assert_eq!(data["currentProgramSceneName"], "Sahne A");
+}
+
+#[tokio::test]
+async fn set_current_program_scene_basarili() {
+    // scene_names'e isim yaz, SetCurrentProgramScene gönder → code 100 +
+    // ws_command_queue'da (RJ_WS_CMD_SET_SCENE=5, doğru idx).
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let observer = state.clone(); // aynı Arc — sunucunun push ettiği kuyruk ile birebir
+    *observer.scene_names.lock().unwrap() = vec!["Intro".to_string(), "Live".to_string()];
+
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    send_request_data(&mut ws, "SetCurrentProgramScene", "sc1", json!({"sceneName": "Live"})).await;
+    let resp = next_json(&mut ws).await;
+    assert_eq!(resp["d"]["requestStatus"]["result"], true);
+    assert_eq!(resp["d"]["requestStatus"]["code"], 100);
+    assert_eq!(resp["d"]["requestId"], "sc1");
+
+    // SetScene komutu C++ kuyruğuna girmeli: (5, idx=1) — "Live" ikinci sahne.
+    let mut popped = None;
+    for _ in 0..50 {
+        if let Some(cmd) = observer.ws_command_queue.pop() {
+            popped = Some(cmd);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(popped, Some((5, 1)), "ws_command_queue'da (SET_SCENE=5, idx=1) olmalı");
+}
+
+#[tokio::test]
+async fn set_current_program_scene_bulunamadi() {
+    // Var olmayan isim → code 600 (ResourceNotFound); bağlantı kapanmaz (sonraki istek çalışır).
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let seeder = state.clone();
+    *seeder.scene_names.lock().unwrap() = vec!["Intro".to_string()];
+
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    send_request_data(
+        &mut ws,
+        "SetCurrentProgramScene",
+        "sc2",
+        json!({"sceneName": "YokBoyleSahne"}),
+    )
+    .await;
+    let err = next_json(&mut ws).await;
+    assert_eq!(err["d"]["requestStatus"]["result"], false);
+    assert_eq!(err["d"]["requestStatus"]["code"], 600, "ResourceNotFound = 600");
+    assert_eq!(err["d"]["requestId"], "sc2");
+
+    // Bağlantı kapanmadı kanıtı: AYNI soketten geçerli GetVersion hâlâ çalışmalı.
+    send_request(&mut ws, "GetVersion", "after").await;
+    let ok = next_json(&mut ws).await;
+    assert_eq!(ok["d"]["requestStatus"]["code"], 100, "hatadan sonra bağlantı sürmeli");
+    assert_eq!(ok["d"]["requestId"], "after");
+}

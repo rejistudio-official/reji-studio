@@ -42,9 +42,8 @@ const RJ_CMD_BITRATE_SET:  u32 = 1;
 const RJ_CMD_PREVIEW_FPS:  u32 = 2;
 
 /// WS komut kuyruğu kodu: SetScene. (1=stream_start, 2=stream_stop, 3=scene_cut,
-/// 4=scene_fade zaten kullanımda — bkz. ffi_bridge.h.) Aşama 5'te ws_server'ın
-/// SetCurrentProgramScene handler'ı tarafından push edilir.
-#[allow(dead_code)] // Aşama 5'te ws_server::dispatch_request tarafından kullanılır
+/// 4=scene_fade zaten kullanımda — bkz. ffi_bridge.h.) ws_server'ın
+/// SetCurrentProgramScene handler'ı (Aşama 5) tarafından push edilir.
 pub(crate) const RJ_WS_CMD_SET_SCENE: i32 = 5;
 
 /// v0.4+: Adaptation action — `ffi_bridge.h`'daki RjAction ile #[repr(C)] eşleşmeli.

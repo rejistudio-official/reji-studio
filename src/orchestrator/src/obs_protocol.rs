@@ -64,6 +64,8 @@ pub(crate) mod request_status {
     pub(crate) const SUCCESS: u32 = 100;
     /// requestType tanınmadı.
     pub(crate) const UNKNOWN_REQUEST_TYPE: u32 = 204;
+    /// İstenen kaynak (ör. sahne) bulunamadı — obs-websocket spec: ResourceNotFound.
+    pub(crate) const RESOURCE_NOT_FOUND: u32 = 600;
 }
 
 /// Başarılı RequestResponse (op 7) zarfı. `data`, spec'teki `responseData` alanına yazılır.
@@ -101,4 +103,43 @@ pub fn format_timecode(ms: u64) -> String {
     let mins = (total_secs / 60) % 60;
     let hours = total_secs / 3600;
     format!("{:02}:{:02}:{:02}.{:03}", hours, mins, secs, millis)
+}
+
+/// İsimden deterministik "pseudo-UUID" üretir: aynı isim → aynı 8-4-4-4-12 hex dizi,
+/// farklı çağrılarda kararlı. Reji'de gerçek UUID kavramı yok; obs-websocket istemcileri
+/// sahne için bir `sceneUuid` alanı beklediğinden isim başına KARARLI bir tanımlayıcı sunulur.
+/// Bu, kriptografik olarak çakışmasız gerçek bir UUID DEĞİLDİR — yalnızca isim-başına
+/// kararlı bir kimliktir (dürüstlük ilkesi; bkz. SESSION_NOTES Aşama 5).
+pub(crate) fn pseudo_uuid(name: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    name.hash(&mut h);
+    let v = h.finish();
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        (v >> 32) as u32,
+        (v >> 16) as u16 & 0xffff,
+        v as u16,
+        (v >> 48) as u16,
+        v & 0xffff_ffff_ffff
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pseudo_uuid_kararli() {
+        // Aynı isim iki kez çağrılınca aynı UUID döner (deterministik).
+        let a = pseudo_uuid("Sahne A");
+        let b = pseudo_uuid("Sahne A");
+        assert_eq!(a, b, "aynı isim aynı UUID üretmeli");
+        // 8-4-4-4-12 hex biçimi: 32 hex + 4 tire = 36 karakter.
+        assert_eq!(a.len(), 36, "UUID uzunluğu 36 olmalı");
+        assert_eq!(a.matches('-').count(), 4, "4 tire olmalı");
+        // Farklı isim farklı UUID üretmeli (çakışma beklenmez).
+        assert_ne!(pseudo_uuid("Sahne A"), pseudo_uuid("Sahne B"));
+    }
 }
