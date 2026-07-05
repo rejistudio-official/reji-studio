@@ -598,3 +598,78 @@ ROADMAP'teki 4. checkbox'ın niteliği güncellendi; tam [x] yapılmadı.
 
 Not: script'leri tekrar koşmak için `npm install obs-websocket-js --no-save` (repo'da tutulmuyor)
 ve `py -3.12` (simpleobsws 3.12'de kurulu) gerekir.
+
+## Oturum: 5 Temmuz 2026 — Faz 2 Başlangıcı (RTMP öncesi temel)
+
+### Faz 2 — Aşama 1 — ITransport'u gerçek implementasyona bağla (SrtTransport)
+
+Amaç: ROADMAP Faz 2'nin "RtmpTransport" maddesi, ITransport'un çalışan bir soyutlama
+olduğunu varsayıyordu — değildi (ITransport::create() implemente edilmemişti,
+OutputSubsystem doğrudan somut SrtOutput kullanıyordu). Bu aşama saf taşıma/soyutlama:
+davranış değişikliği YOK.
+
+Yapılan:
+- i_transport.h: Config'e bandwidth_kbps eklendi (SRT'ye özel, RTMP yok sayabilir);
+  ayrıca header hiç include edilmediği için gizli kalan eksik <memory>/<cstddef> eklendi.
+- YENİ output/srt_transport.h+.cpp: SrtTransport final : ITransport — kompozisyonla
+  SrtOutput'u sarar (miras değil), yalnızca public arayüze delege eder.
+- YENİ i_transport.cpp: ITransport::create() faktörü (şimdilik tek implementasyon;
+  Aşama 2'de protokol seçimi parametresi eklenecek).
+- output_subsystem.h/.cpp: srt_/srt_atomic_ → transport_/transport_atomic_
+  (std::unique_ptr<ITransport> + std::atomic<ITransport*>); init artık
+  ITransport::create() üzerinden. "Aktif çıkış yok → send true (drop sayılmaz)"
+  semantiği bire bir korundu.
+- pipeline.cpp: seh_shutdown_subsystems imzası SrtOutput* → rj::ITransport*;
+  Config popülasyonunda strncpy_s → std::string ataması.
+- CMakeLists (pipeline): srt_transport.cpp + i_transport.cpp SRT if/else'inin
+  DIŞINA (koşulsuz, if(WIN32) içine) eklendi — talimattaki "srt_output.cpp ile aynı
+  blok" yerleşimi stub build'de ITransport::create() link hatası verirdi; iki dosya
+  SDK'dan bağımsız derlendiği için bilinçli sapma.
+
+**SEH virtual-call kararı ve doğrulaması (kritik nokta):**
+seh_shutdown_subsystems() ve seh_srt_send() içindeki out->shutdown()/send() çağrıları
+artık virtual dispatch — SEH __try içinde MSVC'de yasak değil ama "POD-gibi basitlik"
+tasarım niyetinden bilinçli sapma (pipeline.cpp'de yorumla işaretli). Doğrulama,
+varsayım değil DENEYLE yapıldı (gerçek Release build, gerçek donanım, reji_app.exe):
+1. Normal koşu: init OK (SRT init başarılı — 127.0.0.1 non-blocking connect →
+   transport non-null → virtual shutdown gerçekten çalıştı), pencere kapatma →
+   "[Pipeline] shutdown clean", exit 0.
+2. Throw deneyi: SrtTransport::shutdown() içine GEÇİCİ throw std::runtime_error
+   kondu (commit'e girmedi) → aynı senaryoda "[Pipeline] shutdown SEH fault"
+   loglandı, çökme/AV YOK, uygulama teardown'ı tamamlayıp exit 0 ile kapandı —
+   __except'in virtual call üzerinden fırlayan C++ exception'ını (/EHa) yakaladığı
+   KANITLANDI. Throw kaldırılıp temiz shutdown yeniden doğrulandı.
+   (Log yakalama: GUI alt sisteminde stderr boş kaldığından OutputDebugString/DBWIN
+   dinleyicisiyle alındı — scratch/dbg_listen.ps1, commit dışı.)
+RtmpTransport eklenirken kural: her iki implementasyonun shutdown()/send()'i bu
+SEH-leaf'lerde exception fırlatmamalı (pipeline.cpp'deki NOT yorumu).
+
+**Karakterizasyon karşılaştırması (izole, Faz1/Aşama4 yöntemi):**
+PipelineCharacterization assert etmez, her koşuda snapshot yazar — karşılaştırma
+elle yapıldı: git stash ile refactor öncesine dönülüp 2 koşu, refactor sonrası 3 koşu
+alındı. Önce/sonra farkları, öncenin KENDİ iki koşusu arasındaki gürültüyle aynı
+karakterde (fps ±0.1, bağlantı bayrağı kıpırdaması, 6000→3500 bitrate geçişi her iki
+durumda 60-70. frame penceresinde). Yapısal davranış birebir: init=OK, 100 frame,
+~60 fps. tests/baseline_metrics.txt commit'te DEĞİŞTİRİLMEDİ (davranış aynı →
+referans snapshot güncellenmedi).
+
+**Testler:**
+- YENİ tests/test_output_subsystem.cpp (4 test, OutputSubsystemTest): init
+  başarısızlığında inaktif kalma, aktif transport yokken send()==true (drop
+  sayılmama), set_streaming(true) transport'suz güvenli. Gerçek SRT build'inde de
+  stub'da da geçerli (geçersiz host → inet_pton fail → init false). Not: gerçek
+  srt_output.cpp rj_* Rust FFI sembollerine başvurduğundan test, integration
+  testleriyle aynı link kalıbını kullanır (_RUST_ORCH + ntdll + userenv).
+- ctest: 6 test, yalnız bilinen 2 başarısızlık (FrameProfilerTest/ShaderCacheTest —
+  refactor öncesi baseline'da da aynen FAIL); yeni kırılma yok.
+- Stub-SRT link doğrulaması: vcpkg SRT'si CMAKE_IGNORE_PATH ile gizlenerek geçici
+  build dizininde "SRT output: stub module" + test_pipeline_integration.exe linki
+  başarılı (ITransport::create + SrtTransport + stub SrtOutput birlikte).
+
+**Bilinen sınırlar:**
+- `cmake --preset mock` (reji_app) HEAD'de ZATEN kırık — copy_optimizer.cpp
+  vulkan/vulkan.h'ı koşulsuz include ediyor, mock modda find_package(Vulkan) atlanıyor
+  (bu oturumda build-mock ilk kez yapılandırıldı ve fark edildi). Bu refactor'dan
+  bağımsız, ayrı görev olarak ele alınmalı.
+- Talimattaki "mock preset = SRT stub" varsayımı bu makinede geçerli değil (vcpkg'de
+  gerçek SRT kurulu); stub doğrulaması yukarıdaki CMAKE_IGNORE_PATH yöntemiyle yapıldı.

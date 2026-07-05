@@ -237,4 +237,13 @@ if(WIN32)
         target_sources(reji_pipeline PRIVATE output/srt_output_stub.cpp)
         message(STATUS "SRT output: stub module (SRT SDK bulunamadi)")
     endif()
+
+    # ITransport faktörü + SrtTransport sarmalayıcı (Faz2/Aşama1) — SDK'dan
+    # bağımsız derlenir, o yüzden if/else DIŞINDA: stub build'de de
+    # ITransport::create() linklenebilir olmalı. SDK var/yok ayrımı
+    # srt_output.cpp / srt_output_stub.cpp seviyesinde çözülür.
+    target_sources(reji_pipeline PRIVATE
+        output/srt_transport.cpp
+        i_transport.cpp
+    )
 endif()

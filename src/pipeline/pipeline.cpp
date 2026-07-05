@@ -14,7 +14,7 @@
 //    timeBeginPeriod(1) / timeEndPeriod(1) paired
 //    rj_command_drain clamped [0,8]; negative return logged
 //    frame_drops delta: exchange(0) after each metrics push
-//    std::atomic<SrtOutput*> srt_atomic_ for start/stop_stream thread safety
+//    std::atomic<ITransport*> transport_atomic_ for start/stop_stream thread safety
 
 #include "include/pipeline.h"
 #include "include/i_screen_capture.h"
@@ -36,7 +36,7 @@
 #include "include/encode_subsystem.h"
 #include "audio/wasapi_capture.h"
 #include "include/audio_subsystem.h"
-#include "output/srt_output.h"
+#include "include/i_transport.h"
 #include "include/output_subsystem.h"
 #include "include/gpu_interop_subsystem.h"
 #include "include/recovery_coordinator.h"
@@ -140,12 +140,16 @@ __declspec(noinline)
 static bool seh_shutdown_subsystems(
     reji::pipeline::audio::WasapiCapture* audio,
     reji::NvencEncoder*                   enc,
-    rj::pipeline::output::SrtOutput*      out) noexcept
+    rj::ITransport*                       out) noexcept
 {
     bool ok = true;
     __try {
         if (audio) { (void)audio->stop(); (void)audio->shutdown(); }
         if (enc)   { enc->flush(); enc->shutdown(); }
+        // NOT (Faz2/Aşama1): out->shutdown() artık virtual call — SEH __try içinde
+        // MSVC'de yasak değil ama bilinçli bir sapma, bkz. FAZ2_ASAMA1_TALIMAT.md.
+        // RtmpTransport eklenince her iki implementasyonun da shutdown()'ının
+        // burada güvenle exception fırlatmadığından emin ol.
         if (out)   { (void)out->shutdown(); }
     } __except(EXCEPTION_EXECUTE_HANDLER) { ok = false; }
     return ok;
@@ -423,9 +427,9 @@ bool Pipeline::init(const Config& cfg_in) {
         }
     }
 
-    //  SrtOutput  OutputSubsystem alt sistemi
+    //  ITransport (SrtTransport)  OutputSubsystem alt sistemi
     OutputSubsystem::Config scfg{};
-    strncpy_s(scfg.host, sizeof(scfg.host), cfg_in.srt_host, sizeof(scfg.host) - 1);
+    scfg.host           = cfg_in.srt_host;   // std::string ataması (Faz2/Aşama1)
     scfg.port           = cfg_in.srt_port;
     scfg.latency_ms     = 200;
     scfg.bandwidth_kbps = 0;
@@ -672,7 +676,7 @@ bool Pipeline::shutdown() {
         auto& s = *impl_;
 
         s.streaming.store(false, std::memory_order_release);
-        s.output_sub_.set_streaming(false);   // srt_atomic null — encode thread güvenliği
+        s.output_sub_.set_streaming(false);   // transport_atomic null — encode thread güvenliği
 
         // v0.4+: Stop action processor thread (CommandRouter: running=false + join)
         s.command_router_.stop();
@@ -688,7 +692,7 @@ bool Pipeline::shutdown() {
 
         // RAII reset outside __try  destructors run safely here.
         s.audio_sub_.shutdown();    // audio_ reset (SEH-leaf DIŞINDA)
-        s.output_sub_.shutdown();   // srt_atomic null + srt_ reset (SEH-leaf DIŞINDA)
+        s.output_sub_.shutdown();   // transport_atomic null + transport_ reset (SEH-leaf DIŞINDA)
         s.encode_sub_.shutdown();   // encoder_ reset (SEH-leaf DIŞINDA)
         s.capture_sub_.shutdown();  // capture_ reset + capture_dxgi_ null
 

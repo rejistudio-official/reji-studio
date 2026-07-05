@@ -1,5 +1,7 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include "reji_constants.h"
 
@@ -9,9 +11,10 @@ class ITransport {
 public:
     struct Config {
         std::string host;
-        uint16_t    port          = 9000;
-        uint32_t    latency_ms    = rj::constants::kSrtLatencyMs;
-        bool        caller_mode   = true;
+        uint16_t    port           = 9000;
+        uint32_t    latency_ms     = rj::constants::kSrtLatencyMs;  // SRT mirası — RTMP eklenince gözden geçirilecek
+        uint32_t    bandwidth_kbps = 0;   // 0 = sınırsız; SRT'ye özel, RTMP görmezden gelebilir
+        bool        caller_mode    = true;
     };
 
     virtual ~ITransport() = default;

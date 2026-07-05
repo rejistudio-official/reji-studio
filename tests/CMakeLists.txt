@@ -109,3 +109,25 @@ add_test(NAME PipelineCharacterization COMMAND test_pipeline_characterization)
 set_tests_properties(PipelineCharacterization PROPERTIES
     ENVIRONMENT "PATH=${CMAKE_BINARY_DIR}/src/ui;$ENV{PATH}"
 )
+
+# ── OutputSubsystem birim testi (Faz2/Aşama1 — ITransport soyutlaması) ──
+# Gerçek srt_output.cpp, Rust FFI sembollerine (rj_start_monitor/rj_metrics_push/
+# rj_connection_lost) başvurur — integration testleriyle aynı link kalıbı gerekir.
+add_executable(test_output_subsystem
+    test_output_subsystem.cpp
+)
+
+target_link_libraries(test_output_subsystem
+    gtest gtest_main
+    reji_pipeline
+    ${_RUST_ORCH}   # rj_* FFI fonksiyonları + Rust compiler-rt
+    ntdll.lib       # Zig/Rust runtime NT API
+    userenv.lib     # Rust std::env::home_dir
+)
+
+add_test(NAME OutputSubsystemTest COMMAND test_output_subsystem)
+
+# Gerçek SRT build'inde srt.dll çalışma zamanında gerekir (stub build'de zararsız).
+set_tests_properties(OutputSubsystemTest PROPERTIES
+    ENVIRONMENT "PATH=${CMAKE_BINARY_DIR}/src/ui;$ENV{PATH}"
+)
