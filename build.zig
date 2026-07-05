@@ -269,4 +269,62 @@ pub fn build(b: *std.Build) void {
     const vulkan_lib_step = b.step("gpu", "Vulkan init Zig static lib");
     const install_gpu = b.addInstallArtifact(gpu_lib, .{});
     vulkan_lib_step.dependOn(&install_gpu.step);
+
+    // ── rtmp (static lib — MinGW ABI, MSVC ile C ABI uyumlu) ─────────────────
+    // Faz2/Aşama2.2: OBS librtmp çekirdeği (LGPL 2.1, NO_CRYPTO) + Zig FLV
+    // muxing + happy_eyeballs (Zig'de yeniden yazıldı) → rj_rtmp_* C ABI.
+    // MinGW hedefi ext_bridge ile aynı gerekçe: MSVC hedefi @cImport'ta
+    // translate-c'den geçemiyor (winsock2.h → windows.h).
+    // Not: timeGetTime → nihai exe -lwinmm ister (CMake reji_pipeline zaten
+    // winmm.lib bağlıyor); ws2_32 de nihai linkte gerekir.
+    const librtmp_c_files: []const []const u8 = &.{
+        "third_party/librtmp/rtmp.c",
+        "third_party/librtmp/amf.c",
+        "third_party/librtmp/log.c",
+        "third_party/librtmp/parseurl.c",
+        "third_party/librtmp/md5.c",
+        "third_party/librtmp/cencode.c",
+    };
+    const librtmp_c_flags: []const []const u8 = &.{"-DNO_CRYPTO"};
+
+    const rtmp_mod = b.createModule(.{
+        .root_source_file = b.path("src/pipeline/rtmp/rtmp_transport.zig"),
+        .target    = gpu_check_target,
+        .optimize  = optimize,
+        .link_libc = true,
+    });
+    rtmp_mod.addIncludePath(b.path("third_party"));
+    rtmp_mod.addIncludePath(b.path("src/pipeline/rtmp/compat"));
+    rtmp_mod.addCSourceFiles(.{
+        .files = librtmp_c_files,
+        .flags = librtmp_c_flags,
+    });
+    const rtmp_lib = b.addLibrary(.{
+        .name        = "rtmp_transport_zig",
+        .linkage     = .static,
+        .root_module = rtmp_mod,
+    });
+    const rtmp_step = b.step("rtmp", "RTMP transport Zig static lib (librtmp + FLV mux)");
+    const install_rtmp = b.addInstallArtifact(rtmp_lib, .{});
+    rtmp_step.dependOn(&install_rtmp.step);
+
+    // ── rtmp-test (Zig birim testleri: NAL/FLV/AVCC + happy_eyeballs TCP) ────
+    const rtmp_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/pipeline/rtmp/rtmp_transport.zig"),
+        .target    = gpu_check_target,
+        .optimize  = optimize,
+        .link_libc = true,
+    });
+    rtmp_test_mod.addIncludePath(b.path("third_party"));
+    rtmp_test_mod.addIncludePath(b.path("src/pipeline/rtmp/compat"));
+    rtmp_test_mod.addCSourceFiles(.{
+        .files = librtmp_c_files,
+        .flags = librtmp_c_flags,
+    });
+    rtmp_test_mod.linkSystemLibrary("ws2_32", .{});
+    rtmp_test_mod.linkSystemLibrary("winmm", .{});
+    const rtmp_tests = b.addTest(.{ .root_module = rtmp_test_mod });
+    const run_rtmp_tests = b.addRunArtifact(rtmp_tests);
+    const rtmp_test_step = b.step("rtmp-test", "RTMP transport Zig birim testleri");
+    rtmp_test_step.dependOn(&run_rtmp_tests.step);
 }
