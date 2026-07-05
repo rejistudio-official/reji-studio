@@ -78,3 +78,6 @@ build_debug_srt/
 
 # Çok-model kod tarama arşivi — ham çıktı, damıtılmış planlar docs/ köküne gider
 docs/reviews/
+
+# Kesif/deney calisma alani - commit'e girmez (Faz2/Asama2.1 notu)
+scratch/
