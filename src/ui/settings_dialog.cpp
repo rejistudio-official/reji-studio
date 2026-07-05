@@ -298,9 +298,11 @@ QString SettingsDialog::rtmpUrl() const {
     if (!d_->rtmp_url_edit) return QString();
     QString url = d_->rtmp_url_edit->text().trimmed();
     while (url.endsWith(QLatin1Char('/'))) url.chop(1);
-    const QString key = d_->rtmp_key_edit ? d_->rtmp_key_edit->text().trimmed() : QString();
-    if (url.isEmpty()) return QString();
-    return key.isEmpty() ? url : url + QLatin1Char('/') + key;
+    return url;
+}
+
+QString SettingsDialog::rtmpStreamKey() const {
+    return d_->rtmp_key_edit ? d_->rtmp_key_edit->text().trimmed() : QString();
 }
 
 } // namespace reji

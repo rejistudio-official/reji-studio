@@ -34,7 +34,8 @@ public:
     QString  srtHost() const;
     uint16_t srtPort() const;
     uint32_t transportProtocol() const;   // rj::TransportProtocol değeri (0=SRT, 1=RTMP)
-    QString  rtmpUrl() const;             // URL + stream key birleşik (rtmp://host/app/KEY)
+    QString  rtmpUrl() const;             // sunucu URL'i (rtmp://host/app — key HARİÇ)
+    QString  rtmpStreamKey() const;
 
 signals:
     void healingModeChanged(HealingMode mode);

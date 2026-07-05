@@ -32,7 +32,9 @@ bool EncodeSubsystem::encode_frame(ID3D11Texture2D* tex, int64_t pts_us) {
     // encoder_ yoksa: drop değil (preview-only mod) — eski `s.encoder && ...`
     // koşuluyla aynı gözlemlenebilir davranış (drop tetiklenmez).
     if (!encoder_) return true;
-    return encoder_->encode_frame(tex, pts_us);
+    // request_idr() bekleyen talebi bu karede tüket (Faz2/Aşama2.2).
+    const bool force_idr = force_idr_.exchange(false, std::memory_order_acq_rel);
+    return encoder_->encode_frame(tex, pts_us, force_idr);
 }
 
 bool EncodeSubsystem::set_bitrate(uint32_t kbps) {

@@ -5,7 +5,7 @@
 // `zig build rtmp` üretir; imzalar rtmp_transport.zig ile bire bir).
 extern "C" {
 void* rj_rtmp_create();
-bool  rj_rtmp_init(void* handle, const char* url);
+bool  rj_rtmp_init(void* handle, const char* url, const char* stream_key);
 bool  rj_rtmp_send(void* handle, const uint8_t* data, size_t size, int64_t pts_us);
 bool  rj_rtmp_is_connected(void* handle);
 void  rj_rtmp_shutdown(void* handle);
@@ -23,10 +23,10 @@ RtmpTransport::~RtmpTransport() {
 
 bool RtmpTransport::init(const Config& cfg) {
     if (handle_) return false;   // çift init yok (SrtOutput sözleşmesiyle uyumlu)
-    if (cfg.host.empty()) return false;
+    if (cfg.host.empty() || cfg.stream_key.empty()) return false;
     handle_ = rj_rtmp_create();
     if (!handle_) return false;
-    if (!rj_rtmp_init(handle_, cfg.host.c_str())) {
+    if (!rj_rtmp_init(handle_, cfg.host.c_str(), cfg.stream_key.c_str())) {
         rj_rtmp_destroy(handle_);
         handle_ = nullptr;
         return false;

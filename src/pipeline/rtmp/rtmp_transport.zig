@@ -30,6 +30,9 @@ const std = @import("std");
 const rt = @cImport({
     @cDefine("NO_CRYPTO", "1");
     @cInclude("librtmp/rtmp.h");
+    @cInclude("librtmp/log.h");
+    @cInclude("stdio.h");
+    @cInclude("stdlib.h");
 });
 
 const allocator = std.heap.c_allocator;
@@ -83,6 +86,7 @@ const no_pts: i64 = std.math.minInt(i64);
 const Transport = struct {
     rtmp: ?*rt.RTMP = null,
     url: ?[:0]u8 = null,
+    stream_idx: c_int = 0,
     sps: ?[]u8 = null,
     pps: ?[]u8 = null,
     seq_sent: bool = false,
@@ -159,7 +163,7 @@ fn writeFlvTag(t: *Transport, r: *rt.RTMP, tag_type: u8, ts_ms: u32, body: []con
         break :blk true;
     };
     if (!ok) return false;
-    const n = rt.RTMP_Write(r, @ptrCast(t.tag.data.ptr), @intCast(t.tag.len), 0);
+    const n = rt.RTMP_Write(r, @ptrCast(t.tag.data.ptr), @intCast(t.tag.len), t.stream_idx);
     return n > 0;
 }
 
@@ -175,15 +179,45 @@ fn updateParamSet(slot: *?[]u8, nal: []const u8, seq_sent: *bool) void {
 
 // ── C ABI exportları ────────────────────────────────────────────────────────
 
+// Teşhis: REJI_RTMP_LOG=<dosya-yolu> ortam değişkeni set ise librtmp'in kendi
+// logunu (RTMP_LOGDEBUG) o dosyaya yönlendir. GUI alt sisteminde stderr
+// kaybolduğu için sahada RTMP sorunlarını görünür kılmanın tek yolu bu.
+var log_file: ?*rt.FILE = null;
+
+// Teşhis yardımcı — yalnız REJI_RTMP_LOG etkinken yazar (sıcak yolda değil:
+// ilk kareler + hata durumları).
+fn dlog(comptime fmt: []const u8, args: anytype) void {
+    const f = log_file orelse return;
+    var buf: [256]u8 = undefined;
+    const s = std.fmt.bufPrintZ(&buf, fmt, args) catch return;
+    _ = rt.fprintf(f, "REJI: %s\n", s.ptr);
+    _ = rt.fflush(f);
+}
+
+fn maybeEnableLibrtmpLog() void {
+    if (log_file != null) return;
+    const path = rt.getenv("REJI_RTMP_LOG") orelse return;
+    const f = rt.fopen(path, "a") orelse return;
+    log_file = f;
+    rt.RTMP_LogSetOutput(f);
+    rt.RTMP_LogSetLevel(rt.RTMP_LOGDEBUG);
+}
+
 export fn rj_rtmp_create() ?*anyopaque {
+    maybeEnableLibrtmpLog();
     const t = allocator.create(Transport) catch return null;
     t.* = .{};
     return @ptrCast(t);
 }
 
-export fn rj_rtmp_init(handle: ?*anyopaque, url: ?[*:0]const u8) bool {
+// url: SUNUCU URL'i (rtmp://host/app — stream key HARİÇ). OBS librtmp'in
+// RTMP_ParseURL'i app = path'in TAMAMI der (parseurl.c:138 "just.. whatever"),
+// playpath/stream key ayrı olarak RTMP_AddStream ile verilir (OBS UI'daki
+// Server / Stream Key ayrımının birebir karşılığı).
+export fn rj_rtmp_init(handle: ?*anyopaque, url: ?[*:0]const u8, stream_key: ?[*:0]const u8) bool {
     const t = get(handle) orelse return false;
     const u = url orelse return false;
+    const key = stream_key orelse return false;
     if (t.rtmp != null) return false; // çift init yok
 
     const r: ?*rt.RTMP = rt.RTMP_Alloc();
@@ -191,13 +225,20 @@ export fn rj_rtmp_init(handle: ?*anyopaque, url: ?[*:0]const u8) bool {
     rt.RTMP_Init(rp);
 
     // librtmp SetupURL string'i YERİNDE değiştirir ve içine pointer tutar —
-    // kopya Transport ömrü boyunca yaşamalı.
+    // kopya Transport ömrü boyunca yaşamalı. (AddStream ise playpath'i
+    // RTMP_ParsePlaypath ile kendine kopyalar — key için dupe gerekmez.)
     const dup = allocator.dupeZ(u8, std.mem.span(u)) catch {
         rt.RTMP_Free(rp);
         return false;
     };
 
     if (rt.RTMP_SetupURL(rp, dup.ptr) == 0) {
+        allocator.free(dup);
+        rt.RTMP_Free(rp);
+        return false;
+    }
+    const idx = rt.RTMP_AddStream(rp, key);
+    if (idx < 0) {
         allocator.free(dup);
         rt.RTMP_Free(rp);
         return false;
@@ -209,6 +250,8 @@ export fn rj_rtmp_init(handle: ?*anyopaque, url: ?[*:0]const u8) bool {
         rt.RTMP_Free(rp);
         return false;
     }
+    // ConnectStream: connect result → createStream → publish akışını yürütür
+    // (rtmp.c:3182-3205), AddStream'lenmiş playpath'i kullanır.
     if (rt.RTMP_ConnectStream(rp, 0) == 0) {
         rt.RTMP_Close(rp);
         allocator.free(dup);
@@ -218,15 +261,24 @@ export fn rj_rtmp_init(handle: ?*anyopaque, url: ?[*:0]const u8) bool {
 
     t.rtmp = rp;
     t.url = dup;
+    t.stream_idx = idx;
     return true;
 }
+
+var send_diag_count: u32 = 0;
 
 export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize, pts_us: i64) bool {
     const t = get(handle) orelse return false;
     const r = t.rtmp orelse return false;
-    if (rt.RTMP_IsConnected(r) == 0) return false;
+    if (rt.RTMP_IsConnected(r) == 0) {
+        dlog("send: baglanti yok (size={d})", .{size});
+        return false;
+    }
     if (size == 0) return true;
     const data = (data_ptr orelse return false)[0..size];
+
+    const diag = send_diag_count < 10;
+    if (diag) send_diag_count += 1;
 
     // NAL'leri ayrıştır: SPS/PPS yakala, kare gövdesini AVCC olarak biriktir.
     t.body.len = 0;
@@ -238,6 +290,7 @@ export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize,
         const bytes = data[nal.start..nal.end];
         if (bytes.len == 0) continue;
         const nal_type: u8 = bytes[0] & 0x1F;
+        if (diag) dlog("send#{d}: nal type={d} len={d} (paket size={d})", .{ send_diag_count, nal_type, bytes.len, size });
         switch (nal_type) {
             7 => updateParamSet(&t.sps, bytes, &t.seq_sent),
             8 => updateParamSet(&t.pps, bytes, &t.seq_sent),
@@ -253,14 +306,22 @@ export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize,
 
     // Sequence header (AVC config) — SPS+PPS hazır olunca bir kez, ts=0.
     if (!t.seq_sent) {
-        const sps = t.sps orelse return !have_frame_data; // SPS'siz kare gönderilemez
-        const pps = t.pps orelse return !have_frame_data;
+        const sps = t.sps orelse {
+            if (have_frame_data) dlog("send: SPS yok, kare DROP (nal'ler yukarida)", .{});
+            return !have_frame_data; // SPS'siz kare gönderilemez
+        };
+        const pps = t.pps orelse {
+            if (have_frame_data) dlog("send: PPS yok, kare DROP", .{});
+            return !have_frame_data;
+        };
         t.tag.len = 0; // tag buf'ı geçici gövde kurulumuna kullanma — ayrı kur
         var hdr: Buf = .{};
         defer hdr.deinit();
         hdr.appendSlice(&.{ 0x17, 0x00, 0x00, 0x00, 0x00 }) catch return false;
         buildAvcConfig(&hdr, sps, pps) catch return false;
-        if (!writeFlvTag(t, r, flv_video_tag, 0, hdr.items())) return false;
+        const seq_ok = writeFlvTag(t, r, flv_video_tag, 0, hdr.items());
+        dlog("send: sequence header yazildi ok={}", .{seq_ok});
+        if (!seq_ok) return false;
         t.seq_sent = true;
     }
 
@@ -279,7 +340,9 @@ export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize,
     frame.appendSlice(&.{ if (is_keyframe) 0x17 else 0x27, 0x01, 0x00, 0x00, 0x00 }) catch return false;
     frame.appendSlice(t.body.items()) catch return false;
 
-    return writeFlvTag(t, r, flv_video_tag, ts_ms, frame.items());
+    const ok = writeFlvTag(t, r, flv_video_tag, ts_ms, frame.items());
+    if (diag or !ok) dlog("send: frame ts={d}ms key={} body={d}B ok={}", .{ ts_ms, is_keyframe, frame.len, ok });
+    return ok;
 }
 
 export fn rj_rtmp_is_connected(handle: ?*anyopaque) bool {

@@ -194,6 +194,16 @@ struct NvencEncoder::Impl {
         enc.frameIntervalP            = 1;
         enc.gopLength                 = config.gop_size;
 
+        // Faz2/Aşama2.2: her IDR'a SPS/PPS iliştir — yayına encode başladıktan
+        // SONRA girildiğinde (stream_start) transport'un (RTMP sequence header,
+        // SRT geç-katılan decoder) parametre setlerini yakalayabilmesi için
+        // zorunlu. Maliyet: IDR başına ~40 bayt.
+        if (config.codec == Config::Codec::H264) {
+            enc.encodeCodecConfig.h264Config.repeatSPSPPS = 1;
+        } else {
+            enc.encodeCodecConfig.hevcConfig.repeatSPSPPS = 1;
+        }
+
         NV_ENC_INITIALIZE_PARAMS init = {};
         init.version           = sv(7, true);  // NV_ENC_INITIALIZE_PARAMS_VER
         init.encodeGUID        = (config.codec == Config::Codec::H264)

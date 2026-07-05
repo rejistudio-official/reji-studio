@@ -62,7 +62,8 @@ rj::OutputSubsystem::Config invalid_rtmp_config() {
     rj::OutputSubsystem::Config cfg{};
     cfg.protocol = rj::TransportProtocol::Rtmp;
     // 127.0.0.1:1'de RTMP dinleyici yok — TCP connect anında reddedilir.
-    cfg.host = "rtmp://127.0.0.1:1/live/test";
+    cfg.host       = "rtmp://127.0.0.1:1/live";
+    cfg.stream_key = "test";
     return cfg;
 }
 
@@ -81,12 +82,19 @@ TEST(OutputSubsystemTest, RtmpInitFailureLeavesSubsystemInactive) {
     EXPECT_EQ(out.raw(), nullptr);
 }
 
-TEST(OutputSubsystemTest, RtmpEmptyUrlInitFails) {
+TEST(OutputSubsystemTest, RtmpEmptyUrlOrKeyInitFails) {
+    // Boş URL → bağlantı denemeden reddedilir.
     rj::OutputSubsystem out;
     rj::OutputSubsystem::Config cfg{};
-    cfg.protocol = rj::TransportProtocol::Rtmp;   // host boş
+    cfg.protocol = rj::TransportProtocol::Rtmp;
     EXPECT_FALSE(out.init(cfg));
     EXPECT_FALSE(out.is_active());
+
+    // URL var ama stream key boş → yine reddedilir (RTMP'de key zorunlu).
+    rj::OutputSubsystem out2;
+    cfg.host = "rtmp://127.0.0.1:1/live";
+    EXPECT_FALSE(out2.init(cfg));
+    EXPECT_FALSE(out2.is_active());
 }
 
 TEST(OutputSubsystemTest, RtmpSendAfterFailedInitStillReturnsTrue) {

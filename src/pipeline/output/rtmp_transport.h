@@ -5,9 +5,10 @@
 // (src/pipeline/rtmp/rtmp_transport.zig, rj_rtmp_* C ABI — librtmp NO_CRYPTO,
 // düz rtmp://, FLV muxing dahil).
 //
-// Config eşlemesi: cfg.host = TAM ingest URL'i (örn.
-// "rtmp://live.twitch.tv/app/STREAM_KEY"). port/latency/bandwidth RTMP'de
-// kullanılmaz (URL'in içinde/ilgisiz).
+// Config eşlemesi: cfg.host = sunucu URL'i ("rtmp://live.twitch.tv/app" —
+// stream key HARİÇ), cfg.stream_key = zorunlu. OBS librtmp modeli: app =
+// URL path'inin tamamı, playpath = AddStream ile ayrı (OBS UI Server/Key
+// ayrımıyla birebir). port/latency/bandwidth RTMP'de kullanılmaz.
 #pragma once
 #include "../include/i_transport.h"
 

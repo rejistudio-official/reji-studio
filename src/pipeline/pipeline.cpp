@@ -431,7 +431,8 @@ bool Pipeline::init(const Config& cfg_in) {
     OutputSubsystem::Config scfg{};
     scfg.protocol = static_cast<rj::TransportProtocol>(cfg_in.transport_protocol);
     if (scfg.protocol == rj::TransportProtocol::Rtmp) {
-        scfg.host = cfg_in.rtmp_url;         // tam ingest URL'i (Faz2/Aşama2.2)
+        scfg.host       = cfg_in.rtmp_url;   // sunucu URL'i (Faz2/Aşama2.2)
+        scfg.stream_key = cfg_in.rtmp_key;
     } else {
         scfg.host = cfg_in.srt_host;         // std::string ataması (Faz2/Aşama1)
         scfg.port = cfg_in.srt_port;
@@ -476,7 +477,12 @@ bool Pipeline::start_stream() {
         // SRT olmadan streaming flag'ini set et, preview devam etsin
     }
 
-    // Publish SRT pointer before any packet callback can observe it.
+    // Faz2/Aşama2.2: akış SPS/PPS + IDR ile başlasın — encoder init'ten beri
+    // çalışıyor, ilk IDR/parametre setleri çoktan geçti; transport (özellikle
+    // RTMP sequence header) taze IDR olmadan kare gönderemez.
+    impl_->encode_sub_.request_idr();
+
+    // Publish transport pointer before any packet callback can observe it.
     impl_->output_sub_.set_streaming(true);
     (void)impl_->audio_sub_.start();
     dbglog("[Pipeline] streaming started");

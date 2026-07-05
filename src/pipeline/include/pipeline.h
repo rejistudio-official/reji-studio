@@ -50,7 +50,8 @@ public:
         // değerleriyle eşleşir (0=SRT, 1=RTMP); pipeline.h public API'sine
         // i_transport.h include'u sokmamak için ham uint32_t.
         uint32_t transport_protocol = 0;
-        char     rtmp_url[512]      = {};   // tam ingest URL'i (rtmp://host/app/KEY)
+        char     rtmp_url[512]      = {};   // sunucu URL'i (rtmp://host/app — KEY HARİÇ)
+        char     rtmp_key[256]      = {};   // stream key (RTMP için zorunlu)
     };
 
     Pipeline();

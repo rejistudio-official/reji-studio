@@ -16,9 +16,11 @@ class ITransport {
 public:
     struct Config {
         TransportProtocol protocol = TransportProtocol::Srt;
-        // Srt:  host = sunucu adı/IP (port ayrı alanda).
-        // Rtmp: host = TAM ingest URL'i ("rtmp://host/app/STREAM_KEY"); port kullanılmaz.
+        // Srt:  host = sunucu adı/IP (port ayrı alanda), stream_key kullanılmaz.
+        // Rtmp: host = sunucu URL'i ("rtmp://host/app" — KEY HARİÇ), stream_key
+        //       zorunlu; port kullanılmaz (URL'in içinde).
         std::string host;
+        std::string stream_key;
         uint16_t    port           = 9000;
         uint32_t    latency_ms     = rj::constants::kSrtLatencyMs;  // SRT'ye özel
         uint32_t    bandwidth_kbps = 0;   // 0 = sınırsız; SRT'ye özel, RTMP yok sayar

@@ -19,6 +19,7 @@
 // EncodeSubsystem::shutdown() yalnızca RAII reset'i (unique_ptr yıkımı) yapar ve
 // __try bloğunun DIŞINDA çağrılmalıdır — proje kuralı gereği.
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <d3d11.h>
@@ -42,7 +43,12 @@ public:
 
     // Frame thread'inden çağrılır. encoder_ yoksa true döner (preview-only, drop
     // sayılmaz); aksi halde NvencEncoder::encode_frame sonucunu döner.
+    // İstenmiş bir IDR talebi (request_idr) varsa bu karede tüketilir.
     bool encode_frame(ID3D11Texture2D* tex, int64_t pts_us);
+
+    // Faz2/Aşama2.2: bir sonraki karenin IDR olmasını iste (stream_start'tan —
+    // başka thread'den — çağrılır; transport akışı SPS/PPS+IDR ile başlasın).
+    void request_idr() noexcept { force_idr_.store(true, std::memory_order_release); }
 
     // Runtime reconfig (apply_frame_cmd'den). encoder_ yoksa false.
     bool set_bitrate(uint32_t kbps);
@@ -61,6 +67,7 @@ public:
 private:
     std::unique_ptr<reji::NvencEncoder> encoder_;
     PacketCallback                      packet_cb_;
+    std::atomic<bool>                   force_idr_{false};
 };
 
 } // namespace rj
