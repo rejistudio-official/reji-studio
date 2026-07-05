@@ -30,9 +30,11 @@ public:
     bool isAutoReloadEnabled() const;
     void setAutoReloadEnabled(bool enabled);
 
-    // SRT çıkış ayarları
+    // Yayın çıkış ayarları (Faz2/Aşama2.2: SRT + RTMP)
     QString  srtHost() const;
     uint16_t srtPort() const;
+    uint32_t transportProtocol() const;   // rj::TransportProtocol değeri (0=SRT, 1=RTMP)
+    QString  rtmpUrl() const;             // URL + stream key birleşik (rtmp://host/app/KEY)
 
 signals:
     void healingModeChanged(HealingMode mode);

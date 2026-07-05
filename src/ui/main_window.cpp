@@ -89,6 +89,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host),
                   settings_dialog_->srtHost().toStdString().c_str(), _TRUNCATE);
         pcfg.srt_port = settings_dialog_->srtPort();
+        // Faz2/Aşama2.2: protokol seçimi + RTMP URL (stream key dahil birleşik)
+        pcfg.transport_protocol = settings_dialog_->transportProtocol();
+        strncpy_s(pcfg.rtmp_url, sizeof(pcfg.rtmp_url),
+                  settings_dialog_->rtmpUrl().toStdString().c_str(), _TRUNCATE);
     } else {
         strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host), "127.0.0.1", _TRUNCATE);
         pcfg.srt_port = 9000;
