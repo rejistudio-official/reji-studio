@@ -34,7 +34,7 @@ static int seh_srt_send(SrtSendArgs* a) noexcept {
 } // namespace
 
 bool OutputSubsystem::init(const Config& cfg) {
-    transport_ = rj::ITransport::create();
+    transport_ = rj::ITransport::create(cfg.protocol);
     if (!transport_->init(cfg)) {
         transport_.reset();
         return false;

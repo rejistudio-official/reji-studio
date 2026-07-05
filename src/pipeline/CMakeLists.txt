@@ -246,4 +246,16 @@ if(WIN32)
         output/srt_transport.cpp
         i_transport.cpp
     )
+
+    # RtmpTransport (Faz2/Aşama2.2) — Zig çekirdeği `zig build rtmp` üretir
+    # (vulkan_init_zig/ext_bridge_zig kalıbı). librtmp winsock + timeGetTime
+    # kullanır → ws2_32 SRT stub build'inde de gerekli (winmm zaten PUBLIC).
+    target_sources(reji_pipeline PRIVATE output/rtmp_transport.cpp)
+    # legacy_stdio_definitions: MinGW-derlenmiş librtmp obj'leri sscanf/_vsnprintf
+    # gibi eski CRT adlarına başvurur; ucrt'de bunlar bu lib ile sağlanır.
+    target_link_libraries(reji_pipeline PRIVATE
+        ${CMAKE_SOURCE_DIR}/zig-out/lib/rtmp_transport_zig.lib
+        legacy_stdio_definitions.lib
+    )
+    target_link_libraries(reji_pipeline PUBLIC ws2_32.lib)
 endif()

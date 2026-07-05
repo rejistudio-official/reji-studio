@@ -313,6 +313,18 @@ comptime {
     _ = @import("happy_eyeballs.zig");
 }
 
+// MinGW ws2tcpip.h, gai_strerrorA'yı dış sembol olarak bırakır ve MSVC
+// ws2_32.lib'de yoktur (MSVC header'ı inline verir). rtmp.c'de tek kullanım
+// yeri log mesajı (rtmp.c:805). Weak export: MSVC linkini doyurur, MinGW
+// test linkinde başka tanım varsa ona boyun eğer.
+fn gaiStrErrorA(ecode: c_int) callconv(.c) [*:0]const u8 {
+    _ = ecode;
+    return "getaddrinfo error";
+}
+comptime {
+    @export(&gaiStrErrorA, .{ .name = "gai_strerrorA", .linkage = .weak });
+}
+
 // ── Birim testler (saf muxing/ayrıştırma — ağ gerektirmez) ──────────────────
 
 test {

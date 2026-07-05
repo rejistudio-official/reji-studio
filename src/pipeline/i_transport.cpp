@@ -4,13 +4,18 @@
 // header, somut implementasyonları (SrtTransport) include etmek zorunda kalmasın.
 #include "i_transport.h"
 #include "output/srt_transport.h"
+#include "output/rtmp_transport.h"
 
 namespace rj {
 
-std::unique_ptr<ITransport> ITransport::create() {
-    // Şimdilik tek implementasyon. Aşama 2 (RTMP) burayı bir seçim
-    // parametresiyle genişletecek — bugün RTMP yok, sadece SRT.
-    return std::make_unique<rj::pipeline::output::SrtTransport>();
+std::unique_ptr<ITransport> ITransport::create(TransportProtocol proto) {
+    switch (proto) {
+        case TransportProtocol::Rtmp:
+            return std::make_unique<rj::pipeline::output::RtmpTransport>();
+        case TransportProtocol::Srt:
+        default:
+            return std::make_unique<rj::pipeline::output::SrtTransport>();
+    }
 }
 
 } // namespace rj

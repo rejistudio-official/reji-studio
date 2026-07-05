@@ -53,6 +53,52 @@ TEST(OutputSubsystemTest, SendAfterFailedInitStillReturnsTrue) {
     EXPECT_TRUE(out.send(payload, sizeof(payload), 0));
 }
 
+// ── RtmpTransport (Faz2/Aşama2.2) — SrtTransport testleriyle simetrik ──────
+// init/send/shutdown sözleşmesi protokolden bağımsız aynı kalmalı.
+
+namespace {
+
+rj::OutputSubsystem::Config invalid_rtmp_config() {
+    rj::OutputSubsystem::Config cfg{};
+    cfg.protocol = rj::TransportProtocol::Rtmp;
+    // 127.0.0.1:1'de RTMP dinleyici yok — TCP connect anında reddedilir.
+    cfg.host = "rtmp://127.0.0.1:1/live/test";
+    return cfg;
+}
+
+} // namespace
+
+TEST(OutputSubsystemTest, RtmpInitFailureLeavesSubsystemInactive) {
+    // Arrange
+    rj::OutputSubsystem out;
+
+    // Act: dinleyici olmayan porta bağlantı → RTMP_Connect başarısız.
+    const bool ok = out.init(invalid_rtmp_config());
+
+    // Assert: SRT ile aynı sözleşme — başarısız init'te transport_ reset.
+    EXPECT_FALSE(ok);
+    EXPECT_FALSE(out.is_active());
+    EXPECT_EQ(out.raw(), nullptr);
+}
+
+TEST(OutputSubsystemTest, RtmpEmptyUrlInitFails) {
+    rj::OutputSubsystem out;
+    rj::OutputSubsystem::Config cfg{};
+    cfg.protocol = rj::TransportProtocol::Rtmp;   // host boş
+    EXPECT_FALSE(out.init(cfg));
+    EXPECT_FALSE(out.is_active());
+}
+
+TEST(OutputSubsystemTest, RtmpSendAfterFailedInitStillReturnsTrue) {
+    // Arrange
+    rj::OutputSubsystem out;
+    (void)out.init(invalid_rtmp_config());
+    const uint8_t payload[4] = {1, 2, 3, 4};
+
+    // Act + Assert: aktif çıkış yok → true (drop sayılmaz) — SRT ile simetrik.
+    EXPECT_TRUE(out.send(payload, sizeof(payload), 0));
+}
+
 TEST(OutputSubsystemTest, SetStreamingWithoutTransportKeepsSendTrue) {
     // Arrange: transport yokken set_streaming(true) nullptr yayınlar.
     rj::OutputSubsystem out;

@@ -427,15 +427,21 @@ bool Pipeline::init(const Config& cfg_in) {
         }
     }
 
-    //  ITransport (SrtTransport)  OutputSubsystem alt sistemi
+    //  ITransport (SrtTransport | RtmpTransport)  OutputSubsystem alt sistemi
     OutputSubsystem::Config scfg{};
-    scfg.host           = cfg_in.srt_host;   // std::string ataması (Faz2/Aşama1)
-    scfg.port           = cfg_in.srt_port;
+    scfg.protocol = static_cast<rj::TransportProtocol>(cfg_in.transport_protocol);
+    if (scfg.protocol == rj::TransportProtocol::Rtmp) {
+        scfg.host = cfg_in.rtmp_url;         // tam ingest URL'i (Faz2/Aşama2.2)
+    } else {
+        scfg.host = cfg_in.srt_host;         // std::string ataması (Faz2/Aşama1)
+        scfg.port = cfg_in.srt_port;
+    }
     scfg.latency_ms     = 200;
     scfg.bandwidth_kbps = 0;
     scfg.caller_mode    = true;
     if (!s.output_sub_.init(scfg)) {
-        dbglog("[Pipeline] SrtOutput::init failed -- running without SRT output");
+        dbglog("[Pipeline] transport init failed (proto=%u) -- running without stream output",
+               cfg_in.transport_protocol);
     }
 
     //  Rust monitor 

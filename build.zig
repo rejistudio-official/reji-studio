@@ -285,7 +285,9 @@ pub fn build(b: *std.Build) void {
         "third_party/librtmp/md5.c",
         "third_party/librtmp/cencode.c",
     };
-    const librtmp_c_flags: []const []const u8 = &.{"-DNO_CRYPTO"};
+    // -fno-sanitize=undefined: Zig, C kaynaklarına Debug'da UBSan ekler ama
+    // statik lib MSVC ile linklenince __ubsan_handle_* runtime'ı bulunamaz.
+    const librtmp_c_flags: []const []const u8 = &.{ "-DNO_CRYPTO", "-fno-sanitize=undefined" };
 
     const rtmp_mod = b.createModule(.{
         .root_source_file = b.path("src/pipeline/rtmp/rtmp_transport.zig"),

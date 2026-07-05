@@ -46,6 +46,11 @@ public:
         bool     loopback          = true;
         char     srt_host[256]     = {};
         uint16_t srt_port          = 4200;
+        // Faz2/Aşama2.2 — çıkış protokolü seçimi. rj::TransportProtocol
+        // değerleriyle eşleşir (0=SRT, 1=RTMP); pipeline.h public API'sine
+        // i_transport.h include'u sokmamak için ham uint32_t.
+        uint32_t transport_protocol = 0;
+        char     rtmp_url[512]      = {};   // tam ingest URL'i (rtmp://host/app/KEY)
     };
 
     Pipeline();
