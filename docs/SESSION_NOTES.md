@@ -673,3 +673,69 @@ referans snapshot güncellenmedi).
   bağımsız, ayrı görev olarak ele alınmalı.
 - Talimattaki "mock preset = SRT stub" varsayımı bu makinede geçerli değil (vcpkg'de
   gerçek SRT kurulu); stub doğrulaması yukarıdaki CMAKE_IGNORE_PATH yöntemiyle yapıldı.
+
+## Oturum: 5-6 Temmuz 2026 — Faz 2 Aşama 2 (RtmpTransport)
+
+### Aşama 2.1 — Keşif (5 Temmuz)
+
+- OBS librtmp çekirdeği (yalnız LGPL 2.1 alt dizini, GPL dosyaları alınmadan)
+  third_party/librtmp'e vendorlandı (obs-studio commit 30d3b89b).
+- Zig 0.16 @cImport + `-DNO_CRYPTO` gerçek derleme/link/çalıştırmayla kanıtlandı
+  (RTMP_Init OK, sizeof(RTMP)=17488). rtmp.h NO_CRYPTO tanımlı değilse CRYPTO'yu
+  otomatik açıp OpenSSL'e düşüyor (rtmp.h:28) — beklenen SSL_CTX engeli buydu.
+- İki OBS'e özel bağımlılık bulundu: happy-eyeballs (MIT ama libobs util'e
+  bağımlı → Zig'de yeniden yazıldı) ve <util/platform.h> (stdbool +
+  UNUSED_PARAMETER stub'ı yetti). TLS kararı: A (RTMPS'siz) onaylandı.
+
+### Aşama 2.2 — Gerçek implementasyon (5-6 Temmuz, 5 commit)
+
+Mimari: NVENC Annex-B → [Zig: NAL parse → AVCC/FLV mux → librtmp RTMP_Write]
+→ rj_rtmp_* C ABI → [C++: RtmpTransport : ITransport] → OutputSubsystem
+(create(cfg.protocol) faktörü). Zig lib MinGW ABI hedefiyle derlenir
+(ext_bridge kalıbı: MSVC hedefi @cImport'ta winsock çeviriminden geçemiyor).
+
+**Zig panic/ABI sınırı araştırması (checklist maddesi):** Zig'de Rust
+catch_unwind karşılığı YOK; panik = süreç abort'u (mesaj + çıkış), C++ tarafına
+unwind ETMEZ — yani UB değil ama uygulamayı öldürür. Benimsenen disiplin:
+export sınırında panik yolu bırakılmaz — tüm ayırmalar `catch`'li (false/null
+dönüşü), indekslemeler açık sınır kontrollü, aritmetik taşmalar `-%`/`*|`
+operatörleriyle. SEH-leaf'ten çağrılan rj_rtmp_shutdown exception fırlatamaz
+(Faz2/Aşama1 SEH virtual-call notuyla tutarlı).
+
+**MinGW↔MSVC link dersleri:** Zig Debug C derlemesine UBSan ekler →
+`-fno-sanitize=undefined` şart (MSVC linkinde __ubsan_* runtime yok);
+MinGW obj'lerinin sscanf/_vsnprintf başvuruları `legacy_stdio_definitions.lib`
+ile çözülür; `gai_strerrorA` MSVC'de inline/MinGW'de dış sembol → Zig'den weak
+export verildi.
+
+**Yerel gerçek ingest testinin bulduğu 2 kök neden (kritik ders):**
+1. OBS librtmp URL modeli: RTMP_ParseURL app = path'in TAMAMI (parseurl.c
+   "just.. whatever"), playpath AYRI RTMP_AddStream(key) ile. Birleşik URL
+   gönderince sunucu app="live/test" görüp reddediyor. Arayüz url + stream_key
+   olarak ayrıldı (OBS UI Server/Key ayrımının birebir karşılığı).
+2. Yayına encoder çalışırken girilince akışta SPS/PPS/IDR olmuyor (ilk IDR
+   t=0'da geçmiş) → muxer tüm kareleri düşürüyor. Çözüm: NVENC repeatSPSPPS=1
+   + EncodeSubsystem::request_idr() + start_stream'de taze IDR. SRT geç-katılan
+   decoder'lar için de doğru davranış.
+
+**Teşhis kancası (kalıcı):** REJI_RTMP_LOG=<dosya> → librtmp RTMP_LOGDEBUG
+çıktısı + muxer'ın ilk 10 send NAL dökümü dosyaya. GUI'de stderr kaybolduğundan
+sahadaki tek görünürlük yolu. (Uygulama logları için ayrıca OutputDebugString/
+DBWIN dinleyicisi: scratch/dbg_listen.ps1 deseni.)
+
+**Test durumu:**
+- zig build rtmp-test: 9/9 (yerel TCP connect + soket devri, NAL/AVCC/Buf).
+- ctest: OutputSubsystemTest 7 test (SRT + RTMP simetrik sözleşme) PASS;
+  bilinen 2 (FrameProfiler/ShaderCache) dışında kırılma yok.
+- YEREL gerçek ingest: reji_app (gerçek NVENC 1080p60) → WS stream_start →
+  ffmpeg -listen 1 → 8 sn → ingest_out.flv 827KB, ffprobe: h264 High yuv420p
+  1920x1080 duration 8.00s, 341 kare TAM decode, akış SPS+PPS+IDR ile başlıyor.
+- Twitch/YouTube gerçek ingest: HENÜZ YAPILMADI (stream key gerekli) — düz
+  rtmp:// kabulünün tek kesin kanıtı bu test olacak (dürüstlük notu).
+
+**Bilinçli kapsam sınırları:** yalnız H.264 video (AAC encoder yok → ses yolu
+yok; HEVC FLV standardında yok — enhanced-RTMP ayrı iş); onMetaData script
+tag'i gönderilmiyor; RTMPS yok (karar A); happy_eyeballs RFC 8305 paralel
+yarışı değil sıralı blocking connect (rtmp.c blocking soket istiyor:
+SO_RCVTIMEO/SNDTIMEO). ffmpeg dinleyici komutu (yerel test tekrarı için):
+`ffmpeg -y -listen 1 -i rtmp://127.0.0.1:1935/live/test -c copy out.flv`.

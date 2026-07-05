@@ -945,10 +945,20 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
 
 ## Faz 2 — RTMP Çıkışı
 
-- [ ] ITransport implementasyonu: RtmpTransport
-- [ ] librtmp veya benzeri kütüphane entegrasyonu
-- [ ] SettingsDialog'a RTMP URL/key alanları
-- [ ] Test: Twitch/YouTube'a gerçek yayın testi
+- [x] (Aşama 1) ITransport soyutlaması gerçek: SrtTransport + create() faktörü —
+      RtmpTransport öncesi temel (commit 3bd4657)
+- [x] ITransport implementasyonu: RtmpTransport (C++ ince sarmalayıcı +
+      Zig çekirdek: FLV muxing, happy_eyeballs; yalnız H.264 video — AAC ses
+      yolu yok, RTMPS/TLS YOK [karar A: düz rtmp://, NO_CRYPTO])
+- [x] librtmp entegrasyonu: OBS librtmp çekirdeği vendorlandı
+      (third_party/librtmp, LGPL 2.1, commit 30d3b89b) + zig build rtmp
+- [x] SettingsDialog'a RTMP URL/key alanları (protokol seçimi SRT/RTMP,
+      key Password echo, QSettings kalıcılığı)
+- [ ] Test: Twitch/YouTube'a gerçek yayın testi — YEREL gerçek ingest DOĞRULANDI
+      (reji_app gerçek NVENC → ffmpeg RTMP sunucusu: 8 sn, h264 1080p,
+      341 kare tam decode); Twitch/YouTube denemesi stream key bekliyor.
+      Düz rtmp://'nin platformlarca kabulü ancak bu testle kesinleşir
+      (reddedilirse "Aşama 3: RTMPS/mbedTLS" ayrı iş).
 
 ## Faz 3 — Çoklu Kaynak Mimarisi (ISource)
 
