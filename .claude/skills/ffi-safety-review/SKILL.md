@@ -62,6 +62,18 @@ CLAUDE.md'deki "DOKUNMA" uyarısı mutlak yasak değil; **bu prosedür dışınd
 
 ## Gözden geçirme kontrol listesi (diff incelerken)
 
+**Yokluk/tekillik iddialarında `grep` yeterli değil.** "Bu alan başka hiçbir
+yerde yazılmıyor", "bu fonksiyon tek bir çağrı noktasına sahip" gibi bir iddiada
+bulunmadan önce (özellikle ABI/FFI kararı buna dayanıyorsa) `grep` yerine dil
+sunucusunun **find-references**'ını kullan (Rust: rust-analyzer, C++: clangd) —
+bunlar kapsam ve tip bilgisini anlar, yorum satırındaki bir isim geçişini veya
+aynı isimli farklı bir alanı gerçek referansla karıştırmaz. `grep` bir
+"muhtemelen yok" verir, find-references bir "kesin liste" verir. (Bu ayrım,
+Faz1/Faz2'de ITransport'un hiç implemente edilmediğini, `current_scene_idx`'in
+tek yazma noktasının nerede olduğunu doğrularken fiilen işe yaramıştı —
+kod-grafiği araçları (ör. Graphify) bu tür negatif/davranışsal sorularda
+güvenilir bulunmadı, denendi ve reddedildi.)
+
 - [ ] `ffi_auto.h`'a elle dokunulmuş mu? → reddet, kaynak `ffi.rs`/cbindgen.toml
 - [ ] Yeni struct alanı ortaya mı eklendi? → ABI kırıldı; sona ekle veya
       `RJ_FFI_VERSION` yükselt + her iki taraf senkron güncelle
