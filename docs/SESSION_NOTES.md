@@ -768,3 +768,10 @@ frame gövdesinden çıkarılıp sadece 1 kerelik AVCDecoderConfigurationRecord'
 - **[Perf borcu] RTMP çekirdeği Debug'da sevk ediliyor** → hot muxing path optimize değil.
   Hız gerekince ReleaseSafe safety'yi korur; ReleaseFast'e geçilirse findStartCode/nextNal/
   buildAvcConfig/appendBe32'ye hedefli `@setRuntimeSafety(true)` uygulanmalı.
+
+### Graphify (kod-grafiği aracı) değerlendirmesi — reddedildi
+
+Graphify (kod-grafiği aracı) değerlendirildi — yapısal sorularda
+(kim-kimi-implemente-ediyor) isabetli, davranışsal/negatif sorularda (X yapılıyor
+mu) güvenilir bulunmadı, grep/find-references'ın üstüne katma değeri
+kanıtlanmadı. Skill olarak eklenmedi, deneme kalıntıları temizlendi.

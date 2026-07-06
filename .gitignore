@@ -81,3 +81,7 @@ docs/reviews/
 
 # Kesif/deney calisma alani - commit'e girmez (Faz2/Asama2.1 notu)
 scratch/
+
+# Graphify (kod-grafiği aracı) deneme çıktısı — docs/reviews/ ile aynı gerekçe,
+# yanlışlıkla `git add -A` ile commit'lenmesin diye savunma
+graphify-out/
