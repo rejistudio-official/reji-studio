@@ -246,6 +246,8 @@ yapıyor; taşınan diziler 283/303 ile submit arasında hiç OKUNMUYOR — tek 
 önceki frame değeriyle) + ctest regresyon temiz (bilinen 2 hariç yeni kırılma yok).
 Sentetik test YOK — `vkQueueSubmit`'i device-lost olmadan başarısız yaptırmak pratik
 değil (dürüstlük: "test edildi" değil, "statik olarak doğrulandı").
+Düzeltme commit: `407792a` (fix(vulkan): V8/I5 — execute_copy() layout state'i
+yalnızca submit başarılıysa güncelle).
 
 **Kaynak:** Fable 5 (1.3) — tek kaynak ama Vulkan spec ihlali acik.
 
