@@ -198,7 +198,8 @@ riski almadan hem overrun'ı hem satır kaymasını önler (her iki pitch de
 `tests/test_gpu_resource_pitch.cpp` (GpuResourcePitchTest, 3/3 PASS). Kullanım
 durumu: cross-adapter + NT-handle share başarısız yolunda tetiklenir (düşük
 olasılıklı degradation escape, ölü kod değil — ayrıntı SESSION_NOTES 6 Tem).
-Commit hash raporda (bir commit kendi hash'ini gömemez).
+Düzeltme commit: `d5852c6` (fix(gpu): V8/I4 — CPU fallback transfer()
+row-pitch farkını hesaba kat).
 
 **Kaynak:** Fable 5 (4.1) + Opus 4.8 (2.2) — iki model tamamen bagimsiz
 olarak ayni satiri, ayni kok nedenle bulmus. En yuksek guven seviyeli bulgu.
