@@ -280,7 +280,8 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_final);
-        target_layouts_[slot] = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // D2: per-slot tracking
+        // V8/I5: target_layouts_[slot] ataması submit BAŞARILI olduktan sonraya
+        //        taşındı (barrier komutu burada kalır). Bkz. submit sonrası state güncelleme.
 
         // ========== LAYOUT TRANSITION 4: Staging release → D3D11 (VK_QUEUE_FAMILY_EXTERNAL) ==========
         // E4: Release staging image ownership back to D3D11 after blit.
@@ -300,7 +301,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &barrier_staging_release);
-        staging_layouts_[slot] = VK_IMAGE_LAYOUT_UNDEFINED;
+        // V8/I5: staging_layouts_[slot] ataması da submit sonrasına taşındı (barrier burada kalır).
 
         // End command buffer
         CHECK_VK(vkEndCommandBuffer(cmd));
@@ -380,7 +381,13 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             fprintf(stderr, "[CopyOptimizer] submit failed: %d\n", submit_result);
             return false;
         }
-        // Submit başarılı — şimdi state güncelle
+        // Submit başarılı — şimdi state güncelle.
+        // V8/I5: layout tracking'i submit BAŞARISINDAN SONRA yaz. Submit başarısızsa
+        //        (yukarıdaki return false yolu) image'ler gerçekte transition OLMADIĞINDAN
+        //        target_/staging_layouts_ değişmemeli — aksi halde sonraki frame'in barrier'ı
+        //        yanlış oldLayout kurar (VUID-VkImageMemoryBarrier-oldLayout riski).
+        target_layouts_[slot]  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // D2: per-slot tracking
+        staging_layouts_[slot] = VK_IMAGE_LAYOUT_UNDEFINED;
         if (will_signal_gl) {
             slot_gl_signaled_[slot].store(true, std::memory_order_release);
         }

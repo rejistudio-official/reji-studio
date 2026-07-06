@@ -36,7 +36,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I2  | Fable+Opus  | AMD path capture_next() cross-API sync yok — hedef donanimin ana yolu | capture_dxgi.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
 | I3  | Fable+Opus  | Keyed-mutex/QFOT protokolu tutarsiz — AMD'de deadlock/timeout, veri bozulmasi | copy_optimizer.cpp, capture_dxgi.cpp | Kritik | Sprint 1 |
 | I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
-| I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali | copy_optimizer.cpp | Kritik | Sprint 1 |
+| I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali **[DÜZELTILDI]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I7  | Fable       | WasapiCapture shutdown — callback UAF penceresi (Unregister sirasi yanlis) | wasapi_capture.cpp | Kritik | Sprint 1 |
 | I8  | Fable+Opus  | WS sunucusu auth'suz — drive-by stream kill saldiri vektoru | ws_server.rs | Yuksek | Sprint 2 |
@@ -234,6 +234,18 @@ genislik) simule eden birim testi; mevcut karakterizasyon test harness'ine
 ---
 
 ### I5 — execute_copy() Basarisiz Submit Sonrasi Layout State'i Yanlis Guncelliyor
+
+**[DÜZELTILDI — 2026-07-06]** `target_layouts_[slot]` (~283) ve
+`staging_layouts_[slot]` (~303) atamaları submit ÖNCESİnden submit BAŞARISINDAN
+SONRAsına (~389-390) taşındı — `will_signal_gl`/`last_used_slot_`/`frame_counter_`
+ile aynı disiplin. `vkCmdPipelineBarrier` komut kaydı yerinde kaldı; yalnız state
+ATAMASI taşındı. Submit başarısız (`return false`) yolunda artık HİÇBİR layout
+state'i değişmiyor → sonraki frame'in barrier'ı yanlış `oldLayout` kurmaz. Doğrulama:
+**statik kod incelemesi** (submit-fail yolu yalnız `timeline_counter_` H17 rollback'ini
+yapıyor; taşınan diziler 283/303 ile submit arasında hiç OKUNMUYOR — tek okuma ~226,
+önceki frame değeriyle) + ctest regresyon temiz (bilinen 2 hariç yeni kırılma yok).
+Sentetik test YOK — `vkQueueSubmit`'i device-lost olmadan başarısız yaptırmak pratik
+değil (dürüstlük: "test edildi" değil, "statik olarak doğrulandı").
 
 **Kaynak:** Fable 5 (1.3) — tek kaynak ama Vulkan spec ihlali acik.
 

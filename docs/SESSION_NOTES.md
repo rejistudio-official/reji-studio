@@ -811,3 +811,31 @@ Sonuç: **3/3 PASS**.
 (FrameProfilerTest, ShaderCacheTest) — yeni kırılma yok. reji_pipeline'a bağlı
 testler (PipelineIntegration/Characterization/OutputSubsystem) yeni lib'le relink
 edilip geçti.
+
+### V8/I5 — execute_copy() layout state'i yalnızca submit başarılıysa güncelle
+
+**Sorun:** copy_optimizer.cpp `execute_copy()` iki farklı state-güncelleme kalıbı
+karıştırıyordu: `target_layouts_[slot]` (~283) ve `staging_layouts_[slot]` (~303)
+submit'ten ÖNCE yazılıyordu; oysa `will_signal_gl`/`last_used_slot_`/`frame_counter_`
+submit BAŞARISINDAN SONRA. Submit başarısızsa (return false) barrier hiç yürütülmediği
+hâlde bu iki dizi SHADER_READ_ONLY_OPTIMAL/UNDEFINED sanıyordu → sonraki frame'in
+barrier'ı yanlış `oldLayout` ile kurulur (VUID-VkImageMemoryBarrier-oldLayout riski).
+
+**Düzeltme:** İki `= ...` ATAMASI submit sonrasına taşındı (~389-390); `vkCmdPipelineBarrier`
+komut kayıtları (barrier_final ~279, barrier_staging_release ~299) yerinde kaldı.
+Submit-fail yolu artık yalnız `timeline_counter_` H17 rollback'ini yapıyor, layout
+dizilerine dokunmuyor.
+
+**Doğrulama — STATİK (sentetik test DEĞİL, dürüstlük notu):** `vkQueueSubmit`'i
+device-lost simülasyonu olmadan başarısız yaptırmak pratik olmadığından birim testi
+yazılmadı. Bunun yerine kod satır satır okunarak doğrulandı: (1) submit-fail dalı
+(377-382) yalnız `timeline_counter_ -= FRAME_INCREMENT` + `return false`; layout
+state'ine HİÇ yazmıyor. (2) Taşınan diziler 283/303 ile submit (375) arasında hiç
+OKUNMUYOR — tek okuma ~226 (barrier kurulumu, önceki frame değeri) → taşıma davranışı
+başarılı yolda değiştirmiyor. Ayrıca `cmake --build build` temiz + `ctest` bilinen 2
+dışında yeni kırılma yok (PipelineIntegration/Characterization relink edilip geçti).
+
+**Validation layer karşılaştırması:** Gerçek-Vulkan interaktif oturum (reji_app +
+VK_LAYER_KHRONOS_validation) gerektirdiğinden ve bu VUID zaten yalnız submit fiilen
+başarısız olunca tetiklendiğinden otonom koşulmadı — talimatın kendisi rölatif
+karşılaştırmayı yeterli/opsiyonel görüyor. Komut istenirse kullanıcıya verilebilir.
