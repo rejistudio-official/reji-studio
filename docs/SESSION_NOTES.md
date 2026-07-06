@@ -739,3 +739,32 @@ tag'i gönderilmiyor; RTMPS yok (karar A); happy_eyeballs RFC 8305 paralel
 yarışı değil sıralı blocking connect (rtmp.c blocking soket istiyor:
 SO_RCVTIMEO/SNDTIMEO). ffmpeg dinleyici komutu (yerel test tekrarı için):
 `ffmpeg -y -listen 1 -i rtmp://127.0.0.1:1935/live/test -c copy out.flv`.
+
+## Oturum: 6 Temmuz 2026 — Faz2 Aşama 2.2 push-öncesi doğrulama
+
+Push öncesi iki hedefli inceleme; ikisi de riski kabul edilebilir seviyeye indirdi,
+6 commit push edildi.
+
+**1) Sevkiyat optimize modu = Debug (ReleaseFast DEĞİL).** `build.zig:26`
+`standardOptimizeOption(.{})` preferred'sız → varsayılan Debug; hiçbir script/CI
+`-Doptimize=` geçmiyor (`zig build rtmp` düz çağrılıyor). `zig build rtmp-test
+--summary all` çıktısı da `compile test Debug x86_64-windows-gnu` + 9/9 pass gösteriyor.
+Sonuç: runtime safety (dizi sınır kontrolü, boyut/aritmetik taşma) ZATEN açık →
+`@setRuntimeSafety(true)` override'ı gereksiz.
+
+**2) "MPEG-TS muxer'da çift SPS/PPS" riski yapısal olarak yok.** Kodda TS muxer HİÇ
+yok. SRT yolu (srt_output.cpp `send_internal` → SrtTransport::send) saf byte-passthrough
+(≤1456B, ayrıştırma/mux yok); NVENC Annex-B ES ham gidiyor (repeatSPSPPS=1 tasarım gereği
+geç-katılan decoder için). Tek gerçek muxer FLV/RTMP (rtmp_transport.zig): NAL switch'te
+SPS(7)/PPS(8) yalnız `updateParamSet`'e gidiyor, `t.body`'ye EKLENMİYOR → in-band kopyalar
+frame gövdesinden çıkarılıp sadece 1 kerelik AVCDecoderConfigurationRecord'a giriyor.
+Çift işleme yok.
+
+**İzlenecek kalemler (blocker DEĞİL):**
+- **[Gelecekte fırsat bulununca] Canlı SRT testi:** reji_app SRT caller → ffmpeg listener
+  (`ffmpeg -i "srt://...?mode=listener" -c copy -f h264 out.h264`) → ffprobe/-loglevel
+  debug ile IDR başına tam bir SPS/PPS düştüğünü doğrula. Otonom sürülemiyor (etkileşimli
+  donanım: DXGI capture + NVENC gerekiyor). Kod-düzeyi kanıt yeterli görüldü, blocker değil.
+- **[Perf borcu] RTMP çekirdeği Debug'da sevk ediliyor** → hot muxing path optimize değil.
+  Hız gerekince ReleaseSafe safety'yi korur; ReleaseFast'e geçilirse findStartCode/nextNal/
+  buildAvcConfig/appendBe32'ye hedefli `@setRuntimeSafety(true)` uygulanmalı.
