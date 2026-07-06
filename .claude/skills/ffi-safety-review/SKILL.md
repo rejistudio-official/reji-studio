@@ -69,8 +69,9 @@ sunucusunun **find-references**'ını kullan (Rust: rust-analyzer, C++: clangd) 
 bunlar kapsam ve tip bilgisini anlar, yorum satırındaki bir isim geçişini veya
 aynı isimli farklı bir alanı gerçek referansla karıştırmaz. `grep` bir
 "muhtemelen yok" verir, find-references bir "kesin liste" verir. (Bu ayrım,
-Faz1/Faz2'de ITransport'un hiç implemente edilmediğini, `current_scene_idx`'in
-tek yazma noktasının nerede olduğunu doğrularken fiilen işe yaramıştı —
+Faz1'de `ITransport`'un henüz implemente edilmediğini (Faz2/Aşama1'den önce),
+`current_scene_idx`'in tek yazma noktasının nerede olduğunu doğrularken fiilen
+işe yaramıştı —
 kod-grafiği araçları (ör. Graphify) bu tür negatif/davranışsal sorularda
 güvenilir bulunmadı, denendi ve reddedildi.)
 
