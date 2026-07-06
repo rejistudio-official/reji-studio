@@ -775,3 +775,39 @@ Graphify (kod-grafiği aracı) değerlendirildi — yapısal sorularda
 (kim-kimi-implemente-ediyor) isabetli, davranışsal/negatif sorularda (X yapılıyor
 mu) güvenilir bulunmadı, grep/find-references'ın üstüne katma değeri
 kanıtlanmadı. Skill olarak eklenmedi, deneme kalıntıları temizlendi.
+
+### V8/I4 — CPU fallback transfer() row-pitch düzeltmesi
+
+**Kullanım durumu (Adım 1, kod yazmadan doğrulandı): "aktif ama düşük olasılıklı",
+ölü kod DEĞİL.** `use_cpu_fallback_` canlı sıcak yola bağlı:
+`DxgiCapturePipeline::capture_next()` → `resource_mgr_->transfer()` →
+`gpu_resource_manager.cpp:272` fallback dalı. Bayrak yalnız şu iki koşul birlikte
+sağlanınca true oluyor (init satır 253-256): (1) cross-adapter topoloji —
+display adapter ≠ NVIDIA encode adapter, LUID'den hesaplanır (satır 229; hardcode
+DEĞİL — memory'deki "same_adapter_=true hardcode" notu bu koda uymuyor, başka/eski
+bir bağlam), VE (2) `create_cross_adapter_shared()` (NT-handle/keyed-mutex paylaşımı)
+BAŞARISIZ. Tek-GPU / NVIDIA yok makinede encode=display → same_adapter → fallback
+hiç girilmez. Referans donanımda (AMD 780M + RTX 4070) cross-adapter TRUE, yani
+fallback ulaşılabilir ama sadece NT-handle paylaşımı başarısızsa — bir degradation
+escape yolu, doğası gereği düşük olasılıklı. Aciliyet düşük ama tetiklenince eski
+kod overrun edebildiğinden düzeltmek değerli.
+
+**Düzeltme:** `transfer()` CPU fallback'teki tek-blok
+`memcpy(dst, src, mapped.RowPitch * height_)` → satır-pitch güvenli
+`reji::copy_mapped_rows` (`src/pipeline/capture/pitch_copy.h`). Satır satır, her
+tarafın KENDİ pitch'iyle adresleme + satır başına `std::min(src_pitch, dst_pitch)`
+byte. `width*bpp` yerine `min(pitch)` seçildi (talimat tercihi; yeni format→bpp
+hesabı riski yok, gerekçe pitch_copy.h yorumunda). Yardımcı bilerek D3D11'den
+bağımsız → GPU'suz birim testi mümkün.
+
+**Test:** `tests/test_gpu_resource_pitch.cpp` (GpuResourcePitchTest), 3 sentetik
+senaryo: (a) dst_pitch>src_pitch → satır kayması yok, (b) dst_pitch<src_pitch →
+guard bölgesi bozulmaz (overrun yok) + piksel verisi korunur + sayısal kanıt
+(eski src_pitch*height dst kapasitesini aşardı), (c) eşit pitch → birebir kopya.
+Sonuç: **3/3 PASS**.
+
+**Doğrulama:** `cmake --build build` (Release, NMake) temiz (exit 0);
+`ctest --test-dir build` → 7 testten 5 PASS, yalnız bilinen 2 FAIL
+(FrameProfilerTest, ShaderCacheTest) — yeni kırılma yok. reji_pipeline'a bağlı
+testler (PipelineIntegration/Characterization/OutputSubsystem) yeni lib'le relink
+edilip geçti.

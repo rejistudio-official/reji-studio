@@ -35,7 +35,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I1  | Fable       | Rule engine hicbir yerden evaluate() ile cagrilmiyor — self-healing adaptive pipeline tamamen dead code, CoPilot onayi sahte | healing.rs, ffi.rs        | Kritik  | Sprint 1 |
 | I2  | Fable+Opus  | AMD path capture_next() cross-API sync yok — hedef donanimin ana yolu | capture_dxgi.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
 | I3  | Fable+Opus  | Keyed-mutex/QFOT protokolu tutarsiz — AMD'de deadlock/timeout, veri bozulmasi | copy_optimizer.cpp, capture_dxgi.cpp | Kritik | Sprint 1 |
-| I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma | gpu_resource_manager.cpp | Kritik | Sprint 1 |
+| I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I7  | Fable       | WasapiCapture shutdown — callback UAF penceresi (Unregister sirasi yanlis) | wasapi_capture.cpp | Kritik | Sprint 1 |
@@ -186,6 +186,19 @@ ederek) ile capture_next()'in timeout'a girmeden devam ettigini dogrula.
 ---
 
 ### I4 — CPU Fallback transfer() Row-Pitch Farkini Yok Sayiyor
+
+**[DÜZELTILDI — 2026-07-06]** `transfer()`'deki tek-blok
+`memcpy(mapped.RowPitch * height_)` kaldırıldı; satır-pitch güvenli
+`reji::copy_mapped_rows` yardımcısına geçildi
+(`src/pipeline/capture/pitch_copy.h`, D3D11'den bağımsız → test edilebilir).
+Satır başına `std::min(src_pitch, dst_pitch)` byte kopyalanır — talimattaki
+tercih; `width*bpp` yaklaşımı yerine seçildi çünkü yeni bir format→bpp hesabı
+riski almadan hem overrun'ı hem satır kaymasını önler (her iki pitch de
+`>= width*bpp` olduğundan tüm piksel verisi korunur). Sentetik birim testi:
+`tests/test_gpu_resource_pitch.cpp` (GpuResourcePitchTest, 3/3 PASS). Kullanım
+durumu: cross-adapter + NT-handle share başarısız yolunda tetiklenir (düşük
+olasılıklı degradation escape, ölü kod değil — ayrıntı SESSION_NOTES 6 Tem).
+Commit hash raporda (bir commit kendi hash'ini gömemez).
 
 **Kaynak:** Fable 5 (4.1) + Opus 4.8 (2.2) — iki model tamamen bagimsiz
 olarak ayni satiri, ayni kok nedenle bulmus. En yuksek guven seviyeli bulgu.

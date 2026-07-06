@@ -131,3 +131,20 @@ add_test(NAME OutputSubsystemTest COMMAND test_output_subsystem)
 set_tests_properties(OutputSubsystemTest PROPERTIES
     ENVIRONMENT "PATH=${CMAKE_BINARY_DIR}/src/ui;$ENV{PATH}"
 )
+
+# ── V8/I4: CPU fallback row-pitch güvenli kopya birim testi ──
+# Header-only (pitch_copy.h, D3D11'den bağımsız) — reji_pipeline'a link gerekmez,
+# sadece gtest. Sentetik pitch çiftleriyle overrun/satır-kayması yokluğunu doğrular.
+add_executable(test_gpu_resource_pitch
+    test_gpu_resource_pitch.cpp
+)
+
+target_include_directories(test_gpu_resource_pitch PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/capture
+)
+
+target_link_libraries(test_gpu_resource_pitch
+    gtest gtest_main
+)
+
+add_test(NAME GpuResourcePitchTest COMMAND test_gpu_resource_pitch)

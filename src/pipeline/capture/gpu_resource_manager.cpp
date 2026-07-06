@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <intrin.h>   // YieldProcessor
+#include "pitch_copy.h"  // V8/I4: satır-pitch güvenli kopya (copy_mapped_rows)
 
 // d3d11_1.h doesn't define SHARED_CROSS_ADAPTER; it arrived in d3d11_2.h (Win8.1 SDK).
 #ifndef D3D11_RESOURCE_MISC_SHARED_CROSS_ADAPTER
@@ -282,7 +283,12 @@ ID3D11Texture2D* GpuResourceManager::transfer(ID3D11Texture2D* src) {
         HRESULT hr2 = encode_gpu_->d3d_context()->Map(
             cpu_upload_encode_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &dst_mapped);
         if (SUCCEEDED(hr2)) {
-            memcpy(dst_mapped.pData, mapped.pData, mapped.RowPitch * height_);
+            // V8/I4: src (display GPU) ve dst (encode GPU) farklı adapter/sürücü
+            // → mapped.RowPitch ile dst_mapped.RowPitch eşit olmayabilir. Eski
+            // memcpy(mapped.RowPitch * height_) dst daha küçük pitch'liyse overrun,
+            // pitch'ler farklıysa satır kayması yapardı. Satır-pitch güvenli kopya:
+            copy_mapped_rows(dst_mapped.pData, dst_mapped.RowPitch,
+                             mapped.pData,     mapped.RowPitch, height_);
             encode_gpu_->d3d_context()->Unmap(cpu_upload_encode_.Get(), 0);
         }
         display_gpu_->d3d_context()->Unmap(cpu_staging_display_.Get(), 0);
