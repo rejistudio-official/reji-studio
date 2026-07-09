@@ -37,7 +37,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I3  | Fable+Opus  | Keyed-mutex/QFOT protokolu tutarsiz — AMD'de deadlock/timeout, veri bozulmasi **[KEŞİF 09.07: KISMEN GEÇERLİ, konum capture_dxgi.cpp'ye taşındı (preview yolu), GpuResourceManager'da değil]** | copy_optimizer.cpp, capture_dxgi.cpp | Kritik | Sprint 1 |
 | I28 | Opus        | execute_copy() acquire barrier oldLayout=UNDEFINED — D3D11'in yazdigi pikselleri siliyor (spec: UNDEFINED = "icerik onemsiz") **[KEŞİF 09.07: KASITLI/DOKÜMANTE TASARIM (D2/E4 yorumu) — defekt olduğu şüpheli, validation-layer ile doğrulanmalı]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I29 | Opus+Fable  | Keyed mutex yanlis/eslesmeyen memory nesnesini koruyor olabilir — slot-0 "kanonik" varsayimi blit kaynagiyla eslesmeyebilir **[KEŞİF 09.07: ÇÜRÜTÜLDÜ — tek import 3 slota alias, uyuşmazlık yok. Komşuda gerçek bug bulundu → I32]** | preview_widget.cpp, external_memory_bridge.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
-| I30 | MiniMax     | Cross-adapter shared texture'da D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i YOK (capture_dxgi.cpp'de var, gpu_resource_manager.cpp'de yok) **[KEŞİF 09.07: ÖLÜ KODU HEDEFLİYOR — flag eklemek encode yolunun E_INVALIDARG kök nedenini çözmez, keyed_mutex_* üyeleri zaten %100 ölü]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
+| I30 | MiniMax     | Cross-adapter shared texture'da D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i YOK (capture_dxgi.cpp'de var, gpu_resource_manager.cpp'de yok) **[KEŞİF 09.07: ÖLÜ KODU HEDEFLİYOR — flag eklemek encode yolunun E_INVALIDARG kök nedenini çözmez, keyed_mutex_* üyeleri zaten %100 ölü]** **[DÜZELTILDI: flag EKLENMEDİ; ölü keyed_mutex_*+copy_fence_ üyeleri VE transfer() cross-adapter dalı temizlendi]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I31 | Opus+GLM    | BGRA/RGBA format tutarsizligi — cross-adapter RGBA zorluyor, Vulkan/GL BGRA bekliyor, kanal takasi riski **[KEŞİF 09.07: HARİTALANDI, DEFEKT YOK — preview yolunda tek swizzle noktası (shader .bgra), zincir tutarlı]** | gpu_resource_manager.cpp, preview_widget.cpp, gpu_interop_subsystem.cpp | Yuksek | Sprint 1 |
 | I32 | Keşif (09.07) | invalidate_pool() aynı VkImage/VkDeviceMemory'yi 3 slotta ayrı ayrı free ediyor (tek import, 3-slot alias) — çözünürlük/reinit'te üçlü-free/UB **[DÜZELTILDI]** | external_memory_bridge.zig:276-285 | Kritik | Sprint 1 |
 | I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
@@ -242,6 +242,18 @@ duzeltmesi yazilirken bu da birlikte incelenmeli.
 ---
 
 ### I30 — Cross-Adapter Shared Texture'da KEYEDMUTEX Flag'i Yok
+
+**[DÜZELTILDI — 2026-07-09 — commit `c2adaca`]** KEYEDMUTEX flag'i EKLENMEDİ
+(orijinal "Cozum" reddedildi — aşağıdaki keşif notuna bak). Bunun yerine **ölü kod
+temizliği** yapıldı ve kapsam genişletildi: (1) `keyed_mutex_display_`,
+`keyed_mutex_encode_`, `copy_fence_` üyeleri + `wait_display_gpu_idle()`
+fonksiyonu (tanım+bildirim) + artık kimsenin kullanmadığı `<intrin.h>` include'u
+kaldırıldı; (2) `shutdown()`'daki üç `Reset()` kaldırıldı; (3) `transfer()`'in
+cross-adapter dalı KORUNDU ama başına açıklayıcı yorum + `WARNING` log'u eklendi
+(dal teorik olarak ulaşılamaz — `use_cpu_fallback_` her zaman true — ama girilirse
+senkronizasyonsuz olduğu için gürültülü uyarı bırakıldı). Davranış değişmedi.
+Doğrulama: `reji_pipeline` + tüm proje temiz derlendi, `ctest` bilinen 2 kırık
+dışında yeşil.
 
 **Kaynak:** MiniMax-M3 — 06.07.2026 taze tarama, somut kod karsilastirmasi
 (dusuk kaliteli rapor ama bu bulgu spesifik ve dogrulanabilir).
