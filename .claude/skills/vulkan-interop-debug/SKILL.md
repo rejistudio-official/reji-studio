@@ -16,9 +16,12 @@ noktasıdır — genel Vulkan bilgisiyle değil, buradaki gerçeklerle başla.
   NVIDIA'da `E_ACCESSDENIED` döner. Bu bir hata değil, platform gerçeğidir.
 - `display_vendor_id()` → `gpu_scan_.entries[0]` = display (AMD);
   `entries[1]+` = encode (NVIDIA).
-- Cross-adapter transfer (`GpuResourceManager` SharedHandle AMD→NVIDIA)
-  tasarlandı ama **aktif değil**: `same_adapter_ = true` hardcode (preview-only).
-  Cross-adapter varsayan bir analiz yapma.
+- Cross-adapter transfer (`GpuResourceManager` SharedHandle AMD→NVIDIA) GERÇEKTEN
+  AKTİF — `same_adapter_` gerçek LUID karşılaştırmasıyla belirleniyor
+  (`gpu_resource_manager.cpp:222`), hardcode değil. Referans donanımda
+  (AMD display + NVIDIA encode) `same_adapter_=false` çıkar, cross-adapter
+  yolu (`create_cross_adapter_shared`) devrede. Bu not 2026-07 öncesi
+  bayattı, I2/I3 keşfi sırasında düzeltildi.
 - Render path: NVIDIA (0x10DE) → `kNvDxInterop` stub (fiilen PBO çalışır);
   diğer → `kPbo`. `selectRenderPath()` init sonrası bir kez, GL thread'de.
 
