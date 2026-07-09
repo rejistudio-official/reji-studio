@@ -2,7 +2,6 @@
 #ifdef RJ_PLATFORM_WINDOWS
 
 #include <cstdio>
-#include <intrin.h>   // YieldProcessor
 #include "pitch_copy.h"  // V8/I4: satır-pitch güvenli kopya (copy_mapped_rows)
 
 // d3d11_1.h doesn't define SHARED_CROSS_ADAPTER; it arrived in d3d11_2.h (Win8.1 SDK).
@@ -173,18 +172,6 @@ bool GpuResourceManager::create_cpu_fallback_staging(uint32_t width, uint32_t he
     return true;
 }
 
-void GpuResourceManager::wait_display_gpu_idle() {
-    if (!copy_fence_) return;  // B11: cross-adapter path only; same-adapter has no fence
-    auto* ctx = display_gpu_->d3d_context();
-    ctx->End(copy_fence_.Get());
-    BOOL done = FALSE;
-    // GetData with no flush flag; commands were already submitted via Flush() above.
-    while (ctx->GetData(copy_fence_.Get(), &done, sizeof(done),
-                        D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_FALSE || !done) {
-        YieldProcessor();
-    }
-}
-
 // ---------------------------------------------------------------------------
 // GpuResourceManager — public API
 // ---------------------------------------------------------------------------
@@ -302,20 +289,29 @@ ID3D11Texture2D* GpuResourceManager::transfer(ID3D11Texture2D* src) {
         return encode_tex_.Get();
     }
 
-    // Cross-adapter path: simple CopyResource + Flush.
+    // Cross-adapter path: teorik olarak buraya asla ulaşılmamalı (V8/I30 keşfi —
+    // AMD/NVIDIA cross-vendor D3D11 NT-handle paylaşımı bu Optimus/hybrid topolojide
+    // desteklenmiyor; create_cross_adapter_shared() her zaman başarısız olur →
+    // init() (satır ~254-257) her zaman use_cpu_fallback_=true yapar, transfer()
+    // yukarıdaki use_cpu_fallback_ dalından asla çıkamaz).
+    // Buraya ulaşılıyorsa (örn. farklı donanım/sürücü), AŞAĞIDAKI KOD SENKRONİZASYON
+    // İÇERMİYOR — encode_gpu_ okumaya başlamadan önce display_gpu_ yazmasının bittiği
+    // garanti edilmiyor (eski keyed-mutex/copy_fence_ denemesi V8/I30'da ölü kod
+    // olarak kaldırıldı, yerine bir şey konmadı). Bu dala fiilen giriliyorsa, önce
+    // gerçek bir senkronizasyon mekanizması (fence/keyed-mutex) eklenmeden GÜVENLİ
+    // DEĞİLDİR.
+    fprintf(stderr, "[GpuRM] WARNING: cross-adapter path reached — see V8/I30 comment, sync missing\n");
     auto* ctx = display_gpu_->d3d_context();
     ctx->CopyResource(shared_tex_display_.Get(), src);
     ctx->Flush();
-    wait_display_gpu_idle();
+    // wait_display_gpu_idle() kaldırıldı (dead code) — bu satır artık
+    // SENKRONİZASYONSUZ. Yukarıdaki uyarı log'u budur.
     return encode_tex_.Get();
 }
 
 void GpuResourceManager::shutdown() {
     initialized_      = false;
     use_cpu_fallback_ = false;
-    copy_fence_.Reset();
-    keyed_mutex_encode_.Reset();
-    keyed_mutex_display_.Reset();
     encode_tex_.Reset();
     shared_tex_display_.Reset();
     cpu_staging_display_.Reset();

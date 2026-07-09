@@ -112,23 +112,17 @@ private:
     bool create_cross_adapter_shared(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     bool create_cpu_fallback_staging(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
 
-    /// Spin-wait for the display GPU to finish executing pending commands.
-    /// Required before releasing the keyed mutex to the encode GPU.
-    void wait_display_gpu_idle();
-
     std::shared_ptr<GpuContext> display_gpu_;
     std::shared_ptr<GpuContext> encode_gpu_;
 
-    // Cross-adapter path: shared texture pair (NT handle + keyed mutex)
+    // Cross-adapter path: shared texture on display GPU (NT handle export).
+    // V8/I30: keyed-mutex üyeleri (display/encode) ve copy_fence_ ölü kod olarak
+    // kaldırıldı — cross-vendor NT-handle paylaşımı bu topolojide desteklenmiyor,
+    // gerçek yol her zaman CPU-fallback.
     Microsoft::WRL::ComPtr<ID3D11Texture2D> shared_tex_display_;
-    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> keyed_mutex_display_;
-    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> keyed_mutex_encode_;
 
     // Encode-side output texture (same-adapter: plain staging; cross-adapter: shared open)
     Microsoft::WRL::ComPtr<ID3D11Texture2D> encode_tex_;
-
-    // GPU event query for CopyResource completion tracking (cross-adapter only)
-    Microsoft::WRL::ComPtr<ID3D11Query> copy_fence_;
 
     // CPU staging fallback path (cross-adapter NT handle sharing unsupported on AMD+NVIDIA)
     Microsoft::WRL::ComPtr<ID3D11Texture2D> cpu_staging_display_;  // display GPU'da CPU-readable staging

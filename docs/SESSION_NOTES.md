@@ -1088,3 +1088,43 @@ DOĞRU → **dokunulmadı**. Kod izleme gerekçesi:
   fonksiyonu; harness'ta çift-çağrı birim testi pratik değil. Runtime çözünürlük
   değişimi senaryosu + validation layer double-free VUID karşılaştırması çift-GPU
   referans donanımda ayrıca yapılmalı (henüz yapılmadı).
+
+## Oturum: 09 Temmuz 2026 — V8/I30 GpuResourceManager Ölü Kod Temizliği
+
+### Bağlam
+I30 orijinalde "cross-adapter shared texture'a KEYEDMUTEX flag ekle + keyed_mutex_*
+üyelerini transfer()'de kullan" öneriyordu. 09.07 keşfi bunu ÇÜRÜTTÜ: encode yolu
+referans donanımda her zaman CPU-fallback (`create_cross_adapter_shared()` →
+`CreateTexture2D`/`OpenSharedResource1` E_INVALIDARG, cross-vendor NT-handle paylaşımı
+AMD iGPU+NVIDIA dGPU Optimus topolojisinde desteklenmiyor). Flag eklemek kök nedeni
+çözmez; `keyed_mutex_display_`/`keyed_mutex_encode_`/`copy_fence_` %100 ölü kod.
+
+### Yapılan (talimat: KEYEDMUTEX flag EKLENMEDİ, ölü kod temizlendi)
+- `gpu_resource_manager.h`: `keyed_mutex_display_`, `keyed_mutex_encode_`,
+  `copy_fence_` üyeleri + `wait_display_gpu_idle()` bildirimi kaldırıldı.
+- `gpu_resource_manager.cpp`: `wait_display_gpu_idle()` tanımı kaldırıldı;
+  `shutdown()`'daki üç `Reset()` kaldırıldı; artık orphan olan `#include <intrin.h>`
+  (YieldProcessor tek kullanıcıydı) kaldırıldı.
+- `transfer()` cross-adapter dalı (satır ~305): KORUNDU (talimat gereği tamamen
+  silinmedi — gelecekte cross-adapter çalışır hale getirilirse iskelet lazım), ama
+  başına V8/I30 açıklayıcı yorumu + `fprintf(stderr, "[GpuRM] WARNING: cross-adapter
+  path reached — see V8/I30 comment, sync missing\n")` eklendi. `wait_display_gpu_idle()`
+  çağrısı kaldırıldı → dal artık AÇIKÇA senkronizasyonsuz, uyarı bunu belirtiyor.
+- `create_cross_adapter_shared()`'a DOKUNULMADI (init'te hâlâ çağrılıyor, CPU-fallback'e
+  düşüren mantığın parçası).
+
+### Kapsam dışı bırakılan (bilinçli)
+- `capture_dxgi.cpp` satır ~387/484'teki iki YORUM, silinen `wait_display_gpu_idle()`'ı
+  "aynı desen" olarak anıyor — artık dangling referans. capture_dxgi PREVIEW yolu
+  (I2/I3, talimat sınırı DIŞINDA) + yalnız yorum (derleme/davranış etkilenmiyor) →
+  dokunulmadı, not edildi. `amd_copy_fence_` FARKLI bir üye, kaldırılanla ilgisiz.
+
+### Doğrulama
+- `cmake --build build --target reji_pipeline` → temiz (yalnızca önceden var olan
+  D9025 /EH ve C4324 hizalama uyarıları, değişiklikle ilgisiz). `reji_pipeline.lib`
+  linklendi. Tüm proje `cmake --build build` → %100 built.
+- `ctest --test-dir build` → 5/7; başarısız yalnızca bilinen 2 (FrameProfilerTest,
+  ShaderCacheTest). Yeni kırılma yok. Davranış değişmedi (ölü kod + uyarı log'u).
+- Sınır: runtime `run.log`'da same_adapter=false + E_INVALIDARG + CPU-fallback
+  mesajlarının aynı çıktığı çift-GPU donanımda ayrıca doğrulanmalı (statik olarak
+  değişmedikleri kesin — o kod yolları değişmedi).
