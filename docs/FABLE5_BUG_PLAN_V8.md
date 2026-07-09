@@ -32,7 +32,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 
 | #   | Kaynak      | Sorun                                                        | Dosya                        | Oncelik | Sprint   |
 |-----|-------------|---------------------------------------------------------------|-------------------------------|---------|----------|
-| I1  | Fable       | Rule engine hicbir yerden evaluate() ile cagrilmiyor — self-healing adaptive pipeline tamamen dead code, CoPilot onayi sahte | healing.rs, ffi.rs        | Kritik  | Sprint 1 |
+| I1  | Fable       | Rule engine hicbir yerden evaluate() ile cagrilmiyor — self-healing adaptive pipeline tamamen dead code, CoPilot onayi sahte **[DÜZELTILDI: RuleEngine on_periodic'e bağlandı; "tamamen dead code" NETLEŞTİRİLDİ — hardcoded katman zaten çalışıyordu, ölü olan sadece kullanıcı-kural katmanıydı. CoPilot onayı → I33]** | healing.rs, ffi.rs        | Kritik  | Sprint 1 |
 | I2  | Fable+Opus  | AMD path capture_next() cross-API sync yok — hedef donanimin ana yolu **[KEŞİF 09.07: YANLIŞ KONUMLANMIŞ — encode yolu referans HW'de her zaman CPU-fallback, senaryo oluşmuyor, bkz. SESSION_NOTES]** | capture_dxgi.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
 | I3  | Fable+Opus  | Keyed-mutex/QFOT protokolu tutarsiz — AMD'de deadlock/timeout, veri bozulmasi **[KEŞİF 09.07: KISMEN GEÇERLİ, konum capture_dxgi.cpp'ye taşındı (preview yolu), GpuResourceManager'da değil]** | copy_optimizer.cpp, capture_dxgi.cpp | Kritik | Sprint 1 |
 | I28 | Opus        | execute_copy() acquire barrier oldLayout=UNDEFINED — D3D11'in yazdigi pikselleri siliyor (spec: UNDEFINED = "icerik onemsiz") **[KEŞİF 09.07: KASITLI/DOKÜMANTE TASARIM (D2/E4 yorumu) — defekt olduğu şüpheli, validation-layer ile doğrulanmalı]** | copy_optimizer.cpp | Kritik | Sprint 1 |
@@ -40,6 +40,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I30 | MiniMax     | Cross-adapter shared texture'da D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i YOK (capture_dxgi.cpp'de var, gpu_resource_manager.cpp'de yok) **[KEŞİF 09.07: ÖLÜ KODU HEDEFLİYOR — flag eklemek encode yolunun E_INVALIDARG kök nedenini çözmez, keyed_mutex_* üyeleri zaten %100 ölü]** **[DÜZELTILDI: flag EKLENMEDİ; ölü keyed_mutex_*+copy_fence_ üyeleri VE transfer() cross-adapter dalı temizlendi]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I31 | Opus+GLM    | BGRA/RGBA format tutarsizligi — cross-adapter RGBA zorluyor, Vulkan/GL BGRA bekliyor, kanal takasi riski **[KEŞİF 09.07: HARİTALANDI, DEFEKT YOK — preview yolunda tek swizzle noktası (shader .bgra), zincir tutarlı]** | gpu_resource_manager.cpp, preview_widget.cpp, gpu_interop_subsystem.cpp | Yuksek | Sprint 1 |
 | I32 | Keşif (09.07) | invalidate_pool() aynı VkImage/VkDeviceMemory'yi 3 slotta ayrı ayrı free ediyor (tek import, 3-slot alias) — çözünürlük/reinit'te üçlü-free/UB **[DÜZELTILDI]** | external_memory_bridge.zig:276-285 | Kritik | Sprint 1 |
+| I33 | I1'den ayrıştırıldı (09.07) | rj_action_approve() hâlâ stub — CoPilot modunda gerçek kullanıcı onayı yok, her zaman "1" (onaylandı) dönüyor. AutoPilot etkilenmiyor (onay gerektirmez), ama CoPilot modu yanıltıcı | ffi.rs | Yuksek | Sprint 2 |
 | I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali **[DÜZELTILDI]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores | copy_optimizer.cpp | Kritik | Sprint 1 |
@@ -72,6 +73,30 @@ bagimsiz konsensus, guven duzeyini artirir.
 ---
 
 ### I1 — Rule Engine Hicbir Yerden Cagrilmiyor (Self-Healing Adaptive Pipeline Dead Code)
+
+**[DÜZELTILDI — 2026-07-09 — commit `b775973`]** `RuleEngine::evaluate()` artık
+`HealingMonitor::on_periodic()` (1s tick) içinden çağrılıyor. Yapı: yeni saf
+`collect_rule_actions()` (evaluate + ActionType→RjActionType dönüşümü, kuyruğa
+yazmaz — test edilebilir) + ince `evaluate_rule_engine()` sarmalayıcısı
+(`enqueue_action` ile action_queue'ya iter). `rule_engine` Arc'ı `ffi.rs`'de
+HealingMonitor'dan önce kurulup `subscribe`'a klonlanarak geçiriliyor (hot-reload
+`rj_reload_rules` aynı Arc'ı günceller → monitör anında görür). 5 yeni birim testi
+(match/mode-filter/hysteresis/none/convert) + tüm mevcut testler PASS (lib 37/37,
+entegrasyon 23/23).
+
+**ÖNEMLİ NETLEŞTİRME (talimat keşfi):** V8'in "self-healing tamamen dead code"
+ifadesi KISMEN YANLIŞ. İki paralel mekanizma var:
+1. `HealingMonitor::evaluate_predictive()`/`evaluate_adaptive()` — sabit-eşikli,
+   ZATEN ÇALIŞIYORDU (HealingEvent üretip `healing_tx`'e gönderiyor).
+2. `RuleEngine` (kullanıcı `~/.reji/rules.json`, hot-reload, sofistike) — `evaluate()`
+   hiç çağrılmadığından TAMAMEN ölüydü.
+Yani ölü olan **kullanıcı-yapılandırılabilir kural katmanı**ydı, hardcoded katman
+değil. Bu düzeltme (1)'e dokunmadan (2)'yi bağladı.
+
+**mode_str düzeltmesi:** Talimatın tahmin ettiği `"autopilot"`/`"copilot"`/`"manual"`
+YANLIŞTI. Gerçek şablon (`docs/config/rules.json.template`) tireli değerler kullanıyor:
+`HealingMode::AutoPilot→"auto-pilot"`, `CoPilot→"co-pilot"`, `ManualAssist→"assist"`.
+(`HealingMode` enum'unda ayrı `Manual` yok.)
 
 **Kaynak:** Fable 5 (1.4, 6.8) — Opus bu zinciri kacirmis (sadece 4.3'te
 `enqueue_action kullanilmiyor` diye satir arasi gecmis, kok nedeni teshis
@@ -115,7 +140,25 @@ biliniyordu (her zaman `1` doner), ama asil sorun: approve gercek olsa bile
 
 **Test:** `rules.rs` icin zaten var olan entegrasyon testlerine ek olarak,
 `healing.rs` icin "metric threshold asilinca action_queue'da eleman belirir
-mi" testi ekle (mock RuleEngine + mock metrics ile).
+mi" testi ekle (mock RuleEngine + mock metrics ile). → **YAPILDI**: 5 birim testi
+`collect_rule_actions()`'ı hedefliyor (global FFI_STATE/queue paralel-test yarışı
+olmadan deterministik doğrulama; `enqueue_action` sarmalayıcısı ince üç satır).
+
+---
+
+### I33 — rj_action_approve() Hâlâ Stub (I1'den Ayrıştırıldı)
+
+**Kaynak:** V8/I1 talimatı (09.07.2026) — I1 bağlanırken CoPilot onay akışının
+ayrı bir sorun olduğu netleşti, karıştırılmasın diye ayrı madde yapıldı.
+
+**Sorun:** `rj_action_approve()` (`ffi.rs`) her zaman `1` (onaylandı) dönüyor
+(`// TODO: Implement Co-Pilot approval`). I1 düzeltmesi RuleEngine aksiyonlarının
+action_queue'ya girmesini sağladı; **AutoPilot** modunda bu yeterli ve doğru (onay
+gerektirmez). Ama **CoPilot** modunda kullanıcı onayı beklenmesi gerekirken her
+aksiyon otomatik "onaylı" sayılıyor → mod yanıltıcı.
+
+**Kapsam:** Gerçek onay akışı (UI'de bekleyen aksiyon kuyruğu + kullanıcı
+onay/ret + CoPilot ile AutoPilot'un davranışsal farkı). Sprint 2.
 
 ---
 
