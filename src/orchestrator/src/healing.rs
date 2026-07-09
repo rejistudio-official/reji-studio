@@ -13,12 +13,13 @@ use tokio::sync::broadcast::{error::RecvError, Receiver, Sender};
 use tokio::time::{interval, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use crate::constants;
 
 use crate::event_bus::{HealingEvent, MediaEvent, SystemEvent};
+use crate::ffi::{enqueue_action, RjAction, RjActionType};
 use crate::metrics::MetricState;
-use crate::rules::RuleMetrics;
+use crate::rules::{ActionType, RuleEngine, RuleMetrics};
 
 /// Self-healing katmanları.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,6 +185,9 @@ pub struct HealingMonitor {
     trend: TrendState,
     metric_state: Arc<MetricState>,
     current_metrics: RuleMetrics,
+    /// V8/I1: kullanıcı-yapılandırılabilir kural motoru. FfiState ile AYNI Arc
+    /// (hot-reload `rj_reload_rules` monitörün gördüğü motoru da günceller).
+    rule_engine: Arc<Mutex<Option<RuleEngine>>>,
 }
 
 impl HealingMonitor {
@@ -194,6 +198,7 @@ impl HealingMonitor {
         mode: HealingMode,
         thresholds: HealingThresholds,
         metric_state: Arc<MetricState>,
+        rule_engine: Arc<Mutex<Option<RuleEngine>>>,
     ) -> Self {
         Self {
             system_rx,
@@ -205,6 +210,7 @@ impl HealingMonitor {
             trend: TrendState::new(),
             metric_state,
             current_metrics: RuleMetrics::default(),
+            rule_engine,
         }
     }
 
@@ -341,6 +347,58 @@ impl HealingMonitor {
     fn on_periodic(&mut self) {
         self.evaluate_predictive();
         self.evaluate_adaptive();
+        self.evaluate_rule_engine();
+    }
+
+    /// V8/I1: kural motorunu değerlendirip üretilen aksiyonları RjAction'a
+    /// çevirir — kuyruğa YAZMAZ (saf, test edilebilir). `evaluate_rule_engine`
+    /// bunu çağırıp sonuçları `enqueue_action` ile kuyruğa iter.
+    fn collect_rule_actions(&self) -> Vec<RjAction> {
+        let guard = match self.rule_engine.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                warn!("rule_engine mutex poisoned, skipping evaluation");
+                return Vec::new();
+            }
+        };
+        let Some(engine) = guard.as_ref() else { return Vec::new(); };
+
+        // mode_str: gerçek rules.json şablonu tireli değerler kullanıyor
+        // ("auto-pilot"/"co-pilot"/"assist" — bkz. docs/config/rules.json.template),
+        // enum'un CamelCase adları DEĞİL.
+        let mode_str = match self.mode.load() {
+            HealingMode::AutoPilot    => "auto-pilot",
+            HealingMode::CoPilot      => "co-pilot",
+            HealingMode::ManualAssist => "assist",
+        };
+
+        match engine.evaluate(&self.current_metrics, mode_str) {
+            Ok(actions) => actions
+                .into_iter()
+                .map(|a| RjAction {
+                    id: a.id,
+                    action_type: convert_action_type(a.action_type),
+                    param1: a.param1,
+                    param2: a.param2,
+                    // RjAction'ın canary'si doğrulanmıyor (MetricSample'ın aksine —
+                    // apply_action yalnız action_type'a bakar); mevcut kalıp 0.
+                    canary: 0,
+                })
+                .collect(),
+            Err(e) => {
+                warn!(error = %e, "rule engine evaluate() failed");
+                Vec::new()
+            }
+        }
+    }
+
+    /// V8/I1: kural motoru aksiyonlarını action_queue'ya (FFI) iter.
+    fn evaluate_rule_engine(&self) {
+        for action in self.collect_rule_actions() {
+            if !enqueue_action(action) {
+                warn!(action_id = action.id, "rule action enqueue failed, kuyruk dolu");
+            }
+        }
     }
 
     fn track_cpu_trend(&mut self, _cpu: f32) {
@@ -398,6 +456,20 @@ impl HealingMonitor {
     }
 }
 
+/// V8/I1: rules::ActionType → ffi::RjActionType mekanik dönüşümü.
+/// Varyantlar birebir eşleşir (ikisi de aynı 7 adaptasyon aksiyonu); mantık yok.
+fn convert_action_type(a: ActionType) -> RjActionType {
+    match a {
+        ActionType::BitrateReduce     => RjActionType::BitrateReduce,
+        ActionType::BitrateRecover    => RjActionType::BitrateRecover,
+        ActionType::ScaleResolution   => RjActionType::ScaleResolution,
+        ActionType::RestoreResolution => RjActionType::RestoreResolution,
+        ActionType::CapFps            => RjActionType::CapFps,
+        ActionType::RestoreFps        => RjActionType::RestoreFps,
+        ActionType::LogOnly           => RjActionType::LogOnly,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,7 +499,7 @@ mod tests {
         let media_rx = bus.media.subscribe();
         let mut healing_rx = bus.healing.subscribe();
 
-        let monitor = HealingMonitor::subscribe(system_rx, media_rx, bus.healing.clone(), HealingMode::AutoPilot, HealingThresholds::new(), MetricState::new());
+        let monitor = HealingMonitor::subscribe(system_rx, media_rx, bus.healing.clone(), HealingMode::AutoPilot, HealingThresholds::new(), MetricState::new(), Arc::new(Mutex::new(None)));
         let handle = tokio::spawn(async move {
             tokio::select! {
                 _ = monitor.run() => {}
@@ -443,5 +515,99 @@ mod tests {
         }
 
         handle.abort();
+    }
+
+    // ===== V8/I1: RuleEngine → HealingMonitor bağlantısı =====
+    //
+    // Testler saf `collect_rule_actions()`'ı hedefliyor (RjAction listesi döner,
+    // kuyruğa yazmaz) — böylece paylaşılan global FFI_STATE/action_queue üzerinden
+    // paralel-test yarışı olmadan deterministik doğrulama yapılır. `enqueue_action`
+    // sarmalayıcısı (evaluate_rule_engine) yalnız bu listeyi kuyruğa iten üç satır.
+
+    use crate::rules::{Rule, RuleEngine};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn make_rule(id: &str, condition: &str, action: &str, step_kbps: i64, modes: &[&str]) -> Rule {
+        let mut params = HashMap::new();
+        params.insert("step_kbps".to_string(), serde_json::json!(step_kbps));
+        Rule {
+            id: id.to_string(),
+            description: String::new(),
+            condition: condition.to_string(),
+            action: action.to_string(),
+            params,
+            modes: modes.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn make_monitor(
+        rule_engine: Arc<Mutex<Option<RuleEngine>>>,
+        mode: HealingMode,
+    ) -> HealingMonitor {
+        let bus = EventBus::new();
+        HealingMonitor::subscribe(
+            bus.system.subscribe(),
+            bus.media.subscribe(),
+            bus.healing.clone(),
+            mode,
+            HealingThresholds::new(),
+            MetricState::new(),
+            rule_engine,
+        )
+    }
+
+    #[test]
+    fn test_rule_engine_collects_matching_action() {
+        let rule = make_rule("fd_high", "frame_drop_pct > 10", "bitrate_reduce", 500, &["auto-pilot"]);
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))), HealingMode::AutoPilot);
+        monitor.current_metrics.frame_drop_pct = 12; // eşiği aşar
+
+        let actions = monitor.collect_rule_actions();
+        assert_eq!(actions.len(), 1, "eşiği aşan tek kural bir aksiyon üretmeli");
+        assert!(matches!(actions[0].action_type, RjActionType::BitrateReduce));
+        assert_eq!(actions[0].param1, 500);
+    }
+
+    #[test]
+    fn test_rule_engine_skips_wrong_mode() {
+        // co-pilot-only kural, monitör AutoPilot → mode filtresi atlamalı
+        let rule = make_rule("fd_high", "frame_drop_pct > 10", "bitrate_reduce", 500, &["co-pilot"]);
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))), HealingMode::AutoPilot);
+        monitor.current_metrics.frame_drop_pct = 12;
+
+        assert!(
+            monitor.collect_rule_actions().is_empty(),
+            "co-pilot kuralı auto-pilot modunda atlanmalı"
+        );
+    }
+
+    #[test]
+    fn test_rule_engine_hysteresis_suppresses_repeat() {
+        let rule = make_rule("fd_high", "frame_drop_pct > 10", "bitrate_reduce", 500, &["auto-pilot"]);
+        let engine = RuleEngine::new_test(vec![rule], 60_000); // 60s histeresis
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))), HealingMode::AutoPilot);
+        monitor.current_metrics.frame_drop_pct = 12;
+
+        let first = monitor.collect_rule_actions();
+        assert_eq!(first.len(), 1, "ilk değerlendirme aksiyon üretmeli");
+        let second = monitor.collect_rule_actions();
+        assert!(second.is_empty(), "histeresis içinde aynı kural tekrar tetiklenmemeli");
+    }
+
+    #[test]
+    fn test_rule_engine_none_yields_empty() {
+        // Motor yüklenmemiş (rules.json yok/parse hatası) → panik yok, boş liste
+        let monitor = make_monitor(Arc::new(Mutex::new(None)), HealingMode::AutoPilot);
+        assert!(monitor.collect_rule_actions().is_empty());
+    }
+
+    #[test]
+    fn test_convert_action_type_mapping() {
+        assert!(matches!(convert_action_type(ActionType::BitrateReduce), RjActionType::BitrateReduce));
+        assert!(matches!(convert_action_type(ActionType::ScaleResolution), RjActionType::ScaleResolution));
+        assert!(matches!(convert_action_type(ActionType::LogOnly), RjActionType::LogOnly));
     }
 }

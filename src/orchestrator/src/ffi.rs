@@ -167,6 +167,25 @@ fn rj_start_monitor_impl() {
             });
         }
 
+        // V8/I1: RuleEngine'ı HealingMonitor'dan ÖNCE kur — monitör onu paylaşır.
+        // Default path: ~/.reji/rules.json. Yüklenemezse None (monitör kural
+        // katmanını atlar, hardcoded katman çalışmaya devam eder).
+        let rules_path = {
+            if let Ok(home) = std::env::var("USERPROFILE") {
+                PathBuf::from(home).join(".reji").join("rules.json")
+            } else {
+                PathBuf::from("rules.json")
+            }
+        };
+        let rule_engine = Arc::new(Mutex::new(
+            RuleEngine::new(&rules_path)
+                .map_err(|e| {
+                    warn!("Failed to load rules from {:?}: {}", rules_path, e);
+                    e
+                })
+                .ok()
+        ));
+
         // HealingMonitor: event bus olaylarını okuyup healing aksiyonları üretir.
         {
             let system_rx  = event_bus.system.subscribe();
@@ -179,6 +198,7 @@ fn rj_start_monitor_impl() {
                 HealingMode::AutoPilot,
                 HealingThresholds::new(),
                 metric_state.clone(),
+                rule_engine.clone(),  // V8/I1: kural motorunu paylaş (hot-reload aynı Arc)
             );
             runtime.spawn(monitor.run());
         }
@@ -272,24 +292,6 @@ fn rj_start_monitor_impl() {
                 }
             });
         }
-
-        // Initialize RuleEngine with default rules.json path (~/.reji/rules.json)
-        let rules_path = {
-            if let Ok(home) = std::env::var("USERPROFILE") {
-                PathBuf::from(home).join(".reji").join("rules.json")
-            } else {
-                PathBuf::from("rules.json")
-            }
-        };
-
-        let rule_engine = Arc::new(Mutex::new(
-            RuleEngine::new(&rules_path)
-                .map_err(|e| {
-                    warn!("Failed to load rules from {:?}: {}", rules_path, e);
-                    e
-                })
-                .ok()
-        ));
 
         FfiState {
             metric_ring,

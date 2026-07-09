@@ -1128,3 +1128,61 @@ AMD iGPU+NVIDIA dGPU Optimus topolojisinde desteklenmiyor). Flag eklemek kök ne
 - Sınır: runtime `run.log`'da same_adapter=false + E_INVALIDARG + CPU-fallback
   mesajlarının aynı çıktığı çift-GPU donanımda ayrıca doğrulanmalı (statik olarak
   değişmedikleri kesin — o kod yolları değişmedi).
+
+## Oturum: 09 Temmuz 2026 — V8/I1 RuleEngine'i HealingMonitor'a Bağla
+
+### İKİ PARALEL MEKANİZMA netleştirmesi (önemli)
+V8'in "self-healing tamamen dead code" ifadesi KISMEN YANLIŞ. İki katman var:
+1. `HealingMonitor::evaluate_predictive()`/`evaluate_adaptive()` — sabit-eşikli,
+   ZATEN çalışıyordu (HealingEvent → healing_tx → command_queue).
+2. `RuleEngine` (kullanıcı `~/.reji/rules.json`, hot-reload, JSON/TOML, sofistike) —
+   `evaluate()` hiç çağrılmadığından TAMAMEN ölüydü.
+Ölü olan (2), kullanıcı-kural katmanı. Bu düzeltme (1)'e dokunmadan (2)'yi bağladı.
+
+### Yapılan
+- `healing.rs`: `HealingMonitor`'a `rule_engine: Arc<Mutex<Option<RuleEngine>>>` alanı
+  + `subscribe()` parametresi. `on_periodic()` artık `evaluate_rule_engine()` çağırıyor.
+  Yapı ikiye ayrıldı: saf `collect_rule_actions()` (evaluate + ActionType→RjActionType
+  dönüşümü → `Vec<RjAction>`, kuyruğa YAZMAZ) + `evaluate_rule_engine()` (listeyi
+  `enqueue_action` ile action_queue'ya iter). `convert_action_type()` serbest fonksiyon
+  (7 varyant birebir). Poison mutex → warn + skip.
+- `ffi.rs`: `rule_engine` Arc'ı HealingMonitor'dan ÖNCE kuruluyor, `subscribe`'a
+  `rule_engine.clone()` geçiriliyor (FfiState ile AYNI Arc → hot-reload monitörü de
+  günceller). Yinelenen sonraki oluşturma bloğu kaldırıldı.
+- `rules.rs`: `RuleEngine`'e `#[derive(Debug)]` (HealingMonitor `#[derive(Debug)]`
+  olduğu için yeni alan Debug gerektiriyor).
+- `command_router.cpp`: satır ~137 yorumu güncellendi ("enqueue_action kullanılmıyor"
+  artık yanlış — I1 sonrası aksiyonlar buradan akıyor; 100ms poll ~1s eval'e göre OK).
+
+### mode_str DÜZELTMESİ (talimat tahmini yanlıştı)
+Talimat `"autopilot"/"copilot"/"manual"` tahmin etti — YANLIŞ. Gerçek şablon
+(`docs/config/rules.json.template` + `rules_test.rs`) tireli değerler:
+`AutoPilot→"auto-pilot"`, `CoPilot→"co-pilot"`, `ManualAssist→"assist"`. `HealingMode`
+enum'unda ayrı `Manual` yok (ManualAssist tek varyant).
+
+### canary kararı
+`RjAction.canary=0` — `apply_action` (pipeline.cpp:757) canary'yi doğrulamıyor,
+sadece action_type'a switch yapıyor; RjAction'ın Rust'ta is_valid()/magic'i yok
+(MetricSample'ın aksine). Mevcut kalıp (ffi.rs test) da 0 kullanıyor.
+
+### Test yaklaşımı (paralel-test izolasyonu)
+Testler saf `collect_rule_actions()`'ı hedefliyor, global `FFI_STATE`/`action_queue`
+üzerinden DEĞİL — çünkü suite paralel koşuyor ve başka testler (`test_panic_safety_
+rj_action_dequeue`, `test_null_pointer_safety_all_functions`) aynı kuyruktan pop
+ediyor → içerik-assert'i flaky olurdu. 5 yeni test: match / mode-filter / hysteresis /
+none-engine / convert_action_type. `enqueue_action` sarmalayıcısı (evaluate_rule_engine)
+ince üç satır; doğru aksiyonların üretildiği + enqueue'ya verildiği collect testleriyle
+kanıtlandı.
+
+### Doğrulama
+- `cargo test -p reji-orchestrator --lib` → **37/37 PASS** (5 yeni dahil).
+- `cargo test -p reji-orchestrator --tests` → **23/23 PASS** (entegrasyon, regresyon temiz).
+- Build uyarıları: 4 adet, HEPSİ önceden var (constants unused ffi/metrics, default_mode
+  never read) — değişikliğim SIFIR yeni uyarı üretti. ABI otomatik doğrulandı
+  (build.rs: "ABI OK: RjAction = 20 bytes").
+
+### Kapsam dışı (I33 olarak plana eklendi)
+`rj_action_approve()` hâlâ stub (her zaman "1"). AutoPilot etkilenmez; CoPilot onay
+akışı ayrı madde (I33, Sprint 2). self.mode ↔ global HEALING_MODE ayrışması (self.mode
+subscribe'da set edilip güncellenmiyor; evaluate_adaptive de aynı) mevcut bir durum —
+AutoPilot kapsamı için sorun değil, not edildi.

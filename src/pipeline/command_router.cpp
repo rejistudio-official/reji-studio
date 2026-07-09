@@ -134,7 +134,8 @@ void CommandRouter::action_thread_main() {
             if (on_action_) on_action_(action);
         }
         // Prevent busy-wait: yield briefly if queue is empty
-        Sleep(100);  // 100ms poll interval — enqueue_action() kullanılmadığı için sık wake-up gereksiz
+        Sleep(100);  // 100ms poll — V8/I1 sonrası RuleEngine aksiyonları buradan akıyor;
+                     // kural değerlendirmesi ~1s periyotta olduğundan 100ms gecikme kabul edilebilir
     }
     dbglog("[Pipeline] action processor stopped");
 

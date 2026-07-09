@@ -163,6 +163,7 @@ fn eval_single_condition(
 }
 
 /// Kural motoru — JSON/TOML kuralları yükler, hot-reload desteği.
+#[derive(Debug)]
 pub struct RuleEngine {
     rules: Arc<Mutex<Vec<Rule>>>,
     file_path: PathBuf,
