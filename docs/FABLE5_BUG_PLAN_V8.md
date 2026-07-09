@@ -33,12 +33,13 @@ bagimsiz konsensus, guven duzeyini artirir.
 | #   | Kaynak      | Sorun                                                        | Dosya                        | Oncelik | Sprint   |
 |-----|-------------|---------------------------------------------------------------|-------------------------------|---------|----------|
 | I1  | Fable       | Rule engine hicbir yerden evaluate() ile cagrilmiyor — self-healing adaptive pipeline tamamen dead code, CoPilot onayi sahte | healing.rs, ffi.rs        | Kritik  | Sprint 1 |
-| I2  | Fable+Opus  | AMD path capture_next() cross-API sync yok — hedef donanimin ana yolu | capture_dxgi.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
-| I3  | Fable+Opus  | Keyed-mutex/QFOT protokolu tutarsiz — AMD'de deadlock/timeout, veri bozulmasi | copy_optimizer.cpp, capture_dxgi.cpp | Kritik | Sprint 1 |
-| I28 | Opus        | execute_copy() acquire barrier oldLayout=UNDEFINED — D3D11'in yazdigi pikselleri siliyor (spec: UNDEFINED = "icerik onemsiz") | copy_optimizer.cpp | Kritik | Sprint 1 |
-| I29 | Opus+Fable  | Keyed mutex yanlis/eslesmeyen memory nesnesini koruyor olabilir — slot-0 "kanonik" varsayimi blit kaynagiyla eslesmeyebilir | preview_widget.cpp, external_memory_bridge.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
-| I30 | MiniMax     | Cross-adapter shared texture'da D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i YOK (capture_dxgi.cpp'de var, gpu_resource_manager.cpp'de yok) | gpu_resource_manager.cpp | Kritik | Sprint 1 |
-| I31 | Opus+GLM    | BGRA/RGBA format tutarsizligi — cross-adapter RGBA zorluyor, Vulkan/GL BGRA bekliyor, kanal takasi riski | gpu_resource_manager.cpp, preview_widget.cpp, gpu_interop_subsystem.cpp | Yuksek | Sprint 1 |
+| I2  | Fable+Opus  | AMD path capture_next() cross-API sync yok — hedef donanimin ana yolu **[KEŞİF 09.07: YANLIŞ KONUMLANMIŞ — encode yolu referans HW'de her zaman CPU-fallback, senaryo oluşmuyor, bkz. SESSION_NOTES]** | capture_dxgi.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
+| I3  | Fable+Opus  | Keyed-mutex/QFOT protokolu tutarsiz — AMD'de deadlock/timeout, veri bozulmasi **[KEŞİF 09.07: KISMEN GEÇERLİ, konum capture_dxgi.cpp'ye taşındı (preview yolu), GpuResourceManager'da değil]** | copy_optimizer.cpp, capture_dxgi.cpp | Kritik | Sprint 1 |
+| I28 | Opus        | execute_copy() acquire barrier oldLayout=UNDEFINED — D3D11'in yazdigi pikselleri siliyor (spec: UNDEFINED = "icerik onemsiz") **[KEŞİF 09.07: KASITLI/DOKÜMANTE TASARIM (D2/E4 yorumu) — defekt olduğu şüpheli, validation-layer ile doğrulanmalı]** | copy_optimizer.cpp | Kritik | Sprint 1 |
+| I29 | Opus+Fable  | Keyed mutex yanlis/eslesmeyen memory nesnesini koruyor olabilir — slot-0 "kanonik" varsayimi blit kaynagiyla eslesmeyebilir **[KEŞİF 09.07: ÇÜRÜTÜLDÜ — tek import 3 slota alias, uyuşmazlık yok. Komşuda gerçek bug bulundu → I32]** | preview_widget.cpp, external_memory_bridge.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
+| I30 | MiniMax     | Cross-adapter shared texture'da D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i YOK (capture_dxgi.cpp'de var, gpu_resource_manager.cpp'de yok) **[KEŞİF 09.07: ÖLÜ KODU HEDEFLİYOR — flag eklemek encode yolunun E_INVALIDARG kök nedenini çözmez, keyed_mutex_* üyeleri zaten %100 ölü]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
+| I31 | Opus+GLM    | BGRA/RGBA format tutarsizligi — cross-adapter RGBA zorluyor, Vulkan/GL BGRA bekliyor, kanal takasi riski **[KEŞİF 09.07: HARİTALANDI, DEFEKT YOK — preview yolunda tek swizzle noktası (shader .bgra), zincir tutarlı]** | gpu_resource_manager.cpp, preview_widget.cpp, gpu_interop_subsystem.cpp | Yuksek | Sprint 1 |
+| I32 | Keşif (09.07) | invalidate_pool() aynı VkImage/VkDeviceMemory'yi 3 slotta ayrı ayrı free ediyor (tek import, 3-slot alias) — çözünürlük/reinit'te üçlü-free/UB | external_memory_bridge.zig:276-285 | Kritik | Sprint 1 |
 | I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali **[DÜZELTILDI]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores | copy_optimizer.cpp | Kritik | Sprint 1 |
@@ -298,6 +299,61 @@ paylasima izin verip vermedigini dogrula. Vulkan target format, GL sized
 internal format, ve shader swizzle'i UC yolda da (same-adapter, cross-adapter,
 CPU-fallback) tutarli hale getir. Headless modda bilinen bir checker-pattern
 kareyle renk-dogrulugu testi eklenmesi onerilir.
+
+---
+
+### I32 — invalidate_pool() Üçlü-Free (I29 Keşfinin Yan Bulgusu)
+
+**Kaynak:** V8 I2/I3/I28-I31 keşfi (Alt-Adım A, 09.07.2026) — I29'u araştırırken
+bulundu, V8'in orijinal 26 maddesinde yoktu.
+
+**Sorun:** `external_memory_bridge.zig`'deki pooled image sistemi, 3 slotun
+hepsini **aynı** fiziksel `VkImage`/`VkDeviceMemory`'ye alias ediyor (tek NT-handle
+import, 3 slota kopyalanıyor — bu kısım kasıtlı ve I29'un çürütülmesinin
+sebebi). Ama `invalidate_pool()` (satır 276-285), her slotu BAĞIMSIZ sanıp
+üçünde de ayrı ayrı `vkDestroyImage`+`vkFreeMemory` çağırıyor:
+```zig
+for (&state.image_pool) |*slot| {
+    if (slot.image != null) {
+        vk.vkDestroyImage(state.device, slot.image, null);  // 3 kez, AYNI handle
+        slot.image = null;
+    }
+    if (slot.memory != null) {
+        vk.vkFreeMemory(state.device, slot.memory, null);   // 3 kez, AYNI handle
+        slot.memory = null;
+    }
+}
+```
+Slotlar aynı handle'ı paylaştığı için, texture pointer değiştiğinde (çözünürlük
+değişimi/reinit) **aynı VkImage/VkDeviceMemory 3 kez free ediliyor** — undefined
+behavior, potansiyel heap corruption/crash. İlk çağrı güvenli (hepsi dolu,
+null değil), ama sonraki free'ler zaten geçersiz handle üzerinde çalışıyor.
+Dedup guard yok.
+
+**Cozum:** Free işlemini slot bazında değil, **fiziksel kaynak bazında** yap —
+3 slotun aynı handle'ı paylaştığını bilen kodda, `vkDestroyImage`/`vkFreeMemory`
+sadece BİR KEZ çağrılmalı:
+```zig
+fn invalidate_pool() void {
+    // ... (GL memory objects, GPU idle wait aynı kalır) ...
+
+    // Tek fiziksel kaynak, 3 slot alias — BİR KEZ free et
+    if (state.image_pool[0].image != null) {
+        vk.vkDestroyImage(state.device, state.image_pool[0].image, null);
+        vk.vkFreeMemory(state.device, state.image_pool[0].memory, null);
+    }
+    for (&state.image_pool) |*slot| {
+        slot.image = null;
+        slot.memory = null;
+    }
+    // ... (D3D11 NT handle temizliği aynı kalır) ...
+}
+```
+
+**Test:** Çözünürlük değişimi (veya `invalidate_pool()`'u manuel iki kez
+tetikleyen bir birim testi) sonrası crash/AV olmadığını doğrula. Vulkan
+validation layer açıkken çalıştırmak, double-free'yi net bir VUID ile
+yakalayabilir (`VUID-vkDestroyImage-image-parameter` benzeri).
 
 ---
 
@@ -856,18 +912,23 @@ zorunda kalir. SEH mimarisi yeniden duzenlenmedi (kapsam disi).
   ayri ayri dort PR'dan daha az regresyon riski tasir.
 - **I6 + I12 + I13** ayni "GL/Vulkan shutdown ve frame sirasi" bolgesini
   kapsiyor — birlikte ele alinmali.
-- **I2 + I3 + I28 + I29 + I30 + I31** hepsi ayni "AMD dual-GPU senkronizasyon"
-  bolgesini kapsiyor — 06.07.2026 taze taramasi bu alani derinlemesine
-  inceleyip 4 yeni, spesifik bulgu cikardi (layout degeri, keyed-mutex memory
-  eslesmesi, eksik KEYEDMUTEX flag'i, format tutarsizligi). Bunlarin hepsi
-  TEK bir odakli arastirma+duzeltme oturumunda ele alinmali — ayri ayri
-  yapilirsa birbirini etkileme riski yuksek (ornegin I30'un flag duzeltmesi
-  I3'un key protokolunu de degistirebilir). Pipeline::Impl refactoring'de
-  kullanilan asamali yaklasim (karakterizasyon testi + baseline_metrics.txt)
-  burada da sart — AMD donaniminda gorsel/otomatik regresyon testi olmadan
-  bu alanda degisiklik yapmak riskli. Onerilen ilk adim: I30'un somut kod
-  karsilastirmasindan baslayip (en dusuk belirsizlik), oradan I2/I3/I28/I29'a
-  genislemek.
+- **09.07.2026 keşfi bu grupla ilgili temel varsayımı çürüttü** — I2/I3/I28-I31
+  TEK bir bölge değil, İKİ bağımsız yol (encode: GpuResourceManager, ölü/CPU-fallback;
+  preview: capture_dxgi→Vulkan→GL, canlı). Ayrı commit'ler önerilir, tek paket YOK.
+  Önerilen gerçek sıra (SESSION_NOTES'taki keşif raporundan):
+  1. **I32** (üçlü-free) — izole, düşük risk, en yüksek gerçek-bug önceliği. İLK YAPILACAK.
+  2. **I30 → ölü kod temizliği** — `keyed_mutex_display_/encode_/copy_fence_` üyelerini
+     `GpuResourceManager`'dan kaldır (kullanılmıyorlar, kafa karıştırıyorlar).
+  3. **I28** — muhtemelen kod değişikliği yok, validation-layer ile "gerçekten
+     sorun mu" doğrulaması + kasıtlı tasarımın kod yorumunda daha net belgelenmesi.
+  4. **I2/I3** — preview yolunun `use_keyed_mutex_=false` fallback senkronizasyon
+     doğruluğu, ayrı ve dikkatli bir inceleme gerektiriyor (henüz derinlemesine
+     incelenmedi, sadece konumu doğru tespit edildi).
+  5. **I29, I31** — kapandı, kod değişikliği gerekmiyor (I29 → I32'ye devretti,
+     I31 → defekt yok).
+  - _(Eski not, dürüstlük ilkesi gereği korunuyor: 06.07.2026 taze taraması bu alanı
+    "tek bölge, TEK oturumda ele alınmalı, önce I30" diye işaretlemişti; 09.07 keşfi
+    bu ön-varsayımı yukarıdaki bulgularla revize etti.)_
 - **I8** (WS auth), Faz 1 (OBS-WebSocket uyumluluk) calismasiyla ayni dosyada
   (`ws_server.rs`) cakisiyor — iki isin sirasini/koordinasyonunu planla.
 - Sprint 1 tamamlaninca yeni bir Fable 5 taramasi (V9) onerilir — ozellikle
