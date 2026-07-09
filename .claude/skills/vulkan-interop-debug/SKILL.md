@@ -16,12 +16,18 @@ noktasıdır — genel Vulkan bilgisiyle değil, buradaki gerçeklerle başla.
   NVIDIA'da `E_ACCESSDENIED` döner. Bu bir hata değil, platform gerçeğidir.
 - `display_vendor_id()` → `gpu_scan_.entries[0]` = display (AMD);
   `entries[1]+` = encode (NVIDIA).
-- Cross-adapter transfer (`GpuResourceManager` SharedHandle AMD→NVIDIA) GERÇEKTEN
-  AKTİF — `same_adapter_` gerçek LUID karşılaştırmasıyla belirleniyor
-  (`gpu_resource_manager.cpp:222`), hardcode değil. Referans donanımda
-  (AMD display + NVIDIA encode) `same_adapter_=false` çıkar, cross-adapter
-  yolu (`create_cross_adapter_shared`) devrede. Bu not 2026-07 öncesi
-  bayattı, I2/I3 keşfi sırasında düzeltildi.
+- İKİ AYRI cross-GPU mekanizması var, karıştırılmamalı:
+  - (A) Encode yolu (`GpuResourceManager::transfer()`, AMD→NVIDIA cross-vendor):
+    `same_adapter_` gerçek LUID karşılaştırmasıyla `false` çıkıyor (hardcode
+    değil), `create_cross_adapter_shared()` dalı seçiliyor — AMA runtime'da
+    `CreateTexture2D` `E_INVALIDARG` (0x80070057) ile başarısız oluyor (run.log
+    kanıtı), bu yüzden GERÇEK aktif yol CPU-fallback (`use_cpu_fallback_=true`).
+    `keyed_mutex_display_`/`encode_`/`copy_fence_` bu sınıfta %100 ölü kod.
+  - (B) Preview yolu (`capture_dxgi.cpp` `shared_texture_` → Vulkan → GL, hepsi
+    AMD iGPU üzerinde, cross-vendor DEĞİL): burada gerçek keyed-mutex
+    `AcquireSync`/`ReleaseSync` kalıbı (satır ~373/381) çalışıyor.
+  - Bu ayrım 2026-07 I2/I3 keşfinde netleşti — önceki "hardcode" iddiası bayattı
+    ama düzeltme metninin ilk hali de eksikti, ikinci kez düzeltildi.
 - Render path: NVIDIA (0x10DE) → `kNvDxInterop` stub (fiilen PBO çalışır);
   diğer → `kPbo`. `selectRenderPath()` init sonrası bir kez, GL thread'de.
 
