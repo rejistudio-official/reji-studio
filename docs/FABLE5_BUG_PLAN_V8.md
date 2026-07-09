@@ -39,7 +39,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I29 | Opus+Fable  | Keyed mutex yanlis/eslesmeyen memory nesnesini koruyor olabilir — slot-0 "kanonik" varsayimi blit kaynagiyla eslesmeyebilir **[KEŞİF 09.07: ÇÜRÜTÜLDÜ — tek import 3 slota alias, uyuşmazlık yok. Komşuda gerçek bug bulundu → I32]** | preview_widget.cpp, external_memory_bridge.cpp, copy_optimizer.cpp | Kritik | Sprint 1 |
 | I30 | MiniMax     | Cross-adapter shared texture'da D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i YOK (capture_dxgi.cpp'de var, gpu_resource_manager.cpp'de yok) **[KEŞİF 09.07: ÖLÜ KODU HEDEFLİYOR — flag eklemek encode yolunun E_INVALIDARG kök nedenini çözmez, keyed_mutex_* üyeleri zaten %100 ölü]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I31 | Opus+GLM    | BGRA/RGBA format tutarsizligi — cross-adapter RGBA zorluyor, Vulkan/GL BGRA bekliyor, kanal takasi riski **[KEŞİF 09.07: HARİTALANDI, DEFEKT YOK — preview yolunda tek swizzle noktası (shader .bgra), zincir tutarlı]** | gpu_resource_manager.cpp, preview_widget.cpp, gpu_interop_subsystem.cpp | Yuksek | Sprint 1 |
-| I32 | Keşif (09.07) | invalidate_pool() aynı VkImage/VkDeviceMemory'yi 3 slotta ayrı ayrı free ediyor (tek import, 3-slot alias) — çözünürlük/reinit'te üçlü-free/UB | external_memory_bridge.zig:276-285 | Kritik | Sprint 1 |
+| I32 | Keşif (09.07) | invalidate_pool() aynı VkImage/VkDeviceMemory'yi 3 slotta ayrı ayrı free ediyor (tek import, 3-slot alias) — çözünürlük/reinit'te üçlü-free/UB **[DÜZELTILDI]** | external_memory_bridge.zig:276-285 | Kritik | Sprint 1 |
 | I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali **[DÜZELTILDI]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores | copy_optimizer.cpp | Kritik | Sprint 1 |
@@ -304,6 +304,12 @@ kareyle renk-dogrulugu testi eklenmesi onerilir.
 
 ### I32 — invalidate_pool() Üçlü-Free (I29 Keşfinin Yan Bulgusu)
 
+**[DÜZELTILDI — 2026-07-09 — commit `5885d3d`]** `invalidate_pool()` artık
+`image_pool[0]`'ı kanonik kabul edip `vkDestroyImage`/`vkFreeMemory`'yi BİR KEZ
+çağırıyor, ardından üç slotu da null'lıyor. D3D11 NT handle döngüsü ARAŞTIRILDI
+ve DEĞİŞTİRİLMEDİ (aşağıda gerekçe). Derleme kontrolü (`ext-bridge-check`) temiz,
+`ctest` bilinen 2 kırık (FrameProfilerTest, ShaderCacheTest) dışında yeşil.
+
 **Kaynak:** V8 I2/I3/I28-I31 keşfi (Alt-Adım A, 09.07.2026) — I29'u araştırırken
 bulundu, V8'in orijinal 26 maddesinde yoktu.
 
@@ -350,10 +356,26 @@ fn invalidate_pool() void {
 }
 ```
 
-**Test:** Çözünürlük değişimi (veya `invalidate_pool()`'u manuel iki kez
-tetikleyen bir birim testi) sonrası crash/AV olmadığını doğrula. Vulkan
-validation layer açıkken çalıştırmak, double-free'yi net bir VUID ile
-yakalayabilir (`VUID-vkDestroyImage-image-parameter` benzeri).
+**D3D11 NT handle araştırması (talimat madde 2):** `state.d3d11_nt_handles`
+`image_pool`'un AKSİNE alias DEĞİL — bu yüzden mevcut per-handle `CloseHandle`
+döngüsü DOĞRU ve değiştirilmedi. Gerekçe (kod izlenerek):
+- `state.d3d11_nt_handles[slot]` yalnızca `create_vulkan_image_from_d3d11`'de
+  (satır ~252) doldurulur, çağrı başına TEK slot için.
+- Bu fonksiyon yalnızca `ext_bridge_get_frame_images`'ten (satır ~366)
+  `tex != cached_texture_ptr` iken çağrılır; her çağrı TEK bir
+  `CreateSharedHandle` (satır ~242) üretir.
+- Windows NT handle'ları VkImage gibi "aynı değer = aynı nesne" mantığıyla
+  çalışmaz; her `CreateSharedHandle` ayrı bir kernel referansı üretir ve ayrı
+  `CloseHandle` ister. Üstelik texture başına yalnızca TEK slot dolduğundan
+  (diğerleri invalidate sonrası null) çift-kapatma riski hiç yok.
+→ Sonuç: image_pool tekilleştirildi, NT handle döngüsüne dokunulmadı.
+
+**Test:** `zig build ext-bridge-check` temiz derlendi. `invalidate_pool()`
+private + canlı `VkDevice` gerektiren static-state fonksiyonu olduğundan çift-çağrı
+birim testi harness'ta pratik değil; asıl doğrulama derleme + kod izleme + `ctest`
+(bilinen 2 kırık dışında yeşil). Runtime çözünürlük-değişimi senaryosu + validation
+layer (`VUID-vkDestroyImage-image-parameter` benzeri double-free VUID'inin kaybolması)
+çift-GPU referans donanımda ayrıca doğrulanmalı.
 
 ---
 
