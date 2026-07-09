@@ -39,6 +39,13 @@ CLAUDE.md'deki "DOKUNMA" uyarısı mutlak yasak değil; **bu prosedür dışınd
 6. **Sürüm sabiti:** ABI'yi kıran her değişiklikte `RJ_FFI_VERSION` yükseltilir
    (`ffi_bridge.h`, şu an `0x00010000`). `MetricSample` magic'i
    `RJ_METRIC_MAGIC = 0xEEFF1234` değişmez.
+7. **C++ arayüz sınırları SEH'e değil `noexcept`'e güvenir.** Çoklu
+   implementasyonu olan (veya beklenen) soyut arayüzlerin sıcak-yol/SEH-leaf
+   metotları (`ITransport::send`/`shutdown` gibi) `noexcept` ile sağlamlaştırılır
+   — SEH `__try`'ın C++ exception'ı yakalaması `/EHa`'ya bağlı belirsiz bir
+   garantidir; `noexcept` ihlali ise kesin `std::terminate`'e gider ve her
+   implementörü exception'ı kendi içinde hata koduna çevirmeye zorlar (bkz.
+   FABLE5_BUG_PLAN_V8.md I27).
 
 ## Yeni FFI fonksiyonu/tipi ekleme prosedürü
 

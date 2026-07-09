@@ -28,10 +28,10 @@ public:
     };
 
     virtual ~ITransport() = default;
-    virtual bool init(const Config&)                                    = 0;
-    virtual bool send(const uint8_t* data, size_t size, int64_t pts_us) = 0;
-    virtual bool is_connected() const                                   = 0;
-    virtual void shutdown()                                             = 0;
+    virtual bool init(const Config&)                                             = 0;
+    virtual bool send(const uint8_t* data, size_t size, int64_t pts_us) noexcept = 0;
+    virtual bool is_connected() const                                           = 0;
+    virtual void shutdown() noexcept                                            = 0;
 
     static std::unique_ptr<ITransport> create(TransportProtocol proto);
 };

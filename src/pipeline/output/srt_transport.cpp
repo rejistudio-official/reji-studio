@@ -15,16 +15,27 @@ bool SrtTransport::init(const Config& cfg) {
     return impl_.init(scfg);
 }
 
-bool SrtTransport::send(const uint8_t* data, size_t size, int64_t pts_us) {
-    return impl_.send_packet(data, size, pts_us);
+bool SrtTransport::send(const uint8_t* data, size_t size, int64_t pts_us) noexcept {
+    // noexcept sözleşmesi (V8/I27): olası her exception'ı burada bool'a çevir —
+    // ihlali std::terminate'e gider (kesin/öngörülebilir), SEH'in belirsiz
+    // yakalamasına güvenmek yerine tip sistemiyle garanti.
+    try {
+        return impl_.send_packet(data, size, pts_us);
+    } catch (...) {
+        return false;
+    }
 }
 
 bool SrtTransport::is_connected() const {
     return impl_.is_connected();
 }
 
-void SrtTransport::shutdown() {
-    (void)impl_.shutdown();
+void SrtTransport::shutdown() noexcept {
+    try {
+        (void)impl_.shutdown();
+    } catch (...) {
+        // shutdown yolu yut: kaynak temizliği en iyi çabayla ilerler
+    }
 }
 
 }  // namespace rj::pipeline::output

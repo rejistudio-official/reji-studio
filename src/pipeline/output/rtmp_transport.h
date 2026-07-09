@@ -25,9 +25,9 @@ public:
     RtmpTransport& operator=(RtmpTransport&&)      = delete;
 
     bool init(const Config& cfg) override;
-    bool send(const uint8_t* data, size_t size, int64_t pts_us) override;
+    bool send(const uint8_t* data, size_t size, int64_t pts_us) noexcept override;
     bool is_connected() const override;
-    void shutdown() override;
+    void shutdown() noexcept override;
 
 private:
     void* handle_ = nullptr;   // Zig tarafındaki Transport*

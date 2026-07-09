@@ -34,9 +34,16 @@ bool RtmpTransport::init(const Config& cfg) {
     return true;
 }
 
-bool RtmpTransport::send(const uint8_t* data, size_t size, int64_t pts_us) {
-    if (!handle_) return false;
-    return rj_rtmp_send(handle_, data, size, pts_us);
+bool RtmpTransport::send(const uint8_t* data, size_t size, int64_t pts_us) noexcept {
+    // noexcept sözleşmesi (V8/I27): Zig tarafı panik=abort ile hiç unwind etmez,
+    // ama bu C++ sarmalayıcının kendisi (handle_ yönetimi vb.) exception
+    // fırlatırsa bool'a çevrilir; ihlal std::terminate'e gider.
+    try {
+        if (!handle_) return false;
+        return rj_rtmp_send(handle_, data, size, pts_us);
+    } catch (...) {
+        return false;
+    }
 }
 
 bool RtmpTransport::is_connected() const {
@@ -44,10 +51,15 @@ bool RtmpTransport::is_connected() const {
     return rj_rtmp_is_connected(handle_);
 }
 
-void RtmpTransport::shutdown() {
+void RtmpTransport::shutdown() noexcept {
     // SEH-leaf'ten (seh_shutdown_subsystems) çağrılır — exception fırlatmaz
     // (Zig tarafı hata kodu döner, panik yolu yok; bkz. Faz2/Aşama1 SEH notu).
-    if (handle_) rj_rtmp_shutdown(handle_);
+    // noexcept sözleşmesi (V8/I27): olası her exception yutulur, ihlal terminate.
+    try {
+        if (handle_) rj_rtmp_shutdown(handle_);
+    } catch (...) {
+        // en iyi çaba temizlik
+    }
 }
 
 }  // namespace rj::pipeline::output

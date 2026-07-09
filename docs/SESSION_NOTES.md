@@ -839,3 +839,52 @@ dışında yeni kırılma yok (PipelineIntegration/Characterization relink edili
 VK_LAYER_KHRONOS_validation) gerektirdiğinden ve bu VUID zaten yalnız submit fiilen
 başarısız olunca tetiklendiğinden otonom koşulmadı — talimatın kendisi rölatif
 karşılaştırmayı yeterli/opsiyonel görüyor. Komut istenirse kullanıcıya verilebilir.
+
+## Oturum: 9 Temmuz 2026 — V8/I27: ITransport `noexcept` Sağlamlaştırma
+
+### Bağlam
+06.07.2026 taze taramaları (Fable5 6.1 + Opus 4.8 5.3) bağımsız olarak Faz2/Aşama1'deki
+SEH virtual-call kararını (`SrtTransport`/`RtmpTransport::shutdown()`'ın `__try` içinde
+çağrılması) eleştirdi: bizim throw-deneyimiz o iki implementasyon için ampirik kanıttı
+ama **yapısal garanti değildi** — yeni bir `ITransport` implementasyonu için tekrar elle
+test gerekirdi. Garantiyi tip sistemine taşıdık.
+
+### Yapılan
+- `ITransport::send`/`shutdown` arayüz imzasına `noexcept` eklendi (`i_transport.h`).
+- `SrtTransport` ve `RtmpTransport` implementasyonları `noexcept override` + iç
+  `try{...}catch(...)` sarmalayıcı (send → `return false`, shutdown → yut). Böylece
+  her yeni implementör exception→bool/void sözleşmesini atlayamaz.
+- `init`/`is_connected`'a `noexcept` EKLENMEDİ (talimat opsiyonel bıraktı). **Karar:**
+  eklemedik — `init` zaten "sıcak yol" değil (tek sefer, bağlantı kurulumu; ileride
+  config doğrulama exception fırlatabilir, sözleşmeyi daraltmayalım) ve `send`/`shutdown`
+  gerçek SEH-leaf/hot-path olduğundan sağlamlaştırma değeri orada. Tutarlılık kaybı
+  minimal; gerekirse sonra eklenebilir.
+- Dış SEH sarmalayıcılar (`pipeline.cpp`/`output_subsystem.cpp`) DOKUNULMADI — Opus'un
+  "SEH'i leaf'lere it" önerisi ayrı/daha büyük mimari karar. noexcept + mevcut SEH
+  çelişmiyor: noexcept ihlali SEH `__try`'a ulaşmadan `std::terminate`'e gider.
+
+### Throw deneyi — SEH (belirsiz) → terminate (kesin) karşılaştırması
+**ÖNCE (Faz2/Aşama1):** `shutdown()` normal (noexcept değil) idi; içine geçici `throw`
+konunca exception dış SEH `__except(EXCEPTION_EXECUTE_HANDLER)` tarafından **yakalanıp
+yutuluyordu** — "SEH C++ exception'ı gerçekten yakalar mı" davranışı derleyici/`/EHa`
+ayarına bağlı, **belirsiz bir garanti**. Her yeni implementasyon için tekrar test şart.
+
+**ŞİMDİ (I27):** `shutdown()` artık `noexcept`. İç `try/catch`'i bypass eden bir `throw`
+(yeni implementörün catch'i unutması senaryosu) noexcept sınırından escape edince C++
+standardı gereği **kesin olarak `std::terminate()`** çağrılır — SEH `__try`'a hiç
+ulaşmaz. Net, öngörülebilir başarısızlık; sessiz UB/yutma yok.
+
+**Nasıl doğrulandı (deterministik):** `SrtTransport::shutdown()`'a geçici `throw` +
+`test_output_subsystem.cpp`'ye geçici `ASSERT_DEATH({ SrtTransport t; t.shutdown(); })`
+testi konuldu. (1) Derleyici zaten **C4297** verdi ("noexcept belirtildi ama exception
+oluşturuyor") — statik kanıt. (2) `ASSERT_DEATH` **PASS** — alt process gerçekten
+terminate ile çöktü (runtime kanıt). Sonra **her iki geçici değişiklik geri alındı**,
+yeniden derlendi (C4297/C4702 uyarıları kayboldu → temiz), `OutputSubsystemTest` 7/7 +
+`GpuResourcePitchTest` PASS; `ctest` bilinen 2 (FrameProfilerTest, ShaderCacheTest —
+ilgisiz) dışında yeni kırılma yok.
+
+### Kapsam
+Vulkan/GPU/I2-I3 senkronizasyon işine HİÇ dokunulmadı — tamamen `output/` katmanında
+izole sağlamlaştırma. FABLE5_BUG_PLAN_V8.md'ye I27 [DÜZELTILDI] satırı eklendi;
+`ffi-safety-review` skill'ine "C++ arayüz sınırları noexcept ile sağlamlaştırılmalı"
+notu düşüldü.

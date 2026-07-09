@@ -62,6 +62,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I24 | Opus        | rj_reload_rules/rj_connection_lost CStr::from_ptr sinirsiz — OOB read riski | ffi.rs | Dusuk | Sprint 4 |
 | I25 | Fable       | zig_win32_compat.c stack guard fallback sabit deger (tahmin edilebilir canary) | zig_win32_compat.c | Dusuk | Sprint 4 |
 | I26 | Opus        | add(u64,u64) demo fonksiyonu + it_works testi production crate'te birakilmis | lib.rs | Dusuk | Sprint 4 |
+| I27 | Fable+Opus  | ITransport::send/shutdown SEH virtual-call riski — noexcept ile saglamlastirilmali (yapisal garanti, elle test degil) **[DÜZELTILDI]** | i_transport.h, srt_transport.cpp, rtmp_transport.cpp | Dusuk | Sprint 4 |
 
 ---
 
@@ -812,6 +813,37 @@ caller-supplied path'i yok say; uzunluk sinirli varyant ekle.
 **Kaynak:** Opus 4.8 (5.5) — tek kaynak, trivial temizlik.
 
 **Cozum:** `lib.rs`'teki `add(u64,u64)` + `it_works` testini sil.
+
+---
+
+### I27 — ITransport SEH Virtual-Call Riski (noexcept ile Saglamlastir)
+
+**[DÜZELTILDI — 2026-07-09]** `ITransport::send`/`shutdown` arayuz imzasina
+`noexcept` eklendi (`i_transport.h`); `SrtTransport`/`RtmpTransport`
+implementasyonlari `noexcept override` + ic `try{...}catch(...)` sarmalayici
+oldu (send → `return false`, shutdown → yut). Boylece exception→bool/void
+sozlesmesi tip sistemiyle garanti — yeni implementor atlayamaz. `init`/
+`is_connected`'a `noexcept` EKLENMEDI (opsiyoneldi; `init` sicak yol degil,
+sozlesmeyi daraltmadik). Dis SEH sarmalayicilar (`pipeline.cpp`/
+`output_subsystem.cpp`) DOKUNULMADI — Opus'un "SEH'i leaf'lere it" onerisi
+ayri karar. Dogrulama: throw deneyi tekrarlandi — ONCE SEH belirsiz sekilde
+yutuyordu, SIMDI noexcept ihlali kesin `std::terminate`'e gidiyor (derleyici
+C4297 + `ASSERT_DEATH` PASS ile kanitlandi, sonra geri alindi); build temiz,
+`OutputSubsystemTest` 7/7 PASS, `ctest` bilinen 2 disinda yeni kirilma yok.
+Ayrinti: SESSION_NOTES 9 Tem. Commit: bkz. asagidaki commit.
+
+**Kaynak:** Fable 5 (6.1) + Opus 4.8 (5.3) — 06.07.2026 taze tarama, bagimsiz
+olarak ayni SEH virtual-call kararini elestirdi.
+
+**Sorun:** Faz2/Aşama1'de `SrtTransport`/`RtmpTransport::shutdown()` bir SEH
+`__try` blogu icinden cagriliyordu; C++ exception'inin SEH tarafindan
+yakalanmasi derleyici/`/EHa` ayarina bagli **belirsiz bir garanti** —
+her yeni `ITransport` implementasyonu icin elle tekrar test gerektirir.
+
+**Cozum:** Arayuz sozlesmesine `noexcept` ekleyerek garantiyi tip sistemine
+tasi — noexcept ihlali SEH'e ulasmadan `std::terminate`'e gider (net,
+ongorulebilir), her implementor exception'i kendi icinde bool/void'e cevirmek
+zorunda kalir. SEH mimarisi yeniden duzenlenmedi (kapsam disi).
 
 ---
 

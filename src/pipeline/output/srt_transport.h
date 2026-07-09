@@ -15,9 +15,9 @@ namespace rj::pipeline::output {
 class SrtTransport final : public rj::ITransport {
 public:
     bool init(const Config& cfg) override;
-    bool send(const uint8_t* data, size_t size, int64_t pts_us) override;
+    bool send(const uint8_t* data, size_t size, int64_t pts_us) noexcept override;
     bool is_connected() const override;
-    void shutdown() override;
+    void shutdown() noexcept override;
 
 private:
     SrtOutput impl_;
