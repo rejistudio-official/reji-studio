@@ -888,3 +888,163 @@ Vulkan/GPU/I2-I3 senkronizasyon işine HİÇ dokunulmadı — tamamen `output/` 
 izole sağlamlaştırma. FABLE5_BUG_PLAN_V8.md'ye I27 [DÜZELTILDI] satırı eklendi;
 `ffi-safety-review` skill'ine "C++ arayüz sınırları noexcept ile sağlamlaştırılmalı"
 notu düşüldü.
+
+---
+
+## V8 I2/I3/I28-I31 — Keşif (Alt-Adım A)
+
+**Görev:** kod değişikliği yok; `V8_I2_I3_KESIF_TALIMAT.md` uyarınca gerçek-durum
+haritası. Sadece okuma + izleme. Skill fix ayrı commit (`5972724`, henüz push
+edilmedi).
+
+### 0. En önemli mimari netleştirme — İKİ AYRI cross-GPU mekanizması var
+
+V8 planı I2/I3/I28-I31'i tek bir "AMD dual-GPU sync" bölgesi gibi ele alıyordu.
+Keşif bunun **iki bağımsız yol** olduğunu gösterdi; çoğu I-maddesi bunları
+karıştırıyor:
+
+- **A) ENCODE yolu — `GpuResourceManager::transfer()`** (cross-vendor AMD→NVIDIA):
+  - `same_adapter_` gerçek LUID karşılaştırması (`gpu_resource_manager.cpp:230`).
+    Runtime log: `same_adapter=false (AMD Radeon 780M / NVIDIA RTX 4070)`.
+  - `create_cross_adapter_shared()` **çağrılıyor ama BAŞARISIZ**. Runtime kanıtı
+    (run.log): `[GpuRM] CreateTexture2D (shared) failed: 0x80070057` (E_INVALIDARG)
+    — daha `OpenSharedResource1`'e gelmeden `CreateTexture2D` düşüyor
+    (`SHARED|NTHANDLE`). → `create_cpu_fallback_staging()` → **`use_cpu_fallback_=true`**.
+  - Referans donanımda GERÇEK encode transfer yolu = **CPU memcpy** (`transfer()`
+    satır 273-296, `copy_mapped_rows`). Keyed mutex YOK.
+  - `keyed_mutex_display_` / `keyed_mutex_encode_` / `copy_fence_` bu sınıfta
+    **%100 ÖLÜ**: hiçbir yerde `QueryInterface`/`CreateQuery` ile doldurulmuyor,
+    `transfer()` içinde kullanılmıyor, sadece `shutdown()`'da `Reset()` ediliyor.
+    `wait_display_gpu_idle()` de `copy_fence_` hiç oluşturulmadığı için erken
+    `return` (no-op) — ama zaten cross-adapter dalına girilmiyor (CPU fallback).
+
+- **B) PREVIEW yolu — `capture_dxgi` `shared_texture_` → Vulkan → GL** (hepsi AMD iGPU):
+  - `shared_texture_` `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` ile oluşturuluyor
+    (`capture_dxgi.cpp:452`), display-GPU (AMD) yerel; Vulkan (AMD) tarafına import.
+  - Cross-vendor paylaşım YOK — bu yüzden çalışıyor. NVIDIA yalnızca NVENC için.
+  - I3'ün tarif ettiği `AcquireSync(0)`/`ReleaseSync(1)` kalıbı **burada**:
+    `capture_dxgi.cpp:373` (Acquire key 0) / `:381` (Release key 1),
+    `use_keyed_mutex_` bayrağıyla korunuyor.
+
+### 1. I30 cevabı — KEYEDMUTEX flag'i `create_cross_adapter_shared`'a eklenirse?
+
+- `GpuResourceManager`'daki `keyed_mutex_display_`/`keyed_mutex_encode_` **tamamen
+  ölü** (yukarı bkz). Flag eklemek onları OTOMATİK bağlamaz — ayrıca `transfer()`'a
+  `QueryInterface(IDXGIKeyedMutex)` + `AcquireSync`/`ReleaseSync` çağrıları yazmak
+  gerekir. Şu an öyle bir çağrı zinciri YOK.
+- Flag eklenince bozulur mu? Runtime'da `SHARED|NTHANDLE` ile `CreateTexture2D`
+  zaten E_INVALIDARG veriyor (cross-vendor D3D11 paylaşımı bu topolojide
+  desteklenmiyor). `KEYEDMUTEX` eklemek bu kök nedeni çözmez; büyük olasılıkla yine
+  düşer. Kodda flag kombinasyonunu test eden bir yer YOK — "çalışır" varsayımı da
+  yok, aksine yorum (`gpu_resource_manager.cpp:92-98`) desteklenmediğini belgeliyor.
+- **Sonuç:** I30'un öncülü ÖLÜ kod yolunu (encode-path GpuResourceManager) hedef
+  alıyor. Çalışan keyed mutex zaten preview yolunda ve `SHARED_KEYEDMUTEX` mevcut
+  (`capture_dxgi.cpp:452`) + `copy_optimizer` Vulkan tarafı. I30 yeniden
+  konumlandırılmalı ya da "ölü üye temizliği" olarak ele alınmalı.
+
+### 2. I2 cevabı — capture_next() AMD path senkronizasyonu
+
+- Referans donanımda encode yolunun `use_cpu_fallback_` değeri **her zaman true**
+  (NT paylaşımı başarısız). Yani I2'nin sorduğu "`use_cpu_fallback_==false` iken
+  gerçek NT-handle paylaşımı" senaryosu referans donanımda **HİÇ oluşmuyor**.
+- `transfer()`'ın cross-adapter dalı (`CopyResource`+`Flush`+`wait_display_gpu_idle`)
+  fiilen çalışmıyor; çalışsa bile `wait_display_gpu_idle()` `copy_fence_` yokluğundan
+  no-op olurdu.
+- I3'ün `AcquireSync(0)`/`ReleaseSync(1)` kalıbı **encode yoluna ait DEĞİL** —
+  preview yolundadır (`capture_dxgi.cpp:373/381`, `shared_texture_` +
+  `keyed_mutex_shared_`, `use_keyed_mutex_` ile gate).
+
+### 3. I28/I29/I31 aynı çağrı zincirinde
+
+Çağrı zinciri (preview): `pipeline get_last_frame_images()` →
+`ext_bridge_get_frame_images()` → `submitD3D11Frame()` → `paintGL` →
+`copy_optimizer_->execute_copy(staging_vk, target_vk, …, staging_mem)`.
+
+- **I28** (`copy_optimizer.cpp:133`): `slot = frame_counter_ % POOL_SIZE`
+  (POOL_SIZE=3). Staging `oldLayout = VK_IMAGE_LAYOUT_UNDEFINED` (satır 206)
+  **KASITLI** — D2/E4 yorumu: D3D11 her frame image'ı dışarıdan yazıyor (keyed
+  mutex sahipliği), Vulkan frame'ler arası layout izleyemez; `srcQueueFamilyIndex=
+  VK_QUEUE_FAMILY_EXTERNAL` ile acquire. Bu bir HATA DEĞİL, belgelenmiş tasarım.
+  → I28 yeniden doğrulanmalı: "gerçek defekt mi, yoksa dokümante tasarım mı?".
+- **I29** (`preview_widget.cpp:483` `get_shared_texture_memory()`): keyed mutex
+  `km_memory_` = pooled image **slot 0**'ın memory'si (`external_memory_bridge.cpp:78`).
+  Blit edilen `staging_vk` ise slot 0/1/2 arasında dönüyor. AMA zig bridge
+  (`external_memory_bridge.zig:372-377`) **tek** import edilen `VkImage`+
+  `VkDeviceMemory`'yi 3 slota da AYNI değerle kopyalıyor. Yani slot 0 memory ==
+  blit edilen image'ın memory'si — keyed mutex doğru kaynağı koruyor. I29'un
+  korktuğu uyuşmazlık YOK (tek fiziksel import, 3 slot alias).
+  - **Yan bulgu (I29 komşusu, gerçek latent bug):** `invalidate_pool()`
+    (`external_memory_bridge.zig:276-285`) 3 slotun her birinde `vkDestroyImage`+
+    `vkFreeMemory` çağırıyor; slotlar aynı handle'ı alias ettiğinden texture
+    pointer değişiminde (çözünürlük/reinit) **aynı VkImage/VkDeviceMemory 3 kez
+    free ediliyor** (üçlü-free / UB). İlk frame güvenli (hepsi null). Dedup guard
+    yok. Ayrı, izole düzeltilebilir.
+- **I31** format zinciri (uçtan uca, preview):
+  1. DXGI Desktop Duplication native: `DXGI_FORMAT_B8G8R8A8_UNORM` (fmt=87, BGRA).
+  2. `capture_dxgi` `shared_texture_`: `desc.Format = surface_format()` = BGRA.
+     D3D11 `CopyResource` BGRA→BGRA, swizzle yok.
+  3. Vulkan import: `dxgi_to_vk_format(BGRA)` = `VK_FORMAT_B8G8R8A8_UNORM`
+     (`external_memory_bridge.zig:86`). Swizzle yok.
+  4. Vulkan target (gl_target_pool): `VK_FORMAT_B8G8R8A8_UNORM`
+     (`gpu_interop_subsystem.cpp:30`). `vkCmdBlitImage` BGRA→BGRA, swizzle yok.
+  5. GL interop: `TexStorageMem2D(GL_RGBA8, …)` (`preview_widget.cpp:532`) — BGRA
+     bellek RGBA8 olarak yorumlanıyor → sample'da örtük R↔B takası.
+  6. Shader: `FragColor = texture(uTex, vUV).bgra;` (`preview_widget.cpp:44`) —
+     bu `.bgra` swizzle 5. adımdaki takası düzeltir → doğru RGBA. **Tek swizzle
+     noktası = fragment shader.** CPU fallback yolu da aynı mantığa dayanıyor
+     (satır 431-432). Encode yolu (GpuResourceManager) ayrıca RGBA'ya zorluyor
+     (`gpu_resource_manager.cpp:87-88`) — ama o yol ölü/CPU-fallback, ayrı konu.
+
+- **Keyed mutex anahtar protokolü (her iki taraf tutarlı):** D3D11 `AcquireSync(0)`→
+  yaz→`ReleaseSync(1)`; Vulkan `km_acquire_key_=1`, `km_release_key_=0`
+  (`copy_optimizer.h:102-103`). 0↔1 ping-pong doğru. Vulkan timeout `UINT32_MAX`
+  (sonsuz), D3D11 16ms.
+
+### 4. Her I-maddesi için "hâlâ tarif edildiği gibi mi?" (I4/I5 disiplini)
+
+| Madde | Durum | Not |
+|---|---|---|
+| I2 | **YANLIŞ KONUMLANMIŞ** | Encode yolu referans HW'de her zaman CPU-fallback; "NT paylaşımı başarılı" senaryosu oluşmuyor. Keyed mutex encode'da yok. |
+| I3 | **KISMEN GEÇERLİ, konum değişti** | `AcquireSync/ReleaseSync` var ama preview yolunda (`capture_dxgi.cpp`), `use_keyed_mutex_` ile gate; GpuResourceManager'da değil. |
+| I28 | **YENİDEN DOĞRULA** | `oldLayout=UNDEFINED` kasıtlı ve dokümante (D2/E4). Defekt olduğu şüpheli. |
+| I29 | **ÇÜRÜTÜLDÜ (asıl haliyle)** | slot 0 memory == blit image memory (tek import, 3 alias). Ama komşuda gerçek üçlü-free bug'ı (`invalidate_pool`). |
+| I30 | **ÖLÜ KODU HEDEFLİYOR** | GpuResourceManager keyed mutex üyeleri ölü. Flag eklemek cross-vendor kök nedeni çözmez. |
+| I31 | **HARİTALANDI, defekt yok (preview)** | Tek swizzle noktası shader `.bgra`; zincir tutarlı. |
+
+### 5. Önerilen gerçek düzeltme sırası + gruplama
+
+V8'in "hepsi tek oturumda / tek commit" ön-varsayımı **ÇÜRÜDÜ** — maddeler büyük
+ölçüde bağımsız ve farklı dosyalara dokunuyor (zig bridge / `gpu_resource_manager.cpp`
+/ dokümantasyon). Ayrı commit'ler önerilir:
+
+1. **(Doküman/skill)** Adım 0 skill fix'ini ikinci kez düzelt: "cross-adapter yolu
+   devrede" ifadesi yanlış — gerçek encode yolu CPU-fallback. (Aşağıdaki "Adım 0
+   re-validation" notuna bak.) — push öncesi.
+2. **I29-komşusu üçlü-free** (`external_memory_bridge.zig` `invalidate_pool`): izole,
+   düşük riskli, kendi commit'i. Muhtemelen en yüksek gerçek-bug önceliği.
+3. **I30 → ölü kod temizliği**: `keyed_mutex_display_/encode_/copy_fence_` üyelerini
+   `GpuResourceManager`'dan kaldır (veya gerçekten preview-benzeri keyed mutex
+   isteniyorsa ayrı tasarım). Kendi commit'i.
+4. **I28**: kod değişikliği muhtemelen YOK — "kasıtlı UNDEFINED" kararını belgelemek
+   yeterli olabilir; önce bunun gerçek bir VUID/validation sorunu üretip üretmediği
+   validation-layer ile doğrulanmalı.
+5. **I2/I3**: preview yolunda `use_keyed_mutex_=false` (AMD'de `VK_KHR_win32_keyed_mutex`
+   yoksa) fallback senkronizasyon doğruluğu — ayrı inceleme. Encode yolu (CPU memcpy)
+   çalışıyor ama yavaş; ayrı performans konusu.
+
+**Tek commit adayı:** yok. Her biri ayrı. En fazla I30 (ölü üye temizliği) ile I28
+(dokümantasyon) belge tarafında birleştirilebilir.
+
+### Adım 0 skill fix — re-validation (ÖNEMLİ)
+
+Talimatın verdiği diff aynen uygulandı (commit `5972724`). Ancak keşif, talimatın
+**yeni** metninin de tam doğru olmadığını gösterdi:
+- ✓ DOĞRU: eski "`same_adapter_ = true` hardcode" iddiası bayattı; LUID
+  karşılaştırması gerçek, `same_adapter=false` (runtime log doğruladı).
+- ✗ HÂLÂ YANLIŞ: yeni metindeki "cross-adapter yolu (`create_cross_adapter_shared`)
+  **devrede**" ifadesi. `create_cross_adapter_shared()` çağrılıyor ama runtime'da
+  `CreateTexture2D` E_INVALIDARG (0x80070057) ile düşüyor → gerçek aktif encode yolu
+  **CPU-fallback (memcpy)**. Doğru ifade: "cross-adapter dalı seçiliyor ama referans
+  donanımda CreateTexture2D başarısız → `use_cpu_fallback_=true`; keyed mutex/NT
+  paylaşımı bu topolojide fiilen devrede DEĞİL."
+- **Öneri:** skill push'undan önce metni bu daha doğru haliyle güncelle.
