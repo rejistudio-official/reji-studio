@@ -1048,3 +1048,43 @@ Talimatın verdiği diff aynen uygulandı (commit `5972724`). Ancak keşif, tali
   donanımda CreateTexture2D başarısız → `use_cpu_fallback_=true`; keyed mutex/NT
   paylaşımı bu topolojide fiilen devrede DEĞİL."
 - **Öneri:** skill push'undan önce metni bu daha doğru haliyle güncelle.
+
+## Oturum: 09 Temmuz 2026 — V8/I32 invalidate_pool() Üçlü-Free Düzeltmesi
+
+### Bağlam
+I29 keşfinin yan bulgusu (I32): `external_memory_bridge.zig`'deki 3-slotlu image
+pool, tek NT-handle import'undan gelen AYNI fiziksel `VkImage`/`VkDeviceMemory`'yi
+üç slota da alias ediyor (`ext_bridge_get_frame_images` satır ~373 tüm slotlara aynı
+değeri kopyalıyor). Ama `invalidate_pool()` her slotu bağımsız sanıp üçünde de ayrı
+`vkDestroyImage`+`vkFreeMemory` çağırıyordu → çözünürlük değişimi/reinit'te üçlü-free,
+UB / potansiyel heap corruption.
+
+### Yapılan Düzeltme
+- `invalidate_pool()` (`external_memory_bridge.zig`): image/memory free'si artık
+  `image_pool[0]` (kanonik) üzerinden BİR KEZ; ardından üç slot da null'lanıyor.
+  Sıra korundu (önce image, sonra memory — E14 dersi).
+
+### D3D11 NT handle araştırması (talimat madde 2) — SONUÇ
+`state.d3d11_nt_handles` **alias DEĞİL**, mevcut per-handle `CloseHandle` döngüsü
+DOĞRU → **dokunulmadı**. Kod izleme gerekçesi:
+- `d3d11_nt_handles[slot]` yalnızca `create_vulkan_image_from_d3d11` (satır ~252),
+  çağrı başına TEK slot için doldurulur.
+- O fonksiyon yalnızca `ext_bridge_get_frame_images` (satır ~366) `tex` değişince
+  çağrılır; her çağrı TEK bir `CreateSharedHandle` (satır ~242) üretir.
+- Windows NT handle'ları değer-alias mantığıyla çalışmaz — her `CreateSharedHandle`
+  ayrı kernel referansı; ayrı `CloseHandle` şart. Üstelik texture başına yalnızca
+  TEK slot dolduğundan (diğerleri invalidate sonrası null) çift-kapatma riski hiç yok.
+- Bu, `image_pool`'un durumundan (satır 373-377'de aynı değer 3 slota AÇIKÇA
+  kopyalanıyor) yapısal olarak farklı; o yüzden biri tekilleştirildi, diğeri korundu.
+- Korele kanıt: `external_memory_bridge.cpp:78-81` `get_shared_texture_memory`
+  yorumu — "All pool slots share the same imported D3D11 texture memory; slot 0 is
+  canonical." Alias tasarımını doğruluyor.
+
+### Doğrulama
+- `zig build ext-bridge-check -Dvulkan-sdk=C:/VulkanSDK/1.4.350.0` → exit 0 (temiz).
+- `ctest --test-dir build` → 5/7 geçti; başarısız yalnızca bilinen 2
+  (FrameProfilerTest, ShaderCacheTest) — yeni kırılma yok, GPU bridge ile ilgisiz.
+- Sınır: `invalidate_pool()` private + canlı `VkDevice` gerektiren static-state
+  fonksiyonu; harness'ta çift-çağrı birim testi pratik değil. Runtime çözünürlük
+  değişimi senaryosu + validation layer double-free VUID karşılaştırması çift-GPU
+  referans donanımda ayrıca yapılmalı (henüz yapılmadı).

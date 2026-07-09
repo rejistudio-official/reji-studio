@@ -272,18 +272,30 @@ fn invalidate_pool() void {
     if (state.device != null) {
         _ = vk.vkDeviceWaitIdle(state.device);
     }
-    // Önce image'lar, sonra memory — E14 dersi
-    for (&state.image_pool) |*slot| {
-        if (slot.image != null) {
-            vk.vkDestroyImage(state.device, slot.image, null);
-            slot.image = null;
-        }
-        if (slot.memory != null) {
-            vk.vkFreeMemory(state.device, slot.memory, null);
-            slot.memory = null;
-        }
+    // I32 düzeltmesi: 3 slot AYNI fiziksel VkImage/VkDeviceMemory'yi alias
+    // ediyor — get_frame_images (satır ~373) tek NT-handle import'unun sonucunu
+    // tüm slotlara aynı değerle kopyalıyor. Bu yüzden free BİR KEZ yapılmalı,
+    // slot başına DEĞİL; aksi halde üçlü-free → undefined behavior / heap
+    // corruption. Önce image, sonra memory (E14 dersi, sıra korunuyor).
+    // slot[0] kanonik (bkz. external_memory_bridge.cpp get_shared_texture_memory
+    // yorumu: "All pool slots share the same imported D3D11 texture memory").
+    if (state.image_pool[0].image != null) {
+        vk.vkDestroyImage(state.device, state.image_pool[0].image, null);
     }
-    // D3D11 NT handle'larını kapat
+    if (state.image_pool[0].memory != null) {
+        vk.vkFreeMemory(state.device, state.image_pool[0].memory, null);
+    }
+    for (&state.image_pool) |*slot| {
+        slot.image = null;
+        slot.memory = null;
+    }
+    // D3D11 NT handle'ları: image_pool'un AKSİNE alias DEĞİL. Her biri ayrı bir
+    // CreateSharedHandle çağrısından gelir (satır ~242) — Windows NT handle'ları
+    // değer-alias mantığıyla çalışmaz, her CreateSharedHandle ayrı kernel
+    // referansı üretir ve ayrı CloseHandle ister. Üstelik get_frame_images
+    // texture başına yalnızca TEK slotu doldurur (diğerleri invalidate sonrası
+    // null kalır), dolayısıyla çift-kapatma riski de yok. Bu döngü DOĞRU —
+    // I32'de bilinçli olarak dokunulmadı (talimat madde 2 doğrulaması).
     for (&state.d3d11_nt_handles) |*h| {
         if (h.*) |handle| {
             _ = std.os.windows.CloseHandle(handle);
