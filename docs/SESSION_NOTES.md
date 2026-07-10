@@ -1349,3 +1349,72 @@ Sürekli/tekrarlayan kopya yolu doğrulandı, ama "farklı içerikli bir sahnede
 sonra aynı slotu yeniden kullanma" özel durumu kapsanmadı. Gelecekte fırsat olursa
 (`Remove-Item vvl_output.txt` + sahne değişimli koşu) tamamlanabilir — **blocker
 değil**.
+
+---
+
+## V8 I2/I3 — Gerçek Durum Tespiti (2026-07-10)
+
+**Yöntem:** Uygulama gerçek dual-GPU donanımda (AMD 780M iGPU + RTX 4070 dGPU)
+`VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` ile çalıştırıldı, ~8 sn normal
+açılış+preview, nazik kapanış. **Kod değişikliği YOK** — yalnız çalıştır-gözlemle.
+
+**Log yakalama gotcha'sı (önemli):** `-RedirectStandardError` / `2>&1 | Tee-Object`
+ile stderr yakalamak **0 bayt** verdi. Sebep: `src/ui/main.cpp:64`
+`freopen("C:\\reji-studio\\run.log", "w", stderr)` — app açılışta stderr'i kendi
+`run.log`'una yönlendiriyor, dışarıdan verilen redirect handle'ını ezerek. **Tüm
+`fprintf(stderr)` teşhisi `C:\reji-studio\run.log`'ta** (dbglog ayrı → OutputDebugString/
+DBWIN). Doğru yakalama rotası bu oturumda kesinleşti: `run.log` oku, harici redirect değil.
+
+### Bulgu 1 — `use_keyed_mutex = 1` (TRUE), seçilen Vulkan cihazı **AMD 780M**
+
+`run.log` kanıtı:
+```
+[VulkanZig] Selected: vendorID=0x1002          ← AMD 780M seçildi (NVIDIA DEĞİL)
+[VulkanZig] Device created, keyed_mutex=true    ← use_keyed_mutex = TRUE
+[CapabilityDetector] Using Vulkan (vendor: 0x1002)
+[PreviewWidget] render path: Vulkan (vendor=0x1002)
+```
+- **AMD 780M, `VK_KHR_win32_keyed_mutex`'i GERÇEKTEN destekliyor** — hem runtime
+  (`keyed_mutex=true`, `check_extension_available` → true) hem bağımsız `vulkaninfo`
+  (AMD device-ext bloğunda `VK_KHR_win32_keyed_mutex : extension revision 1`) ile
+  çift doğrulandı. NVIDIA RTX 4070 de destekliyor (vulkaninfo, revision 1) — ama app'in
+  Vulkan instance'ı bu hibrit konfigde yalnız AMD'yi enumere ediyor (NVIDIA dGPU Vulkan'a
+  görünmüyor), o yüzden `select_device` skorlaması (NVIDIA 210 > AMD 100) NVIDIA'yı
+  seçmiyor → fiili seçim AMD.
+- **NOT (kavram düzeltmesi):** `pipeline.cpp`'deki `[Pipeline] notify_vulkan_ready:
+  set_use_keyed_mutex=%d` ve `[Pipeline] VulkanInit: device=...` fprintf'leri `run.log`'ta
+  **HİÇ YOK** — çünkü bunlar `if (s.capture_sub_.dxgi())` dalı içinde ve aktif capture
+  **WGC** (aşağı bkz.), yani `dxgi()` == null → dal atlanıyor. Vulkan-seviyesi keyed-mutex
+  bayrağı (zig) açık; DXGI-seviyesi `set_use_keyed_mutex()` çağrısı çalışmıyor.
+
+### Bulgu 2 — `KeyedMutex timeout/fail` HİÇ görülmedi (ama path da aktif değil)
+
+- `run.log`'ta `KeyedMutex timeout` / `[Capture] ... fail` **0 eşleşme**. Koşu temiz
+  (`[Pipeline] shutdown clean`, tüm frame'lerde `drop=0%`).
+- **Kritik reframe:** V8'in orijinal I3 senaryosu — `capture_dxgi.cpp:373`
+  `keyed_mutex_shared_->AcquireSync(0, 16)`'nın paint araları 16 ms timeout'a girmesi —
+  **aktif kod yolunda DEĞİL.** Runtime capture backend'i **WGC (Windows Graphics Capture)**:
+  ```
+  [WgcCapture] NVIDIA adapter: NVIDIA GeForce RTX 4070 Laptop GPU
+  [WgcCapture] Session started  1920x1080
+  ```
+  `IScreenCapture::create()` (screen_capture_factory.cpp) **WGC-tercihli, DXGI-fallback**;
+  WGC başarılı → `capture_` bir `WgcScreenCapture`, `capture_sub_.dxgi()` cast'i null →
+  `capture_dxgi.cpp`'nin `AcquireSync` + `[Capture] KeyedMutex timeout/fail` fprintf yolu
+  tamamen **ölü**. Yani "timeout görülmedi" = path hiç çalışmadı, yük altında test edilmedi.
+- Aktif keyed-mutex Vulkan **copy_optimizer** seviyesinde (`VkWin32KeyedMutexAcquireReleaseInfoKHR`,
+  `has_keyed_mutex = vulkan_init->use_keyed_mutex()`); bu seviyede de hata/uyarı loglanmadı.
+
+### Runtime GPU topolojisi (bu koşuda gözlemlenen)
+- **Capture (WGC):** NVIDIA RTX 4070 D3D11 (capture_wgc.cpp NVIDIA adapter seçer)
+- **Encode (NVENC):** NVIDIA — `[NVENC] Ready 1920x1080@60`
+- **Vulkan interop + OpenGL/display:** AMD 780M (`Selected vendorID=0x1002`, `[GL Caps]
+  Renderer: AMD Radeon 780M`)
+- Yani veri akışı NVIDIA(WGC/D3D11) → AMD(Vulkan) → AMD(GL) — **cross-adapter**;
+  eski "DXGI duplication AMD" notu artık WGC-NVIDIA ile değişmiş. `same_adapter=false` teyit.
+
+### Açık kalan (dürüstlük notu)
+DXGI backend'i (dolayısıyla `capture_dxgi` keyed-mutex `AcquireSync` yolu) yalnız WGC
+başarısız olursa devreye girer; bu makinede WGC hep başarılı. V8 I3'ün "AcquireSync 16 ms
+timeout" hipotezi ancak DXGI-fallback zorlanarak (WGC'yi devre dışı bırakıp) test edilebilir
+— bu koşuda kapsanmadı, **blocker değil** (aktif yol WGC ve temiz çalışıyor).
