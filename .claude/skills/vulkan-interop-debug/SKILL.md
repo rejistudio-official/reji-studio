@@ -54,6 +54,13 @@ Aşağıdakiler **yalnız** `DxgiScreenCapture` seçilirse geçerlidir:
   - (B) Preview `capture_dxgi.cpp` `shared_texture_`→Vulkan→GL (hepsi AMD iGPU, cross-vendor
     DEĞİL): gerçek keyed-mutex `AcquireSync`/`ReleaseSync` (satır ~373/381).
 
+> **Cross-vendor zero-copy KAPALI KONU (araştırma 10.07):** Cross-vendor (AMD+NVIDIA)
+> zero-copy D3D11 paylaşımı denenmiş ve `E_INVALIDARG` ile başarısız — bu, endüstri
+> çapında bilinen bir D3D/hibrit-GPU sınırlaması (OBS Studio dâhil kimse çözememiş; OBS
+> resmî dokümanı "OBS can only run on one of these GPUs" der ve çok-GPU'da tam olarak
+> Reji'nin kullandığı WGC yöntemini önerir), **Reji'ye özgü bir bug değil.** Bu yönde
+> tekrar araştırma yapmadan önce bu notu oku. Detay: FABLE5_BUG_PLAN_V8 I2 satırı.
+
 ### Render path (her iki yolda ortak — capture backend'inden bağımsız)
 `selectRenderPath()` **display** vendor'ına göre seçer (`display_vendor_id()`, init sonrası
 bir kez, GL thread'de): NVIDIA (0x10DE) → `kNvDxInterop` stub (fiilen PBO çalışır); diğer →
