@@ -1261,15 +1261,24 @@ Barrier (`copy_optimizer.cpp:204-218`): `oldLayout=UNDEFINED`,
 python scripts\build.py --config Debug --target reji_app
 ::    (eşdeğeri: `just shield`'in ilk satırı da Debug build yapar)
 
-:: 2a) YAKALAMA — DebugView (ÖNERİLEN, GUI için güvenilir):
+:: 2) YAKALAMA — iki yol. ⚠️ Düz `just run > dosya 2>&1` VUID YAKALAMAZ:
+::    build.py exe'yi yakalamasız çalıştırır, GUI'de stderr detach olabilir.
+::    Aşağıdaki A (dosya-log) veya B (DebugView) yolunu kullan.
+::
+:: 2A) ÖNERİLEN — VVL kendi dosyasına yazsın (stderr'den bağımsız, deterministik;
+::     REJI_RTMP_LOG deseninin Vulkan eşdeğeri). C:\reji-studio köküne
+::     vk_layer_settings.txt oluştur (loader otomatik bulur):
+::       khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG
+::       khronos_validation.log_filename  = C:\reji-studio\vvl_output.txt
+::       khronos_validation.report_flags  = error,warn,perf
+::     sonra exe'yi doğrudan çalıştır → VUID'ler vvl_output.txt'e yazılır:
+build\src\ui\reji_app.exe
+
+:: 2B) ALTERNATİF — DebugView (canlı izleme, kurulumsuz):
 ::     Sysinternals DebugView'i Yönetici olarak aç; Capture menüsü:
 ::       [x] Capture Win32   [x] Capture Global Win32
 ::     sonra exe'yi doğrudan çalıştır (build.py --run yakalamaz, o yüzden elle):
 build\src\ui\reji_app.exe
-
-:: 2b) ALTERNATİF — stdout+stderr dosyaya (redirect handle-inheritance ile çalışır;
-::     VVL sürümü stdout'a basıyorsa yakalar, basmıyorsa 2a'yı kullan):
-build\src\ui\reji_app.exe > vulkan_validation_output.txt 2>&1
 
 :: 3) En az 10-15 sn NORMAL çalıştır: preview aktifken 2-3 sahne değişimi yap
 ::    (VUID'ler genelde ilk birkaç karede veya sahne geçişinde tetiklenir)
@@ -1285,19 +1294,22 @@ build\src\ui\reji_app.exe > vulkan_validation_output.txt 2>&1
 ::    Şüpheliyse RenderDoc/Nsight ile tek kare capture al (SKILL adım 5).
 ::    Bu adım VVL'nin GÖREMEDİĞİ içerik-korunumu eksenini kanıtlar — atlanamaz.
 
-:: 5) VUID/barrier hatası ara:
-findstr /i "VUID VkImageMemoryBarrier oldLayout QueueFamily" vulkan_validation_output.txt
-::    (DebugView kullandıysan: DebugView içinde "VUID" ara, ya da
+:: 5) VUID/barrier hatası ara (2A kullandıysan hedef vvl_output.txt):
+findstr /i "VUID VkImageMemoryBarrier oldLayout QueueFamily error" vvl_output.txt
+::    (2B/DebugView kullandıysan: DebugView içinde "VUID" ara, ya da
 ::     File > Save As ile log'u kaydedip yukarıdaki findstr'i uygula)
 ```
 
 **RELEASE build'de test etmek zorundaysan** (Debug alınamıyorsa) — layer'ı loader'dan
-enjekte et:
+enjekte et. ⚠️ `-DRJ_VALIDATION=ON` ve `RJ_ENABLE_VULKAN_VALIDATION` env var **ÖLÜ**:
+`src/pipeline/CMakeLists.txt:159-165`'te tanımlı ama kaynak kodda okunmuyor
+(aktif `vulkan_initializer.zig` yalnızca `builtin.mode == .Debug`'a bakar). Release'te
+validation açmanın tek yolu loader env var'ı; yakalama için 2A (vk_layer_settings.txt).
 ```bat
 set VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
 ::   (yeni SDK loader alternatifi: set VK_LOADER_LAYERS_ENABLE=*validation)
-build\src\ui\reji_app.exe > vulkan_validation_output.txt 2>&1
-```
+::   Yakalama: yukarıdaki 2A vk_layer_settings.txt → vvl_output.txt (en güvenilir)
+build\src\ui\reji_app.exe
 
 ### Karar matrisi — İKİ eksen birden gerekli (VUID + görsel), tek başına yetmez
 I28 ancak **her iki eksen** de temizse tam kapanır. VVL API-yasallığını, görsel

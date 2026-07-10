@@ -59,11 +59,28 @@ noktasıdır — genel Vulkan bilgisiyle değil, buradaki gerçeklerle başla.
    - **Release build'de (default!) manuel:** layer app tarafından açılmaz →
      `set VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` ile loader'dan enjekte et
      (yeni SDK alternatifi: `set VK_LOADER_LAYERS_ENABLE=*validation`).
+   - **⚠️ ÖLÜ FLAG'LER — kullanma:** `RJ_VALIDATION` (CMake `-D...=ON`) ve
+     `RJ_ENABLE_VULKAN_VALIDATION` (env var) yalnızca `src/pipeline/CMakeLists.txt:159-165`
+     yorum/tanımında var; **kaynak kodun hiçbir yerinde okunmuyor** (aktif giriş yolu
+     `vulkan_initializer.cpp` yalnızca FFI sarmalayıcı → `vulkan_init_*`; asıl instance
+     `vulkan_initializer.zig` `builtin.mode == .Debug`'a bakar, bu iki bayrağa DEĞİL).
+     Yani Release'te validation'ı açmanın tek yolu yukarıdaki loader env var'ı — CMake
+     flag'i ya da `RJ_ENABLE_...` env var'ı Release'te validation açmaz.
    - **⚠️ Debug messenger YOK** (kod tabanında `vkCreateDebugUtilsMessenger` sıfır):
      VUID mesajları uygulama callback'ine düşmez, VVL'nin varsayılan çıkışına gider.
      GUI'de stderr detach olabildiği için **DebugView (Sysinternals, OutputDebugString)
      asıl güvenilir yakalama yoludur** (Capture Win32 + Capture Global Win32); stdout
      redirect ikincil (VVL sürümüne bağlı).
+   - **Deterministik dosya-log (REJI_RTMP_LOG eşdeğeri):** VVL'nin kendi dosya
+     çıktısı stderr detach'ından etkilenmez. Çalışma dizinine (`C:\reji-studio`)
+     `vk_layer_settings.txt` koy — loader otomatik bulur:
+     ```
+     khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG
+     khronos_validation.log_filename  = C:\reji-studio\vvl_output.txt
+     khronos_validation.report_flags  = error,warn,perf
+     ```
+     VUID'ler doğrudan `vvl_output.txt`'e yazılır; app'in stderr'ine hiç bağlı değil.
+     `just run`/GUI çıktı yakalama sorunu olan senaryolar için en güvenilir yol budur.
    Çıkan **VUID kodunu** aynen not et — düzeltme commit'inde referans ver
    (ev stili: V7-H1'deki gibi `VUID-vkResetCommandBuffer-commandBuffer-00045`).
 3. **Sınıflandır:** senkronizasyon mu (semaphore/mutex/barrier), yaşam döngüsü mü
