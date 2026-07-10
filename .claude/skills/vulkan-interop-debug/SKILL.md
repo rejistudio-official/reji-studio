@@ -45,9 +45,25 @@ noktasıdır — genel Vulkan bilgisiyle değil, buradaki gerçeklerle başla.
 
 ## Standart ayıklama prosedürü
 
-1. **Reprodüksiyon + log:** `just run` → `run.log`. `findstr /i "HATA DEVICE_LOST recovery"` ile ilk hata anını bul. İlk hatadan SONRAKİ hatalar genelde kaskaddır — köke odaklan.
-2. **Validation layer'ı aç** (debug build):
-   `set VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` (veya vkconfig ile).
+1. **Reprodüksiyon + log:** Uygulama stderr'ini (`fprintf`/`std.debug.print` →
+   `HATA`/`DEVICE_LOST`/`recovery`) yakalamak için **açık redirect gerekir**:
+   `build\src\ui\reji_app.exe > run.log 2>&1` (veya `just run > run.log 2>&1`).
+   ⚠️ Düz `just run` (redirect'siz) uygulama çıktısını run.log'a YAZMAZ —
+   `build.py` exe'yi yakalamasız çalıştırır, run.log'a yalnızca build satırını
+   ekler. `findstr /i "HATA DEVICE_LOST recovery" run.log` ile ilk hata anını bul;
+   sonraki hatalar genelde kaskaddır — köke odaklan.
+2. **Validation layer'ı aç** — build tipine göre iki yol:
+   - **Debug build'de OTOMATİK** (`vulkan_initializer.zig:45-65`): layer app
+     tarafından `ppEnabledLayerNames` ile açılır, env var GEREKMEZ. Debug build:
+     `python scripts\build.py --config Debug` (veya `just shield`'in ilk satırı).
+   - **Release build'de (default!) manuel:** layer app tarafından açılmaz →
+     `set VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` ile loader'dan enjekte et
+     (yeni SDK alternatifi: `set VK_LOADER_LAYERS_ENABLE=*validation`).
+   - **⚠️ Debug messenger YOK** (kod tabanında `vkCreateDebugUtilsMessenger` sıfır):
+     VUID mesajları uygulama callback'ine düşmez, VVL'nin varsayılan çıkışına gider.
+     GUI'de stderr detach olabildiği için **DebugView (Sysinternals, OutputDebugString)
+     asıl güvenilir yakalama yoludur** (Capture Win32 + Capture Global Win32); stdout
+     redirect ikincil (VVL sürümüne bağlı).
    Çıkan **VUID kodunu** aynen not et — düzeltme commit'inde referans ver
    (ev stili: V7-H1'deki gibi `VUID-vkResetCommandBuffer-commandBuffer-00045`).
 3. **Sınıflandır:** senkronizasyon mu (semaphore/mutex/barrier), yaşam döngüsü mü
