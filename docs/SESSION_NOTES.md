@@ -1494,3 +1494,70 @@ Display AMD 780M'de (`[GL Caps] Renderer: AMD Radeon 780M`).
 Gerçek aktif topoloji: **WGC-NVIDIA capture, NVENC-NVIDIA encode, CPU-bounce AMD-GL preview**.
 `same_adapter=false` hâlâ geçerli ama sebep farklı; keyed-mutex zero-copy zincirinin tamamı
 şu an devre dışı (WGC seçildiği sürece). DXGI zero-copy yolu yalnız WGC başarısızsa canlanır.
+
+---
+
+## Oturum: 10 Temmuz 2026 — V8/I6+I7+I12+I13 (GL/Vulkan shutdown & frame sırası)
+
+### Bağlam
+Aynı "GL/Vulkan shutdown ve frame sırası" bölgesindeki dört madde birlikte ele
+alındı. Talimat iki aşamalı: önce doğrulama, sonra gerçekten boşluk olan yerlere
+düzeltme. Sonuç: **2 doğrulama (I7, I13 — kod değişmedi), 2 düzeltme (I6, I12).**
+
+### I7 — DOĞRULANDI (zaten çözülmüş, yinelenen madde)
+`wasapi_capture.cpp::shutdown()` içindeki **D16 (V3 Sprint 3)** UAF sorununu zaten
+kapatmış. Koddaki sıra `clear_owner()` ÖNCE → `Unregister` SONRA — V8/I7'nin
+önerdiği "Unregister önce"nin tersi, ama **farklı ve geçerli** bir strateji:
+`DeviceNotifyClient`'in tüm callback'leri (`OnDefaultDeviceChanged`,
+`OnDeviceRemoved`, `OnDeviceStateChanged`) başlarken `owner_`'ı atomic yükleyip
+`nullptr` ise erken dönüyor; `OnDeviceAdded`/`OnPropertyValueChanged` owner_'a hiç
+dokunmuyor. clear_owner() sonrası callback tetiklense bile dangling pointer
+dereference edilmez — `Unregister`'ın bloklayıcı olmasına bağımlı değil. Gerçek
+boşluk yok. **Kod değişmedi.**
+
+### I6 — DÜZELTILDI (alive_ atomic flag)
+`is_copy_ready()` SEH ile sarılı; SEH stale handle'a erişimde access violation'ı
+yakalar AMA `device_` "serbest bırakılmış ama geçerli görünen" belleğe işaret
+ederse driver çağrısı **sessiz UB**'dir (SEH göremez). Ayrıca `if(!device_)`
+kontrolü ile `pfn_wait_semaphores_(device_,...)` arasında TOCTOU var. Çözüm:
+`std::atomic<bool> alive_{true}` üyesi. `shutdown()` en başında `false`,
+`is_copy_ready()` en başında kontrol, `init()` yeniden `true` (re-init desteği).
+Handle durumundan bağımsız, ucuz erken çıkış — I12 ile birlikte savunma katmanı.
+
+### I12 — DÜZELTILDI (referans koparma)
+`~MainWindow()`: `stopFrameThread()` SONRASI, `copy_optimizer_.shutdown()` ÖNCESİ
+`preview_widget_->setCopyOptimizer(nullptr)` + `setBridge(nullptr)` eklendi.
+Setter'lar borrowed raw pointer tutuyor. paintGL GUI thread'inde çalışır; referans
+aynı thread'de (dtor) koparıldıktan sonra torn-down optimizer'a çağrı yapılamaz.
+(Not: Fable'in taslağındaki `pipeline_->shutdown()` satırı bu projede yok — pipeline
+ayrı sahiplenilmiyor.)
+
+### I13 — DOĞRULANDI (zaten gate'li)
+`current_pool_idx_ = copy_optimizer_->last_used_slot()` (preview_widget.cpp:476-477);
+`last_used_slot_` sadece **başarılı submit'ten SONRA** güncellenir
+(copy_optimizer.cpp:394). Yani render, o anki `execute_copy`'nin yazdığı yeni slot'u
+değil bir önceki paintGL'de submit edilmiş slot'u örnekler → tam bir frame önce
+gönderilmiş, tamamlanmış/tamamlanmakta olan slot. Üstelik çizimden önce (satır
+584-590) o slot'un GL sync semaphore'unda `glWaitSemaphoreEXT` ile GPU-tarafı sert
+bekleme yapılır. İlk-kullanım/slot-değişiminde bile tamamlanmamış blit örneklenmez.
+`is_copy_ready()` poll'u yalnızca pacing içindir; asıl gate GL semaphore beklemesi.
+**Kod değişmedi.**
+
+### Test & Doğrulama
+- **Build:** `py scripts/build.py --target reji_app --config Release` → OK (47.7s),
+  sadece önceden var olan uyarılar.
+- **ctest:** 5/7 geçti; başarısız 2 (`FrameProfilerTest`, `ShaderCacheTest`) bilinen
+  baseline — timing/hash testleri, shutdown koduyla ilgisiz. Yeni kırılma yok.
+- **Manuel GUI shutdown testi:** app 8s çalıştı, graceful WM_CLOSE (`taskkill` /F'siz)
+  → exit 0. run.log sırası doğrulandı: `setCopyOptimizer(0x0)` → `setBridge(0x0)` →
+  `[GpuCopyOptimizer] Shutdown complete` → `Pipeline shutdown clean`. run.log'da
+  SEH / access violation / VUID / ERROR / timeout **yok**.
+- **Açık minör:** `alive_` flag'inin race'i gerçekten kapattığını kanıtlayan
+  throw/assert enjeksiyon deneyi (I27 tarzı) yapılmadı — flag mantığı trivial
+  (`if(!alive_) return false`) ve temiz shutdown regresyon göstermedi; blocker değil.
+
+### Değişen dosyalar
+- `src/pipeline/copy_optimizer.h` — `alive_` üyesi
+- `src/pipeline/copy_optimizer.cpp` — init/shutdown/is_copy_ready'de alive_
+- `src/ui/main_window.cpp` — ~MainWindow'da referans koparma
+- `docs/FABLE5_BUG_PLAN_V8.md` — I6/I7/I12/I13 işaretlendi

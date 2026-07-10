@@ -43,14 +43,14 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I33 | I1'den ayrıştırıldı (09.07) | rj_action_approve() hâlâ stub — CoPilot modunda gerçek kullanıcı onayı yok, her zaman "1" (onaylandı) dönüyor. AutoPilot etkilenmiyor (onay gerektirmez), ama CoPilot modu yanıltıcı | ffi.rs | Yuksek | Sprint 2 |
 | I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali **[DÜZELTILDI]** | copy_optimizer.cpp | Kritik | Sprint 1 |
-| I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores | copy_optimizer.cpp | Kritik | Sprint 1 |
-| I7  | Fable       | WasapiCapture shutdown — callback UAF penceresi (Unregister sirasi yanlis) | wasapi_capture.cpp | Kritik | Sprint 1 |
+| I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores **[DÜZELTILDI 10.07: alive_ atomic flag eklendi — SEH sadece AV yakalar, stale-ama-gecerli-gorunen handle sessiz UB kalirdi; flag handle'dan bagimsiz erken cikis]** | copy_optimizer.cpp | Kritik | Sprint 1 |
+| I7  | Fable       | WasapiCapture shutdown — callback UAF penceresi (Unregister sirasi yanlis) **[DOĞRULANDI 10.07: D16 (V3 Sprint 3) ile ZATEN ÇÖZÜLMÜŞ — yinelenen madde, kod degismedi. clear_owner-once stratejisi Unregister-once'tan FARKLI ama gecerli: tum callback'ler owner_'i atomic yukleyip null ise erken donuyor, Unregister'in bloklayici olmasina bagimli degil]** | wasapi_capture.cpp | Kritik | Sprint 1 |
 | I8  | Fable+Opus  | WS sunucusu auth'suz — drive-by stream kill saldiri vektoru | ws_server.rs | Yuksek | Sprint 2 |
 | I9  | Fable+Opus  | CoUninitialize() RPC_E_CHANGED_MODE'da kosulsuz cagriliyor (2 yerde) | command_router.cpp | Yuksek | Sprint 2 |
 | I10 | Fable+Opus  | SEH filtreleri EXCEPTION_ACCESS_VIOLATION/stack overflow yutuyor | command_router.cpp, wasapi_capture.cpp, +4 dosya | Yuksek | Sprint 2 |
 | I11 | Opus        | Cift consumer race — C++ action thread (100ms poll) + UI'nin kendi 200ms poll'u ayni kuyruğu yariyor | command_router.cpp, main_window.cpp | Yuksek | Sprint 2 |
-| I12 | Fable       | MainWindow yikim sirasi — GL widget paintGL yaparken copy_optimizer_.shutdown() cagrilabiliyor | main_window.cpp | Yuksek | Sprint 2 |
-| I13 | Opus        | GL render tamamlanmamis Vulkan blit sonucunu orneklyebiliyor — ilk kare sira hatasi | preview_widget.cpp | Yuksek | Sprint 2 |
+| I12 | Fable       | MainWindow yikim sirasi — GL widget paintGL yaparken copy_optimizer_.shutdown() cagrilabiliyor **[DÜZELTILDI 10.07: ~MainWindow'da stopFrameThread sonrasi, shutdown oncesi preview_widget_->setCopyOptimizer(nullptr)+setBridge(nullptr) eklendi — paintGL GUI thread'inde, referans koparildiktan sonra torn-down optimizer'a cagri yok. run.log sever→Shutdown-complete sirasi dogrulandi]** | main_window.cpp | Yuksek | Sprint 2 |
+| I13 | Opus        | GL render tamamlanmamis Vulkan blit sonucunu orneklyebiliyor — ilk kare sira hatasi **[DOĞRULANDI 10.07: ZATEN GATE'LI — current_pool_idx_=last_used_slot() bir onceki submit'in slot'unu gosterir (execute_copy yeni slot'a yazar), render'dan once o slot'un GL sync semaphore'unda glWaitSemaphoreEXT ile GPU-tarafi bekleme (preview_widget.cpp:584-590). Kod degismedi]** | preview_widget.cpp | Yuksek | Sprint 2 |
 | I14 | Fable       | rj_metrics_poll deklare edilmis ama Rust implementasyonu yok — UI metrik barı muhtemelen hic guncellenmiyor | ffi_bridge.h, main_window.cpp | Yuksek | Sprint 2 |
 | I15 | Fable+Opus  | rj_metrics_push hot-path'te mutex+heap alloc+String clone (RT ses/SRT thread) | ffi.rs | Orta | Sprint 3 |
 | I16 | Fable+Opus  | query_gpu_load_pct her 1Hz pollde vector alloc | metrics_collector.cpp | Orta | Sprint 3 |
@@ -530,6 +530,17 @@ if (r == VK_SUCCESS) {
 
 ### I6 — is_copy_ready() Shutdown ile Yarisiyor (Olu Device Erisimi)
 
+> **DÜZELTILDI 10.07:** `alive_` atomic flag'i eklendi. Analiz: mevcut SEH
+> (`__try`/`__except`) `device_` stale bir handle'a donusurse olusan access
+> violation'i yakalar, AMA `device_` "serbest birakilmis ama gecerli gorunen"
+> bellek adresi tasiyorsa (freed VkDevice memory reused) driver cagrisi sessiz
+> UB'dir ve SEH bunu goremez. Ayrica `is_copy_ready()` icinde `if(!device_...)`
+> kontrolu ile `pfn_wait_semaphores_(device_,...)` cagrisi arasinda TOCTOU
+> penceresi var. `alive_` flag'i (shutdown() en basinda `false`, is_copy_ready()
+> en basinda kontrol) handle durumundan bagimsiz, ucuz bir erken cikis saglar —
+> savunma katmani olarak I12 (referans koparma) ile birlikte. Manuel GUI shutdown
+> testinde temiz kapanis (exit 0, run.log'da SEH/AV yok).
+
 **Kaynak:** Opus 4.8 (1.5) — tek kaynak, gercek crash riski.
 
 **Sorun:**
@@ -555,6 +566,20 @@ if (!alive_.load(std::memory_order_acquire)) return false;
 ---
 
 ### I7 — WasapiCapture Shutdown Callback UAF Penceresi
+
+> **DOĞRULANDI 10.07: D16 (V3 Sprint 3) ile ZATEN ÇÖZÜLMÜŞ — yinelenen madde,
+> kod degismedi.** V8 yazilirken guncel kod kontrol edilmemis. Koddaki sira
+> (`clear_owner()` ONCE → `Unregister` SONRA) bu maddenin onerdiginin (`Unregister`
+> once) TERSI, ama gecerli ve FARKLI bir stratejidir: `DeviceNotifyClient`'in
+> TUM callback'leri (`OnDefaultDeviceChanged`, `OnDeviceRemoved`,
+> `OnDeviceStateChanged`) baslarken `owner_`'i atomic yukleyip `nullptr` ise
+> `S_OK` ile hemen donuyor; `OnDeviceAdded`/`OnPropertyValueChanged` owner_'a hic
+> dokunmuyor. Yani clear_owner()'dan sonra bir callback tetiklense bile
+> `owner_==nullptr` okuyup hicbir sey yapmaz — dangling WasapiCapture pointer'ini
+> asla dereference etmez ve `wake_event_`'e dokunmaz. Bu strateji `Unregister`'in
+> bloklayici olmasina bagimli DEGIL. Onerilen "Unregister-once" cozumu Unregister'in
+> in-flight callback'i beklemesine guvenirdi; D16 cozumu buna hic ihtiyac duymaz.
+> Gercek bir bosluk bulunmadi.
 
 **Kaynak:** Fable 5 (1.6) — tek kaynak, net UAF senaryosu.
 
@@ -696,6 +721,17 @@ farkli uclarinda.
 
 ### I12 — MainWindow Yikim Sirasi (GL Widget / Optimizer Race)
 
+> **DÜZELTILDI 10.07:** `~MainWindow()`'da `stopFrameThread()` SONRASI,
+> `copy_optimizer_.shutdown()` ONCESI `preview_widget_->setCopyOptimizer(nullptr)`
+> + `setBridge(nullptr)` eklendi. Setter'lar borrowed raw pointer tutuyor,
+> `nullptr` kabul ediyor. paintGL() GUI thread'inde calisir; referanslar ayni
+> thread'de (dtor) koparildiktan sonra sonraki bir paint torn-down optimizer'a
+> giremez. (Not: bu projede pipeline_ ayri sahiplenilmiyor — Fable'in tasladigi
+> `pipeline_->shutdown()` satiri yok; sever adimi dogrudan copy_optimizer_.shutdown()
+> oncesine kondu.) Manuel GUI shutdown testinde run.log sirasi dogrulandi:
+> setCopyOptimizer(0x0) → setBridge(0x0) → "[GpuCopyOptimizer] Shutdown complete"
+> → "Pipeline shutdown clean", exit 0, SEH/AV/VUID yok.
+
 **Kaynak:** Fable 5 (1.8) — I6 (Opus) ile ayni kok nedene isaret ediyor,
 birlikte ele alinmali.
 
@@ -723,6 +759,20 @@ copy_optimizer_.shutdown();
 ---
 
 ### I13 — Ilk Kare Sira Hatasi (GL, Tamamlanmamis Vulkan Blit'i Okuyabilir)
+
+> **DOĞRULANDI 10.07: ZATEN GATE'LI — kod degismedi.** Kod analizi
+> (preview_widget.cpp paintGL): `current_pool_idx_ = copy_optimizer_->last_used_slot()`
+> (satir 476-477), `last_used_slot_` copy_optimizer.cpp:394'te YALNIZCA basarili
+> submit'ten SONRA guncellenir. Bu yuzden `current_pool_idx_`, o anki `execute_copy`'nin
+> yazacagi YENI slot'u degil, BIR ONCEKI paintGL'de submit edilmis slot'u gosterir
+> — yani render, tam bir frame once submit edilmis (tamamlanmis/tamamlanmakta olan)
+> bir slot'u ornekler. Ustelik cizim oncesi (satir 584-590) o slot'un GL sync
+> semaphore'unda `glWaitSemaphoreEXT` ile GPU-tarafi sert bekleme yapilir
+> (`is_slot_signaled()` true ise). Yani ilk-kullanim/slot-degisiminde bile render,
+> Vulkan blit'i tamamlanana kadar GPU'da bloke olur — tamamlanmamis blit ORNEKLENMEZ.
+> `is_copy_ready()` poll'u yalnizca pacing/pending izleme icindir, render'i gate'lemez;
+> asil gate GL semaphore beklemesidir. V8'in onerdigi "render tamamlanmis
+> last_used_slot()'u gostersin" tasarimi zaten saglanmis.
 
 **Kaynak:** Opus 4.8 (3.2) — tek kaynak, ilk-kullanim/slot-degisim
 senaryosunda gercek risk.
