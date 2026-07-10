@@ -1186,3 +1186,128 @@ kanıtlandı.
 akışı ayrı madde (I33, Sprint 2). self.mode ↔ global HEALING_MODE ayrışması (self.mode
 subscribe'da set edilip güncellenmiyor; evaluate_adaptive de aynı) mevcut bir durum —
 AutoPilot kapsamı için sorun değil, not edildi.
+
+## Oturum: 10 Temmuz 2026 — V8/I28 Validation Layer Test Prosedürü Hazırlığı
+
+**Bu bölüm kod değişikliği İÇERMİYOR** — `copy_optimizer.cpp` D2/E4 barrier'ının
+(`oldLayout=UNDEFINED`, external acquire) validation layer ile doğrulanması için
+somut test prosedürü + spec-alıntılı ön-değerlendirme. Gerçek çalıştırma çift-GPU
+(AMD+NVIDIA) donanımı gerektiriyor; bu hazırlık Claude Code'un otonom kısmı.
+
+### 1. Skill prosedürü güncelliği — DÜZELTME GEREKİYOR (SKILL.md yanıltıcı)
+`.claude/skills/vulkan-interop-debug/SKILL.md` satır 49-52'deki
+"`set VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`" hâlâ **çalışır** ama eksik/
+yanıltıcı. Kod okumasıyla doğrulanan gerçekler:
+
+- **Layer, app tarafından otomatik açılıyor (env var GEREKMEZ) — ama yalnızca Debug
+  build'de.** `vulkan_initializer.zig:45-65`: `builtin.mode == .Debug` iken
+  `VK_LAYER_KHRONOS_validation` `ppEnabledLayerNames` ile programatik ekleniyor,
+  runtime availability kontrolü yapılıyor (yoksa "bulunamadi, atlanıyor" basıp
+  geçiyor). Yani **Debug build'de env var'a hiç gerek yok.**
+- **Default build RELEASE** (`scripts/build.py:110` → `--config` default=`Release`;
+  `just run`/`just build` Release derler). Release build'de `builtin.mode != .Debug`
+  → layer app tarafından AÇILMAZ. Bu durumda `VK_INSTANCE_LAYERS=...` (loader-level
+  injection) tek yol — SKILL'deki env var burada geçerli. Not: yeni Vulkan SDK
+  loader'ında (`1.3.234+`) tercih edilen değişken `VK_LOADER_LAYERS_ENABLE=*validation`;
+  `VK_INSTANCE_LAYERS` deprecated ama hâlâ işler.
+- **Debug messenger HİÇ yok** (kod tabanında `vkCreateDebugUtilsMessenger`/
+  `pfnUserCallback` sıfır eşleşme). `VK_EXT_debug_utils` extension açık
+  (`vulkan_initializer.zig:73`) ama `VkDebugUtilsMessengerEXT` oluşturulmuyor →
+  VUID mesajları uygulama callback'ine DÜŞMÜYOR; VVL'nin varsayılan çıkışına
+  (Windows'ta `OutputDebugString` + sürüme göre stdout) gidiyor.
+- **`just run`, uygulamanın stderr'ini run.log'a YÖNLENDİRMİYOR.** `build.py:184-188`
+  exe'yi `subprocess.run([exe])` ile yakalamasız çalıştırıyor; run.log'a sadece
+  build satırı (`build.py:177`) yazılıyor. SKILL satır 48'deki "`just run` → run.log"
+  ifadesi **build log'u** için doğru, **validation çıktısı** için yanıltıcı. GUI'de
+  stderr detach olabildiği için VVL yakalamada **DebugView (OutputDebugString) birincil,
+  güvenilir yol**; stdout redirect ikincil (VVL sürümüne bağlı).
+
+→ SKILL.md'nin validation bölümü ayrı bir düzeltme talimatıyla güncellenmeli
+(Debug-build-otomatik + DebugView birincil). Bu oturumda SKILL'e dokunulmadı (kapsam).
+
+### 2. D2/E4'ün hedeflediği VUID — spec-alıntılı ön-değerlendirme (kesin karar DEĞİL)
+Barrier (`copy_optimizer.cpp:204-218`): `oldLayout=UNDEFINED`,
+`srcQueueFamilyIndex=VK_QUEUE_FAMILY_EXTERNAL`, `dst=graphics_queue_family_`,
+`srcAccessMask=0`, `TOP_OF_PIPE → TRANSFER`. Bu bir **queue-family ownership ACQUIRE**
++ layout geçişi barrier'ı.
+
+- **İlgili VUID: `VUID-VkImageMemoryBarrier-oldLayout-01197`** — *"If srcQueueFamilyIndex
+  and dstQueueFamilyIndex define a queue family ownership transfer or oldLayout and
+  newLayout define an image layout transition, oldLayout **must be
+  VK_IMAGE_LAYOUT_UNDEFINED** or the current layout of the image subresources affected
+  by the barrier."* → `UNDEFINED` bu barrier tipinde **spec-legal, açıkça izinli bir
+  değer**. Dolayısıyla `oldLayout` seçimi için VVL'nin VUID basması BEKLENMİYOR.
+- **Asıl risk VUID değil, SEMANTİK.** Spec, `VK_IMAGE_LAYOUT_UNDEFINED` tanımında:
+  *"When transitioning out of this layout, the contents of the memory are **not
+  guaranteed to be preserved**."* Bu barrier ise blit'in KAYNAĞI (D3D11'in yazdığı
+  pikselleri okuyor). Yani tasarım, imported (LINEAR, external) belleğin no-op geçişte
+  içeriğini koruduğu **implementasyona-özgü davranışa** dayanıyor — D2/E4 yorumunun
+  "keyed mutex sahipliği aktardı" argümanı bunu varsayıyor.
+- **Kritik dürüstlük notu:** Validation layer API-yasallığını denetler, **içerik
+  korunumunu DENETLEMEZ.** Bu yüzden "temiz VVL çalışması" tasarımı yalnızca *kullanım*
+  ekseninde doğrular, *içerik-korunumu* ekseninde DEĞİL. Yani beklenen sonuç: VUID
+  çıkmayacak (01197 gereği), ama bu tek başına D2/E4'ün doğruluğunu kanıtlamaz —
+  görsel doğruluk (preview'ın bozuk/garbage olmaması) ayrı bir kanıt ekseni.
+- İkincil VUID adayları (ownership transfer eşleşmesi — release/acquire dengesi,
+  external queue family index geçerliliği): VVL harici (D3D11) yarıyı göremediği için
+  bu sınıfta genelde sessiz kalır; bu da yukarıdaki "temiz≠doğru" notunu pekiştirir.
+
+### 3. I28 Test Prosedürü (kullanıcı çalıştırır — somut komutlar)
+> Not: prosedür `C:\reji-studio` kökünden çalıştırılır. Exe yolu build.py'nin
+> arama sırasına göre `build\src\ui\reji_app.exe`.
+
+```bat
+:: 1) Debug build — layer app tarafından otomatik açılır (env var'a gerek yok)
+python scripts\build.py --config Debug --target reji_app
+::    (eşdeğeri: `just shield`'in ilk satırı da Debug build yapar)
+
+:: 2a) YAKALAMA — DebugView (ÖNERİLEN, GUI için güvenilir):
+::     Sysinternals DebugView'i Yönetici olarak aç; Capture menüsü:
+::       [x] Capture Win32   [x] Capture Global Win32
+::     sonra exe'yi doğrudan çalıştır (build.py --run yakalamaz, o yüzden elle):
+build\src\ui\reji_app.exe
+
+:: 2b) ALTERNATİF — stdout+stderr dosyaya (redirect handle-inheritance ile çalışır;
+::     VVL sürümü stdout'a basıyorsa yakalar, basmıyorsa 2a'yı kullan):
+build\src\ui\reji_app.exe > vulkan_validation_output.txt 2>&1
+
+:: 3) En az 10-15 sn NORMAL çalıştır: preview aktifken 2-3 sahne değişimi yap
+::    (VUID'ler genelde ilk birkaç karede veya sahne geçişinde tetiklenir)
+
+:: 4) GÖRSEL DOĞRULUK KONTROLÜ (VUID grep'inden BAĞIMSIZ, ZORUNLU ikinci eksen):
+::    AMD ekranındaki preview'a GÖZLE bak — çalışırken şunları NOT ET:
+::      [ ] Görüntü DOĞRU mu? (kaynak sahnenin gerçek içeriği görünüyor mu)
+::      [ ] Siyah/boş kare VAR mı? (blit garbage okuyorsa → içerik korunmadı)
+::      [ ] Bozulma var mı: yarım/yırtık kare (tearing), donma, çöp piksel,
+::          yanlış renk (BGRA/RGBA swap)?
+::      [ ] Sahne GEÇİŞİNDE ilk kare bozuk gelip düzeliyor mu? (UNDEFINED
+::          discard'ının ilk-kare belirtisi olabilir)
+::    Şüpheliyse RenderDoc/Nsight ile tek kare capture al (SKILL adım 5).
+::    Bu adım VVL'nin GÖREMEDİĞİ içerik-korunumu eksenini kanıtlar — atlanamaz.
+
+:: 5) VUID/barrier hatası ara:
+findstr /i "VUID VkImageMemoryBarrier oldLayout QueueFamily" vulkan_validation_output.txt
+::    (DebugView kullandıysan: DebugView içinde "VUID" ara, ya da
+::     File > Save As ile log'u kaydedip yukarıdaki findstr'i uygula)
+```
+
+**RELEASE build'de test etmek zorundaysan** (Debug alınamıyorsa) — layer'ı loader'dan
+enjekte et:
+```bat
+set VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+::   (yeni SDK loader alternatifi: set VK_LOADER_LAYERS_ENABLE=*validation)
+build\src\ui\reji_app.exe > vulkan_validation_output.txt 2>&1
+```
+
+### Karar matrisi — İKİ eksen birden gerekli (VUID + görsel), tek başına yetmez
+I28 ancak **her iki eksen** de temizse tam kapanır. VVL API-yasallığını, görsel
+kontrol içerik-korunumunu kanıtlar; biri diğerinin yerine geçmez.
+
+| VUID (adım 5) | Görsel (adım 4) | Karar |
+|---|---|---|
+| Yok | Temiz (doğru görüntü) | **I28 `[KAPANDI: API-yasal + görsel doğru]`** — kod değişikliği gerekmez |
+| Yok | Bozuk (siyah/çöp/ilk-kare) | **KAPATMA.** VUID temiz olması aldatıcı — `UNDEFINED` discard içeriği bozuyor olabilir; VVL bunu göremez. Görsel kanıtı paylaş → içerik-koruyan barrier düzeltmesi (muhtemelen release/acquire çifti) yazılır |
+| Var | (her ikisi) | **Tam VUID metnini (kod dahil) paylaş** → gerçek düzeltme talimatı. Çözüm `oldLayout` değiştirmek DEĞİL olabilir; VUID hangi eksende yanlış olduğunu söyler (ör. ownership release/acquire dengesi) |
+
+Kritik: "VUID yok" **tek başına** I28'i kapatmaya YETMEZ — görsel eksen zorunlu.
+(Bu proje pattern'i: bayat "temiz=doğru" varsayımı I22/same_adapter_ ile aynı tuzak.)
