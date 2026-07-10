@@ -1610,6 +1610,19 @@ Not: `evaluate_adaptive` tekil arka-plan kalibrasyonudur, per-aksiyon is_critica
 ayrımı yoktur — AutoPilot+Assist'te çalışır, granüler filtre yalnız rule-engine
 yolunda anlamlı.
 
+### C++ Wiring Boşluğu — DÜZELTİLDİ (kullanıcı onayıyla, aynı iş kapsamında)
+Rust fix'i uygularken bulunan kritik bulgu: `rj_set_healing_mode` üretimde hiç
+çağrılmıyordu → UI mod seçimi Rust'a hiç ulaşmıyordu, enum fix'i tek başına
+uçtan uca etkisizdi. Kullanıcı onayıyla düzeltildi: `main_window.cpp`'deki iki
+`healingModeChanged` handler'ına (ctor ~76 + onSettingsClicked ~528 guard)
+`rj_set_healing_mode(static_cast<uint32_t>(mode))` eklendi. `reji::HealingMode`
+(healing_overlay.h, tek enum) 0..=3 Rust `from_raw` ile birebir; sinyal
+`onOkClicked`'te emit. `reji_app` derlendi+linklendi (sembol çözüldü, yalnız
+pre-existing uyarılar). Açık minör: startup default (HEALING_MODE=0/AutoPilot
+vs UI combo default CoPilot) senkron edilmedi — kullanıcının dar kapsam talebi
+gereği, karar bekliyor. Manuel GUI davranış testi (Manual seç+OK →
+`rj_get_healing_mode()==3`) kullanıcının elinde (interaktif combo).
+
 ### I11 — ARAŞTIRILDI, KARAR BEKLİYOR (kod değişmedi)
 Race doğrulandı ama planın "C++ thread'i kaldır" varsayımı yanlış: iki tüketici
 FARKLI gerçek amaçlara sahip (aynı kuyruktan POP ediyorlar):

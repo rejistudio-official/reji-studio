@@ -76,6 +76,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(settings_dialog_, &reji::SettingsDialog::healingModeChanged,
             this, [this](reji::HealingMode mode) {
         if (healing_overlay_) healing_overlay_->setHealingMode(mode);
+        // V8/I19: UI mod seçimini Rust orchestrator'a ilet — yoksa HEALING_MODE
+        // kalıcı 0 (AutoPilot) kalır ve Assist/Manual seçimi motora hiç ulaşmaz.
+        // reji::HealingMode 0..=3 (AutoPilot/CoPilot/Assist/Manual), Rust from_raw
+        // ile birebir sıralı.
+        rj_set_healing_mode(static_cast<uint32_t>(mode));
     });
     if (healing_overlay_) {
         healing_overlay_->setSettingsDialog(settings_dialog_);
@@ -528,6 +533,7 @@ void MainWindow::onSettingsClicked() {
         connect(settings_dialog_, &reji::SettingsDialog::healingModeChanged,
                 this, [this](reji::HealingMode mode) {
             if (healing_overlay_) healing_overlay_->setHealingMode(mode);
+            rj_set_healing_mode(static_cast<uint32_t>(mode));  // V8/I19: modu Rust'a ilet (bkz. ctor'daki handler)
         });
         if (healing_overlay_) healing_overlay_->setSettingsDialog(settings_dialog_);
     }

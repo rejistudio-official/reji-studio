@@ -926,6 +926,22 @@ katmani FFI'yi cagirsin.
 > log"), **Manual** modda RuleEngine hic cagrilmaz ("tum adaptasyon kapali";
 > sablonda "manual" mode'lu kural zaten yok). Testler: `from_raw` round-trip,
 > Assist-yalniz-kritik, Manual-bos. 43 orchestrator testi PASS.
+>
+> **KRITIK EK BULGU + DUZELTME (11.07):** Rust fix'i uygularken bulundu — C++
+> `rj_set_healing_mode` URETIMDE HIC CAGRILMIYORDU (yalniz Rust testlerinde).
+> `healingModeChanged` sinyali sadece `healing_overlay_->setHealingMode` (UI-yerel)
+> cagiriyordu → Rust `HEALING_MODE` kalici 0 (AutoPilot); UI mod secimi (Assist/
+> Manual dahil) motora HIC ulasmiyordu. Yani enum fix'i tek basina uctan uca
+> etkisiz kalirdi. **Duzeltildi:** `main_window.cpp`'deki IKI `healingModeChanged`
+> handler'ina (ctor ~76 + onSettingsClicked ~528 guard) `rj_set_healing_mode(
+> static_cast<uint32_t>(mode))` eklendi. `reji::HealingMode` (healing_overlay.h,
+> tek enum; settings_dialog onu include eder) 0..=3 = AutoPilot/CoPilot/Assist/
+> Manual → Rust `from_raw` ile birebir. Sinyal `SettingsDialog::onOkClicked`'te
+> emit ediliyor (OK'e basinca senkron). `reji_app` derlendi+linklendi (sembol
+> cozuldu). NOT (acik minor): baslangic default'u — HEALING_MODE=0 (AutoPilot)
+> vs UI combo default CoPilot; kullanici Settings'i acip OK'lemeden bu ikisi
+> ayrisik. Startup senkron (ctor'da tek `rj_set_healing_mode(healingMode())`)
+> onerildi ama kullanicinin dar kapsam talebi geregi EKLENMEDI — karar bekliyor.
 
 **Kaynak:** Fable 5 (5.4) — tek kaynak, I1/I20 ile iliskili (ayni
 healing.rs bolgesi).
