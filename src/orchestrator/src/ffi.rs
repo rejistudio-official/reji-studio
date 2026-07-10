@@ -21,7 +21,7 @@ use tracing::{warn, debug, info};
 use crate::constants;
 
 use crate::event_bus::{EventBus, HealingEvent, MediaEvent, SystemEvent};
-use crate::healing::{HealingMode, HealingMonitor, HealingThresholds};
+use crate::healing::{HealingMonitor, HealingThresholds};
 use crate::metrics::{MetricSample, MetricState};
 use crate::rules::RuleEngine;
 use crate::ws_server::{self, WsState};
@@ -195,7 +195,7 @@ fn rj_start_monitor_impl() {
                 system_rx,
                 media_rx,
                 healing_tx,
-                HealingMode::AutoPilot,
+                // V8/I20: mode parametresi kaldırıldı — canlı HEALING_MODE okunuyor
                 HealingThresholds::new(),
                 metric_state.clone(),
                 rule_engine.clone(),  // V8/I1: kural motorunu paylaş (hot-reload aynı Arc)
@@ -541,7 +541,7 @@ pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
     })
 }
 
-/// v0.4+: Set healing mode (0=AutoPilot, 1=CoPilot, 2=Manual)
+/// v0.4+: Set healing mode (0=AutoPilot, 1=CoPilot, 2=Assist, 3=Manual)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
@@ -553,7 +553,7 @@ pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
     .unwrap_or(false)
 }
 
-/// v0.4+: Get current healing mode (0=AutoPilot, 1=CoPilot, 2=Manual)
+/// v0.4+: Get current healing mode (0=AutoPilot, 1=CoPilot, 2=Assist, 3=Manual)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
 pub extern "C" fn rj_get_healing_mode() -> u32 {

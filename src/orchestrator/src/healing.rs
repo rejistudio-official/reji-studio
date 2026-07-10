@@ -30,11 +30,40 @@ pub enum HealingLayer {
 }
 
 /// Kullanıcı seviyesine göre self-healing modu.
+///
+/// V8/I19: UI 4 anlamlı seçenek sunuyor (settings_dialog.cpp / healing_overlay.h),
+/// eskiden Rust yalnız 3 varyanta sahipti ve `Assist` + `Manual`'ı tek varyanta
+/// (`ManualAssist`) çöküyordu — `Manual` seçen kullanıcı sessizce `Assist`
+/// davranışı (kritik aksiyonlar hâlâ otomatik) alıyordu. Artık dört varyant da
+/// ayrı; sıralama FFI `HEALING_MODE` u32 kodlamasıyla (0..=3) birebir eşleşir.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HealingMode {
     AutoPilot,
     CoPilot,
-    ManualAssist,
+    /// Kritik aksiyonlar otomatik uygulanır, diğerleri yalnız loglanır.
+    Assist,
+    /// Hiçbir otomatik aksiyon yok — tüm adaptasyon kapalı.
+    Manual,
+}
+
+impl HealingMode {
+    /// V8/I20: FFI global `HEALING_MODE` (AtomicU32, 0..=3) → enum tek dönüşüm
+    /// noktası. `rj_set_healing_mode` zaten >3'ü reddediyor; `_` savunmacı
+    /// güvenli varsayılan (onay gerektiren CoPilot).
+    fn from_raw(v: u32) -> Self {
+        match v {
+            0 => HealingMode::AutoPilot,
+            1 => HealingMode::CoPilot,
+            2 => HealingMode::Assist,
+            3 => HealingMode::Manual,
+            _ => HealingMode::CoPilot,
+        }
+    }
+
+    /// FFI global'i tek satırda enum'a çevirir (canlı, `self.mode` değil).
+    fn current() -> Self {
+        Self::from_raw(crate::ffi::HEALING_MODE.load(Ordering::Relaxed))
+    }
 }
 
 /// Kalibrasyon eşikleri ve eylem sınırları.
@@ -181,7 +210,6 @@ pub struct HealingMonitor {
     healing_tx: Sender<HealingEvent>,
     thresholds: AtomicCell<HealingThresholds>,
     cooldown: CooldownTracker,
-    mode: AtomicCell<HealingMode>,
     trend: TrendState,
     metric_state: Arc<MetricState>,
     current_metrics: RuleMetrics,
@@ -191,11 +219,13 @@ pub struct HealingMonitor {
 }
 
 impl HealingMonitor {
+    /// V8/I20: `mode` parametresi kaldırıldı — mod artık yalnız canlı FFI global
+    /// `HEALING_MODE`'dan okunur (`HealingMode::current()`). Eski donmuş `self.mode`
+    /// alanı constructor'da bir kez set edilip UI değişikliklerini asla görmüyordu.
     pub fn subscribe(
         system_rx: Receiver<SystemEvent>,
         media_rx: Receiver<MediaEvent>,
         healing_tx: Sender<HealingEvent>,
-        mode: HealingMode,
         thresholds: HealingThresholds,
         metric_state: Arc<MetricState>,
         rule_engine: Arc<Mutex<Option<RuleEngine>>>,
@@ -206,7 +236,6 @@ impl HealingMonitor {
             healing_tx,
             thresholds: AtomicCell::new(thresholds),
             cooldown: CooldownTracker::new(),
-            mode: AtomicCell::new(mode),
             trend: TrendState::new(),
             metric_state,
             current_metrics: RuleMetrics::default(),
@@ -243,18 +272,16 @@ impl HealingMonitor {
                     }
                 }
                 _ = ticker.tick() => {
-                    let mode = crate::ffi::HEALING_MODE.load(Ordering::Relaxed);
-                    // 0=AutoPilot, 1=CoPilot, 2=Assist, 3=Manual
-                    if mode == 3 { continue; } // Manual — komut üretme
-                    self.on_periodic();
+                    let mode = HealingMode::current();
+                    if mode == HealingMode::Manual { continue; } // Manual — komut üretme
+                    self.on_periodic(mode);
                 }
             }
         }
     }
 
     fn handle_system(&mut self, event: SystemEvent) {
-        let mode = crate::ffi::HEALING_MODE.load(Ordering::Relaxed);
-        if mode == 3 { return; } // Manual — reactive kanal bastırılıyor
+        if HealingMode::current() == HealingMode::Manual { return; } // Manual — reactive kanal bastırılıyor
         let thresholds = self.thresholds.load();
 
         match event {
@@ -307,8 +334,7 @@ impl HealingMonitor {
     }
 
     fn handle_media(&mut self, event: MediaEvent) {
-        let mode = crate::ffi::HEALING_MODE.load(Ordering::Relaxed);
-        if mode == 3 { return; } // Manual — reactive kanal bastırılıyor
+        if HealingMode::current() == HealingMode::Manual { return; } // Manual — reactive kanal bastırılıyor
         let thresholds = self.thresholds.load();
 
         match event {
@@ -344,16 +370,31 @@ impl HealingMonitor {
         }
     }
 
-    fn on_periodic(&mut self) {
+    /// V8/I20: mod bir kez `run()` ticker'ında canlı okunup buraya geçilir;
+    /// tek periyot içinde tutarlı bir görünüm sağlar ve alt fonksiyonları
+    /// (evaluate_*) global'e bağımlı olmadan test edilebilir kılar.
+    fn on_periodic(&mut self, mode: HealingMode) {
         self.evaluate_predictive();
-        self.evaluate_adaptive();
-        self.evaluate_rule_engine();
+        self.evaluate_adaptive(mode);
+        self.evaluate_rule_engine(mode);
     }
 
     /// V8/I1: kural motorunu değerlendirip üretilen aksiyonları RjAction'a
     /// çevirir — kuyruğa YAZMAZ (saf, test edilebilir). `evaluate_rule_engine`
     /// bunu çağırıp sonuçları `enqueue_action` ile kuyruğa iter.
-    fn collect_rule_actions(&self) -> Vec<RjAction> {
+    ///
+    /// V8/I19: mod artık parametre (donmuş `self.mode` değil). `Manual` modda
+    /// RuleEngine HİÇ değerlendirilmez ("tüm adaptasyon kapalı" sözü — kuralları
+    /// değerlendirip sonra atmak yerine hiç çağırmamak doğrusu; şablonda zaten
+    /// "manual" mode'lu kural yok). `Assist` modda yalnız `is_critical` aksiyonlar
+    /// otomatik uygulanır; kritik olmayanlar loglanır ("kritik otomatik,
+    /// diğerleri log" — UI sözü).
+    fn collect_rule_actions(&self, mode: HealingMode) -> Vec<RjAction> {
+        // Manual: adaptasyon tamamen kapalı — motoru hiç çağırma.
+        if mode == HealingMode::Manual {
+            return Vec::new();
+        }
+
         let guard = match self.rule_engine.lock() {
             Ok(g) => g,
             Err(_) => {
@@ -366,35 +407,51 @@ impl HealingMonitor {
         // mode_str: gerçek rules.json şablonu tireli değerler kullanıyor
         // ("auto-pilot"/"co-pilot"/"assist" — bkz. docs/config/rules.json.template),
         // enum'un CamelCase adları DEĞİL.
-        let mode_str = match self.mode.load() {
-            HealingMode::AutoPilot    => "auto-pilot",
-            HealingMode::CoPilot      => "co-pilot",
-            HealingMode::ManualAssist => "assist",
+        let mode_str = match mode {
+            HealingMode::AutoPilot => "auto-pilot",
+            HealingMode::CoPilot   => "co-pilot",
+            HealingMode::Assist    => "assist",
+            HealingMode::Manual    => unreachable!("Manual yukarıda erken dönüyor"),
         };
 
-        match engine.evaluate(&self.current_metrics, mode_str) {
-            Ok(actions) => actions
-                .into_iter()
-                .map(|a| RjAction {
-                    id: a.id,
-                    action_type: convert_action_type(a.action_type),
-                    param1: a.param1,
-                    param2: a.param2,
-                    // RjAction'ın canary'si doğrulanmıyor (MetricSample'ın aksine —
-                    // apply_action yalnız action_type'a bakar); mevcut kalıp 0.
-                    canary: 0,
-                })
-                .collect(),
+        let actions = match engine.evaluate(&self.current_metrics, mode_str) {
+            Ok(actions) => actions,
             Err(e) => {
                 warn!(error = %e, "rule engine evaluate() failed");
-                Vec::new()
+                return Vec::new();
             }
-        }
+        };
+
+        actions
+            .into_iter()
+            .filter(|a| {
+                // Assist: yalnız kritik aksiyonlar otomatik; gerisi loglanıp bırakılır.
+                if mode == HealingMode::Assist && !a.is_critical {
+                    info!(
+                        action_id = a.id,
+                        action = ?a.action_type,
+                        "Assist modu: kritik olmayan aksiyon loglandı, uygulanmadı"
+                    );
+                    false
+                } else {
+                    true
+                }
+            })
+            .map(|a| RjAction {
+                id: a.id,
+                action_type: convert_action_type(a.action_type),
+                param1: a.param1,
+                param2: a.param2,
+                // RjAction'ın canary'si doğrulanmıyor (MetricSample'ın aksine —
+                // apply_action yalnız action_type'a bakar); mevcut kalıp 0.
+                canary: 0,
+            })
+            .collect()
     }
 
     /// V8/I1: kural motoru aksiyonlarını action_queue'ya (FFI) iter.
-    fn evaluate_rule_engine(&self) {
-        for action in self.collect_rule_actions() {
+    fn evaluate_rule_engine(&self, mode: HealingMode) {
+        for action in self.collect_rule_actions(mode) {
             if !enqueue_action(action) {
                 warn!(action_id = action.id, "rule action enqueue failed, kuyruk dolu");
             }
@@ -430,9 +487,16 @@ impl HealingMonitor {
         }
     }
 
-    fn evaluate_adaptive(&self) {
-        if self.mode.load() != HealingMode::AutoPilot {
-            return;
+    /// V8/I19+I20: mod parametre (donmuş `self.mode` değil). Adaptif eşik
+    /// kalibrasyonu `AutoPilot` ve `Assist`'te çalışır (Assist'te reaktif kanal
+    /// zaten aktif olduğundan eşikleri sıkılaştırmak tutarlı); `CoPilot` ve
+    /// `Manual`'da arka plan yeniden ayarı yapılmaz. Not: kalibrasyon tekil bir
+    /// arka plan davranışıdır, RuleEngine aksiyonları gibi per-aksiyon
+    /// `is_critical` ayrımı yoktur — o granüler filtre `collect_rule_actions`'ta.
+    fn evaluate_adaptive(&self, mode: HealingMode) {
+        match mode {
+            HealingMode::AutoPilot | HealingMode::Assist => {}
+            HealingMode::CoPilot | HealingMode::Manual => return,
         }
 
         let current_cpu = self.trend.last_cpu;
@@ -499,7 +563,7 @@ mod tests {
         let media_rx = bus.media.subscribe();
         let mut healing_rx = bus.healing.subscribe();
 
-        let monitor = HealingMonitor::subscribe(system_rx, media_rx, bus.healing.clone(), HealingMode::AutoPilot, HealingThresholds::new(), MetricState::new(), Arc::new(Mutex::new(None)));
+        let monitor = HealingMonitor::subscribe(system_rx, media_rx, bus.healing.clone(), HealingThresholds::new(), MetricState::new(), Arc::new(Mutex::new(None)));
         let handle = tokio::spawn(async move {
             tokio::select! {
                 _ = monitor.run() => {}
@@ -541,16 +605,15 @@ mod tests {
         }
     }
 
-    fn make_monitor(
-        rule_engine: Arc<Mutex<Option<RuleEngine>>>,
-        mode: HealingMode,
-    ) -> HealingMonitor {
+    // V8/I20: `make_monitor` artık mode almıyor (constructor'dan kaldırıldı). Mod
+    // testte doğrudan `collect_rule_actions(mode)`'a geçilir — böylece global
+    // `HEALING_MODE`'a dokunulmaz, paralel-test yarışı olmadan deterministik kalır.
+    fn make_monitor(rule_engine: Arc<Mutex<Option<RuleEngine>>>) -> HealingMonitor {
         let bus = EventBus::new();
         HealingMonitor::subscribe(
             bus.system.subscribe(),
             bus.media.subscribe(),
             bus.healing.clone(),
-            mode,
             HealingThresholds::new(),
             MetricState::new(),
             rule_engine,
@@ -561,10 +624,10 @@ mod tests {
     fn test_rule_engine_collects_matching_action() {
         let rule = make_rule("fd_high", "frame_drop_pct > 10", "bitrate_reduce", 500, &["auto-pilot"]);
         let engine = RuleEngine::new_test(vec![rule], 0);
-        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))), HealingMode::AutoPilot);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
         monitor.current_metrics.frame_drop_pct = 12; // eşiği aşar
 
-        let actions = monitor.collect_rule_actions();
+        let actions = monitor.collect_rule_actions(HealingMode::AutoPilot);
         assert_eq!(actions.len(), 1, "eşiği aşan tek kural bir aksiyon üretmeli");
         assert!(matches!(actions[0].action_type, RjActionType::BitrateReduce));
         assert_eq!(actions[0].param1, 500);
@@ -575,11 +638,11 @@ mod tests {
         // co-pilot-only kural, monitör AutoPilot → mode filtresi atlamalı
         let rule = make_rule("fd_high", "frame_drop_pct > 10", "bitrate_reduce", 500, &["co-pilot"]);
         let engine = RuleEngine::new_test(vec![rule], 0);
-        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))), HealingMode::AutoPilot);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
         monitor.current_metrics.frame_drop_pct = 12;
 
         assert!(
-            monitor.collect_rule_actions().is_empty(),
+            monitor.collect_rule_actions(HealingMode::AutoPilot).is_empty(),
             "co-pilot kuralı auto-pilot modunda atlanmalı"
         );
     }
@@ -588,20 +651,65 @@ mod tests {
     fn test_rule_engine_hysteresis_suppresses_repeat() {
         let rule = make_rule("fd_high", "frame_drop_pct > 10", "bitrate_reduce", 500, &["auto-pilot"]);
         let engine = RuleEngine::new_test(vec![rule], 60_000); // 60s histeresis
-        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))), HealingMode::AutoPilot);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
         monitor.current_metrics.frame_drop_pct = 12;
 
-        let first = monitor.collect_rule_actions();
+        let first = monitor.collect_rule_actions(HealingMode::AutoPilot);
         assert_eq!(first.len(), 1, "ilk değerlendirme aksiyon üretmeli");
-        let second = monitor.collect_rule_actions();
+        let second = monitor.collect_rule_actions(HealingMode::AutoPilot);
         assert!(second.is_empty(), "histeresis içinde aynı kural tekrar tetiklenmemeli");
     }
 
     #[test]
     fn test_rule_engine_none_yields_empty() {
         // Motor yüklenmemiş (rules.json yok/parse hatası) → panik yok, boş liste
-        let monitor = make_monitor(Arc::new(Mutex::new(None)), HealingMode::AutoPilot);
-        assert!(monitor.collect_rule_actions().is_empty());
+        let monitor = make_monitor(Arc::new(Mutex::new(None)));
+        assert!(monitor.collect_rule_actions(HealingMode::AutoPilot).is_empty());
+    }
+
+    // ===== V8/I19+I20: 4-varyant mod + Assist/Manual semantiği =====
+
+    #[test]
+    fn test_healing_mode_from_raw_round_trip() {
+        assert_eq!(HealingMode::from_raw(0), HealingMode::AutoPilot);
+        assert_eq!(HealingMode::from_raw(1), HealingMode::CoPilot);
+        assert_eq!(HealingMode::from_raw(2), HealingMode::Assist);
+        assert_eq!(HealingMode::from_raw(3), HealingMode::Manual);
+        // Aralık dışı → güvenli varsayılan CoPilot (onay gerektirir)
+        assert_eq!(HealingMode::from_raw(4), HealingMode::CoPilot);
+        assert_eq!(HealingMode::from_raw(u32::MAX), HealingMode::CoPilot);
+    }
+
+    #[test]
+    fn test_assist_runs_only_critical_actions() {
+        // İki assist kuralı: biri kritik (bitrate_reduce), biri değil (bitrate_recover).
+        let critical = make_rule("fd_reduce", "frame_drop_pct > 10", "bitrate_reduce", 500, &["assist"]);
+        let non_critical = make_rule("fd_recover", "frame_drop_pct > 10", "bitrate_recover", 250, &["assist"]);
+        let engine = RuleEngine::new_test(vec![critical, non_critical], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+        monitor.current_metrics.frame_drop_pct = 12;
+
+        let actions = monitor.collect_rule_actions(HealingMode::Assist);
+        assert_eq!(actions.len(), 1, "Assist modunda yalnız kritik aksiyon uygulanmalı");
+        assert!(
+            matches!(actions[0].action_type, RjActionType::BitrateReduce),
+            "kalan aksiyon kritik olan (bitrate_reduce) olmalı"
+        );
+    }
+
+    #[test]
+    fn test_manual_mode_evaluates_no_rules() {
+        // AutoPilot'ta eşleşen bir kural bile olsa, Manual modda motor hiç çağrılmaz.
+        let rule = make_rule("fd_high", "frame_drop_pct > 10", "bitrate_reduce", 500,
+            &["auto-pilot", "co-pilot", "assist"]);
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+        monitor.current_metrics.frame_drop_pct = 12;
+
+        assert!(
+            monitor.collect_rule_actions(HealingMode::Manual).is_empty(),
+            "Manual modda hiçbir aksiyon üretilmemeli (tüm adaptasyon kapalı)"
+        );
     }
 
     #[test]
