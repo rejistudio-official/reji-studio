@@ -1418,3 +1418,79 @@ DXGI backend'i (dolayısıyla `capture_dxgi` keyed-mutex `AcquireSync` yolu) yal
 başarısız olursa devreye girer; bu makinede WGC hep başarılı. V8 I3'ün "AcquireSync 16 ms
 timeout" hipotezi ancak DXGI-fallback zorlanarak (WGC'yi devre dışı bırakıp) test edilebilir
 — bu koşuda kapsanmadı, **blocker değil** (aktif yol WGC ve temiz çalışıyor).
+
+---
+
+## Gerçek Runtime Topolojisi — Uçtan Uca Harita (2026-07-10)
+
+Kod değiştirilmeden, gerçek akış uçtan uca izlendi (grep + kaynak okuma + `run.log`).
+**Tek capture kaynağı → iki bağımsız dal (encode / preview).** Zero-copy Vulkan interop
+bridge (external_memory_bridge) ve `GpuResourceManager::transfer()` bu runtime'da **HİÇ
+kullanılmıyor** — ikisi de yalnız DXGI backend'ine bağlı, aktif backend ise WGC.
+
+### 0. Capture kaynağı (WGC, NVIDIA)
+`IScreenCapture::create()` (screen_capture_factory.cpp) → `WgcScreenCapture::is_supported()`
+true → **WgcScreenCapture**. `init()` (capture_wgc.cpp:40) DXGI adapter tarama ile
+**NVIDIA (0x10DE)** bulup o adapter'da `D3D11CreateDevice(BGRA|VIDEO_SUPPORT)` yapıyor.
+`next_frame()` → WGC frame pool'dan (`B8G8R8A8`) bir **NVIDIA D3D11 texture** (borrowed,
+`CapturedFrame{type=D3D11, handle=NVIDIA tex}`) döndürüyor.
+- `CaptureSubsystem::init` (capture_subsystem.cpp:26): `dynamic_cast<DxgiScreenCapture*>`
+  **null** → `capture_dxgi_ = nullptr`. Bu yüzden pipeline'daki tüm `capture_sub_.dxgi()`
+  dalları (GpuInterop init, shared_texture, encode_gpu, set_use_keyed_mutex, DXGI CPU
+  preview) atlanıyor.
+
+### 1. Encode dalı → NVENC (NVIDIA), AMD'ye HİÇ uğramıyor
+`run_frame()` (pipeline.cpp:593-600):
+```
+frame = capture_sub_.next_frame();          // NVIDIA WGC texture
+tex    = frame.handle;
+encode_sub_.encode_frame(tex, pts_us);       // → NvencEncoder::encode_frame(tex)
+```
+NVENC, **orijinal NVIDIA WGC texture'ını doğrudan** alıyor (aynı NVIDIA D3D11 device'ta
+açılmış encode session — bu yüzden `D3D11_CREATE_DEVICE_VIDEO_SUPPORT`). **Zero-copy,
+paralel dal, AMD'den dönen kopya DEĞİL.** (Görevin 3. sorusunun kesin cevabı.)
+
+### 2. Preview dalı → CPU-bounce → AMD GL
+`run_frame()` (pipeline.cpp:644): `if (capture_sub_.is_wgc() && preview_cb)` →
+`emit_wgc_preview(preview_cb, tex, w, h)` (capture_subsystem.cpp:52):
+```
+NVIDIA device'ta STAGING texture (USAGE_STAGING, CPU_ACCESS_READ)
+CopyResource(staging, tex)        // NVIDIA GPU→staging
+Map(READ) → mapped.pData           // CPU pointer (pitch=7680=1920*4 BGRA)
+preview_cb(pData, w, h, pitch)     // → uploadCpuFrame → AMD GL texture (display)
+```
+**CPU-bounce cross-adapter (NVIDIA→CPU→AMD GL), keyed-mutex/Vulkan-interop YOK.**
+Display AMD 780M'de (`[GL Caps] Renderer: AMD Radeon 780M`).
+
+### 3. Ölü/kullanılmayan yollar (bu runtime'da)
+- **`GpuResourceManager::transfer()`** — yalnız `capture_dxgi.cpp:366`'dan çağrılır →
+  WGC'de **çağrılmıyor**. (Görevin 2. sorusunun cevabı: HAYIR.)
+- **external_memory_bridge (zero-copy D3D11↔Vulkan)** — `get_external_memory_bridge()`
+  WGC'de **null** döner (yalnız DXGI `gpu_sub_.init()` dalında kurulur); `run.log`:
+  `bridge=0000000000000000`.
+- **AMD Vulkan `GpuCopyOptimizer` (keyed_mutex=true)** — init ediliyor ama **beslenmiyor**:
+  `d3d11_frame_cb` (main_window.cpp:142) `get_last_frame_images()` çağırır, WGC'de
+  `cache_last_images` hiç çalışmadığı için `got=false` → `submitD3D11Frame` çağrılmaz →
+  `copy_optimizer_->execute_copy` hiç koşmaz. Keyed-mutex Vulkan yolu init edilmiş ama
+  **inert**.
+- **capture_dxgi.cpp `AcquireSync(0,16)`** — DxgiCapturePipeline'a ait, WGC'de erişilmiyor.
+
+### Özet şema
+```
+                         ┌─────────────────────────────────────────────┐
+   WGC (NVIDIA D3D11 tex)│                                             │
+   ──────────────────────┤                                             │
+      │                  │                                             │
+      ├─► ENCODE:  NvencEncoder.encode_frame(tex)  → NVENC (NVIDIA)    │  zero-copy, AMD yok
+      │                  │                                             │
+      └─► PREVIEW: NVIDIA staging → Map(READ) → CPU ptr                │
+                         │            → uploadCpuFrame → AMD 780M GL   │  CPU-bounce
+                         └─────────────────────────────────────────────┘
+   KULLANILMIYOR: transfer(), external_memory_bridge, AMD Vulkan copy_optimizer keyed-mutex
+```
+
+### Eski model ile fark (dikkat — SKILL güncellemesi gerekebilir)
+Önceki "DXGI Desktop Duplication AMD → Vulkan zero-copy keyed-mutex" modeli **aktif değil**.
+Gerçek aktif topoloji: **WGC-NVIDIA capture, NVENC-NVIDIA encode, CPU-bounce AMD-GL preview**.
+`same_adapter=false` hâlâ geçerli ama sebep farklı; keyed-mutex zero-copy zincirinin tamamı
+şu an devre dışı (WGC seçildiği sürece). DXGI zero-copy yolu yalnız WGC başarısızsa canlanır.

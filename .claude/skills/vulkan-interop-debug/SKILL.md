@@ -9,40 +9,73 @@ description: Reji Studio'da Vulkan / D3D11 interop, GPU ve görüntü sorunları
 Laptop (dGPU, encode)**. Bu topolojinin tuhaflıkları hata analizinin başlangıç
 noktasıdır — genel Vulkan bilgisiyle değil, buradaki gerçeklerle başla.
 
-## Donanım topolojisi gerçekleri (docs/memory.md'den)
+## Donanım topolojisi gerçekleri
 
-- Ekran **AMD iGPU'ya** bağlı; NVENC **NVIDIA dGPU'da**.
-- DXGI Desktop Duplication **yalnızca AMD adapter'ında** çalışır;
-  NVIDIA'da `E_ACCESSDENIED` döner. Bu bir hata değil, platform gerçeğidir.
-- `display_vendor_id()` → `gpu_scan_.entries[0]` = display (AMD);
-  `entries[1]+` = encode (NVIDIA).
-- İKİ AYRI cross-GPU mekanizması var, karıştırılmamalı:
-  - (A) Encode yolu (`GpuResourceManager::transfer()`, AMD→NVIDIA cross-vendor):
-    `same_adapter_` gerçek LUID karşılaştırmasıyla `false` çıkıyor (hardcode
-    değil), `create_cross_adapter_shared()` dalı seçiliyor — AMA runtime'da
-    `CreateTexture2D` `E_INVALIDARG` (0x80070057) ile başarısız oluyor (run.log
-    kanıtı), bu yüzden GERÇEK aktif yol CPU-fallback (`use_cpu_fallback_=true`).
-    `keyed_mutex_display_`/`encode_`/`copy_fence_` bu sınıfta %100 ölü kod.
-  - (B) Preview yolu (`capture_dxgi.cpp` `shared_texture_` → Vulkan → GL, hepsi
-    AMD iGPU üzerinde, cross-vendor DEĞİL): burada gerçek keyed-mutex
-    `AcquireSync`/`ReleaseSync` kalıbı (satır ~373/381) çalışıyor.
-  - Bu ayrım 2026-07 I2/I3 keşfinde netleşti — önceki "hardcode" iddiası bayattı
-    ama düzeltme metninin ilk hali de eksikti, ikinci kez düzeltildi.
-- Render path: NVIDIA (0x10DE) → `kNvDxInterop` stub (fiilen PBO çalışır);
-  diğer → `kPbo`. `selectRenderPath()` init sonrası bir kez, GL thread'de.
+> **AKTİF RUNTIME YOLU = WGC** (2026-07-10 dual-GPU HW'de run.log ile doğrulandı).
+> `IScreenCapture::create()` (screen_capture_factory.cpp) **WGC-tercihli, DXGI-fallback**;
+> `WgcScreenCapture::is_supported()` Win10 1803+'da her zaman true → Win11'de fiilen
+> **HER ZAMAN WGC** seçilir. Aşağıdaki "DXGI zero-copy" modeli yalnız WGC başarısızsa
+> canlanan **fallback**'tir — normal koşuda **İNAKTİF**. Uçtan uca detay:
+> docs/SESSION_NOTES.md "Gerçek Runtime Topolojisi — Uçtan Uca Harita".
+
+- Ekran **AMD 780M iGPU'ya** bağlı; NVENC **NVIDIA dGPU'da**.
+- `display_vendor_id()` → `gpu_scan_.entries[0]` = display (AMD); `entries[1]+` = encode (NVIDIA).
+- Vulkan device seçimi (`vulkan_initializer.zig select_device`): skor NVIDIA 210 > AMD 100
+  olsa da bu hibrit konfigde app'in Vulkan instance'ı **yalnız AMD'yi** enumere ediyor →
+  fiili seçim **AMD 780M** (`[VulkanZig] Selected: vendorID=0x1002`). AMD `VK_KHR_win32_keyed_mutex`'i
+  destekliyor → `use_keyed_mutex=1` — ama aşağıda görüldüğü gibi WGC'de bu bayrak inert.
+
+### Aktif yol — WGC (tek kaynak, iki bağımsız dal)
+- **Capture:** `WgcScreenCapture` (capture_wgc.cpp) **NVIDIA (0x10DE)** adapter'ında D3D11
+  device (`BGRA|VIDEO_SUPPORT`) açar; `next_frame()` bir **NVIDIA D3D11 texture** (`B8G8R8A8`)
+  döndürür. `dynamic_cast<DxgiScreenCapture*>` **null** → tüm `capture_sub_.dxgi()` dalları atlanır.
+- **Encode dalı:** `encode_frame(tex)` (pipeline.cpp:600) → **NVENC**, orijinal NVIDIA
+  texture'ı doğrudan (aynı device'ta encode session, zero-copy). **AMD'ye HİÇ uğramaz.**
+- **Preview dalı:** `emit_wgc_preview` (capture_subsystem.cpp:52) → NVIDIA'da STAGING texture,
+  `CopyResource`+`Map(READ)` → **CPU pointer** → `preview_cb`→`uploadCpuFrame` → **AMD 780M GL**
+  (display). **CPU-bounce cross-adapter; keyed-mutex/Vulkan-interop YOK.**
+- **Bu yolda İNAKTİF (init edilse bile beslenmeyen) parçalar:**
+  - `GpuResourceManager::transfer()` — çağrılmaz (yalnız capture_dxgi.cpp:366'dan).
+  - `external_memory_bridge` — `get_external_memory_bridge()`→**null** (run.log `bridge=0`).
+  - AMD Vulkan `GpuCopyOptimizer` keyed-mutex — init edilir ama `d3d11_frame_cb`→
+    `get_last_frame_images()` `got=false` → `submitD3D11Frame`/`execute_copy` hiç koşmaz → **inert**.
+  - `AcquireSync(0,16)` + `[Capture] KeyedMutex timeout/fail` — `DxgiCapturePipeline`'a ait, erişilmez.
+- `same_adapter=false` hâlâ geçerli ama zero-copy zincirinin hiçbiri buna bağlı **çalışmıyor.**
+
+### Fallback yol — DXGI (yalnız WGC başarısızsa; normalde İNAKTİF)
+Aşağıdakiler **yalnız** `DxgiScreenCapture` seçilirse geçerlidir:
+- DXGI Desktop Duplication **yalnız AMD adapter'ında** çalışır; NVIDIA'da `E_ACCESSDENIED`
+  (hata değil, platform gerçeği).
+- İKİ AYRI cross-GPU mekanizması, karıştırılmamalı:
+  - (A) Encode `GpuResourceManager::transfer()` (AMD→NVIDIA cross-vendor): `same_adapter_`
+    LUID ile false, `create_cross_adapter_shared()` runtime'da `CreateTexture2D E_INVALIDARG`
+    (0x80070057) → gerçek yol CPU-fallback (`use_cpu_fallback_=true`); `keyed_mutex_display_`/
+    `encode_`/`copy_fence_` ölü kod.
+  - (B) Preview `capture_dxgi.cpp` `shared_texture_`→Vulkan→GL (hepsi AMD iGPU, cross-vendor
+    DEĞİL): gerçek keyed-mutex `AcquireSync`/`ReleaseSync` (satır ~373/381).
+
+### Render path (her iki yolda ortak — capture backend'inden bağımsız)
+`selectRenderPath()` **display** vendor'ına göre seçer (`display_vendor_id()`, init sonrası
+bir kez, GL thread'de): NVIDIA (0x10DE) → `kNvDxInterop` stub (fiilen PBO çalışır); diğer →
+`kPbo`. Referans HW'de display **AMD** → **`kPbo`**; WGC preview'ının `uploadCpuFrame`→GL
+yüklemesi bu PBO yolunu kullanır.
 
 ## Semptom → ilk şüpheli haritası
 
-| Semptom | İlk bakılacak yer |
-|---|---|
-| Tearing / yarım frame | Keyed mutex hangi kaynağı koruyor? (V7-H2: yanlış VkDeviceMemory) + acquire/release eşleşmesi |
-| Deadlock frame'de | Timeline semaphore wait değeri vs signal değeri; başarısız submit sonrası bekleme (V7-H17 sınıfı) |
-| Siyah ekran (preview) | GL texture filter/completeness (V7-H19) → sonra external memory import başarısı |
-| Yanlış renk | BGRA/RGBA swap (V7-H7 sınıfı) — format zincirini DXGI→Vulkan→GL uçtan uca yaz |
-| Rastgele crash / VK_ERROR_DEVICE_LOST | Validation layer AÇ (aşağıda), VUID topla; command buffer yaşam döngüsü (reset-while-pending, V7-H1 sınıfı) |
-| Capture hiç başlamıyor | Duplication hangi adapter'da deneniyor? AMD dışıysa E_ACCESSDENIED normaldir |
-| İyileşme döngüsü (sürekli recreate) | RecoveryCoordinator log'ları + healing.rs hysteresis (5s) — kural fırtınası mı, gerçek device-lost mu ayır |
-| Kopya sonrası siyah/çöp preview (`oldLayout=UNDEFINED` şüphesi, D2/E4) | I28 — 10.07 dual-GPU HW'de doğrulandı, kasıtlı tasarım, validation temiz (yalnız sahne-geçişi slot reuse alt-senaryosu açık) |
+> Aktif yol WGC olduğundan **önce WGC sütununa bak**; Vulkan/keyed-mutex/external-memory
+> ipuçları yalnız DXGI-fallback zorlandıysa geçerlidir.
+
+| Semptom | WGC (aktif) — ilk bakılacak | DXGI (fallback) — yalnız WGC başarısızsa |
+|---|---|---|
+| Preview donuk / güncellenmiyor | `is_wgc()&&preview_cb` dalı (pipeline.cpp:644) çalışıyor mu; `emit_wgc_preview` staging `Map` başarısı; `uploadCpuFrame`→GL upload; run.log `[WgcStaging] preview frame` akıyor mu | timeline semaphore wait vs signal (V7-H17); `execute_copy`/`is_copy_ready` |
+| Tearing / yarım frame | CPU staging `CopyResource`/`Map` timing + GL upload senkronu; preview_cb kare atlama | keyed mutex hangi kaynağı koruyor (V7-H2: yanlış VkDeviceMemory) + acquire/release eşleşmesi |
+| Siyah ekran (preview) | `preview_cb` hiç ateşliyor mu (run.log `[WgcStaging]`); GL texture completeness/upload (V7-H19); `uploadCpuFrame` pitch doğru mu | external memory import başarısı → sonra GL texture |
+| Yanlış renk | Format zinciri **WGC:** `B8G8R8A8`(NVIDIA)→CPU→GL; BGRA/RGBA swap (V7-H7) CPU→GL ucunda mı | zincir DXGI→Vulkan→GL uçtan uca yaz |
+| Encode yok / NVENC boş | `encode_frame(tex)` NVIDIA texture alıyor mu; NVENC session NVIDIA device'ta mı (`VIDEO_SUPPORT`); WGC frame null-streak (60→reinit) | encode_gpu `transfer()` CPU-fallback yolu |
+| Capture hiç başlamıyor | `WgcScreenCapture::init` NVIDIA adapter bulundu mu (`[WgcCapture] NVIDIA adapter`); `CreateForMonitor` HRESULT; monitor index | Duplication AMD dışıysa `E_ACCESSDENIED` normaldir |
+| Rastgele crash / VK_ERROR_DEVICE_LOST | Validation layer AÇ (aşağıda), VUID topla; NOT: Vulkan yolu WGC'de büyük ölçüde inert, önce D3D11/NVENC/GL'e bak | command buffer yaşam döngüsü (reset-while-pending, V7-H1) |
+| İyileşme döngüsü (sürekli recreate) | RecoveryCoordinator log'ları + healing.rs hysteresis (5s) — kural fırtınası mı, gerçek device-lost mu ayır (her iki yolda ortak) ||
+| Kopya sonrası siyah/çöp (`oldLayout=UNDEFINED`, D2/E4) | — (WGC'de zero-copy yolu erişilmez) | I28 — 10.07 dual-GPU HW'de doğrulandı, kasıtlı tasarım, validation temiz (yalnız sahne-geçişi slot reuse alt-senaryosu açık) |
 
 ## Standart ayıklama prosedürü
 
@@ -82,6 +115,14 @@ noktasıdır — genel Vulkan bilgisiyle değil, buradaki gerçeklerle başla.
      ```
      VUID'ler doğrudan `vvl_output.txt`'e yazılır; app'in stderr'ine hiç bağlı değil.
      `just run`/GUI çıktı yakalama sorunu olan senaryolar için en güvenilir yol budur.
+   - **⚠️ App'in KENDİ tanı çıktısı DebugView'dan AYRI bir kanal:** app'in kendi
+     `fprintf(stderr)` teşhisi (`[WgcCapture]`, `[VulkanZig]`, `[NVENC]`, `[Pipeline]`,
+     `[WgcStaging]`, `set_use_keyed_mutex`, `KeyedMutex timeout` vb.) `main.cpp:64`
+     `freopen(...stderr)` ile doğrudan **`C:\reji-studio\run.log`**'a yönlendirilir.
+     Dış redirect (`2>&1 | Tee-Object`, `-RedirectStandardError`) bunu **YAKALAYAMAZ** —
+     `freopen` handle'ı ezer (2026-07 I2/I3 tespitinde 0 bayt ile doğrulandı). İki kanalı
+     karıştırma: **DebugView = OutputDebugString** (Windows/driver + `dbglog`), **run.log =
+     app'in kendi `fprintf`'i**. App davranışını izlerken önce `run.log` oku.
    Çıkan **VUID kodunu** aynen not et — düzeltme commit'inde referans ver
    (ev stili: V7-H1'deki gibi `VUID-vkResetCommandBuffer-commandBuffer-00045`).
 3. **Sınıflandır:** senkronizasyon mu (semaphore/mutex/barrier), yaşam döngüsü mü
