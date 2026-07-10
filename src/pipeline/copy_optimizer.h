@@ -112,6 +112,14 @@ private:
 
     std::atomic<uint32_t> last_used_slot_{0};
 
+    // V8/I6: Lifecycle guard. shutdown() sets this false BEFORE tearing down
+    // device_/pfn_wait_semaphores_. is_copy_ready() checks it first as a cheap,
+    // handle-independent early-out. SEH only catches an access violation once a
+    // stale/null device_ is dereferenced; if the freed VkDevice memory happens to
+    // look valid, the driver call is silent UB that SEH cannot see. The atomic
+    // flag closes that window from the caller side without depending on handle state.
+    std::atomic<bool> alive_{true};
+
     bool use_blit_ = true;
 
     uint32_t dispatch_x_ = 1;

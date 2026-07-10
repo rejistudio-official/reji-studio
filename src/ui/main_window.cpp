@@ -194,6 +194,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 MainWindow::~MainWindow() {
     saveWindowState();
     stopFrameThread();
+    // V8/I12: sever PreviewWidget's borrowed references to copy_optimizer_/bridge_
+    // BEFORE shutting the optimizer down. paintGL() runs on this (GUI) thread, so
+    // once we clear the pointers here no later paint can call into a torn-down
+    // optimizer. Pairs with V8/I6's alive_ guard as defense-in-depth.
+    if (preview_widget_) {
+        preview_widget_->setCopyOptimizer(nullptr);
+        preview_widget_->setBridge(nullptr);
+    }
     if (copy_optimizer_initialized_) {
         copy_optimizer_.shutdown();
     }

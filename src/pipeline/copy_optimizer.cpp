@@ -38,6 +38,9 @@ bool GpuCopyOptimizer::init(VkDevice device, VkQueue queue, VkPhysicalDevice phy
     for (auto& layout : staging_layouts_) layout = VK_IMAGE_LAYOUT_UNDEFINED;
     for (auto& sig : slot_gl_signaled_)   sig = false;
 
+    // V8/I6: re-arm lifecycle guard (supports re-init after a prior shutdown())
+    alive_.store(true, std::memory_order_release);
+
     try {  // C++ exceptions only; Vulkan returns error codes
         device_ = device;
         queue_ = queue;
@@ -413,6 +416,11 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 
 
 bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t expected_value) {
+    // V8/I6: cheap, handle-independent early-out. If shutdown() has begun, device_
+    // and pfn_wait_semaphores_ may be mid-teardown; bail before touching them.
+    if (!alive_.load(std::memory_order_acquire)) {
+        return false;
+    }
     if (!device_ || !pfn_wait_semaphores_ || timeline_semaphore == VK_NULL_HANDLE) {
         return false;
     }
@@ -438,6 +446,10 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
 }
 
 void GpuCopyOptimizer::shutdown() {
+    // V8/I6: mark not-alive FIRST so a concurrent is_copy_ready() bails before we
+    // null device_ below. Stays false until a subsequent init() re-arms it.
+    alive_.store(false, std::memory_order_release);
+
     if (!device_) {
         fprintf(stderr, "[GpuCopyOptimizer] Device is null, skipping shutdown\n");
         fflush(stderr);
