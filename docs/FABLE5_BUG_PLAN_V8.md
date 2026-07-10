@@ -693,6 +693,27 @@ ama dokunulan dosya sayisi fazla (6+ dosya).
 
 ### I11 — Cift Consumer Race: Action Queue Iki Yerden Tuketiliyor
 
+> **ARASTIRILDI 11.07 — KARAR BEKLIYOR (kod degismedi):** Race DOGRULANDI ama
+> planin "Secenek A" varsayimi (C++ thread'i kaldir, "UI zaten kendi poll'unu
+> yapiyor") YANLIS cikti. Iki tuketici FARKLI, gercek amaclara sahip; ikisi de
+> ayni tek `action_queue`'dan `rj_action_dequeue` ile **POP** ediyor (peek degil):
+> - `command_router.cpp::action_thread_main()` (100ms thread) →
+>   `on_action_` = pipeline.cpp `apply_action(a)` → **encoder'a bitrate/res/fps
+>   uyguluyor** = AKTUATOR. Aksiyonu gercekte etkili kilan yol.
+> - `main_window.cpp::pollHealingActions()` (200ms QTimer) → `HealingOverlay`
+>   (CoPilot onay/undo UI + banner) = UI GORUNUMU.
+>
+> Yani her aksiyon rastgele ya uygulanıyor (ama UI'da gorunmuyor) ya UI'da
+> gorunuyor (ama encoder'a uygulanmiyor). Aktuator tuketiciyi kaldirmak
+> healing'i tamamen ise yaramaz kilardi; UI tuketiciyi kaldirmak CoPilot onay
+> akisini kirardi. **Ikisi de gerekli** → talimatin "birlikte karar verelim"
+> maddesi geregi kod DEGISTIRILMEDI. Onerilen mimari (kullanici onayina sunulacak):
+> tek tuketici (C++ aktuator thread) POP eder, sonra UI'ya thread-safe sinyalle
+> (Qt queued connection) fan-out yapar; VEYA enqueue tarafinda iki ayri kuyruk
+> (aktuasyon + UI). Not: CoPilot'ta onay-once-sonra-aktuasyon sirasi rj_action_approve
+> (I33) stub'ina bagli — o akis bu talimatin kapsami disi, dolayisiyla derin
+> yeniden tasarim I33 ile birlikte ele alinmali.
+
 **Kaynak:** Opus 4.8 (4.3) — tek kaynak, mimari netlik sorunu.
 
 **Sorun:**
@@ -893,6 +914,19 @@ katmani FFI'yi cagirsin.
 
 ### I19 — HEALING_MODE Semantigi 4 Katmanda Farkli
 
+> **DÜZELTILDI 11.07:** `healing.rs::HealingMode` 3 → 4 varyanta genisletildi
+> (`AutoPilot`/`CoPilot`/`Assist`/`Manual`); eski `ManualAssist` Assist+Manual'i
+> tek varyanta cokuyordu (Manual secen kullanici sessizce Assist davranisi
+> aliyordu — gercek, kullaniciya gorunen fonksiyonel hata). Enum sirasi FFI
+> `HEALING_MODE` u32 (0..=3) ile birebir; C++ tarafi (settings_dialog.cpp,
+> healing_overlay.h) zaten 4 varyanttaydi, ABI degismedi (enum FFI'yi u32 olarak
+> geciyor, extern imza/struct dokunulmadi). `collect_rule_actions` mode_str
+> eslemesi 4 varyanta guncellendi; **Assist** modda yalniz `is_critical`
+> aksiyonlar otomatik (gerisi loglanir — UI sozu "kritik otomatik, digerleri
+> log"), **Manual** modda RuleEngine hic cagrilmaz ("tum adaptasyon kapali";
+> sablonda "manual" mode'lu kural zaten yok). Testler: `from_raw` round-trip,
+> Assist-yalniz-kritik, Manual-bos. 43 orchestrator testi PASS.
+
 **Kaynak:** Fable 5 (5.4) — tek kaynak, I1/I20 ile iliskili (ayni
 healing.rs bolgesi).
 
@@ -911,6 +945,21 @@ zaten gozden gecirilecek — ayni PR'da birlestirilebilir.
 ---
 
 ### I20 — evaluate_adaptive() Donmus self.mode Okuyor
+
+> **DÜZELTILDI 11.07:** Donmus `self.mode` alani (constructor'da bir kez set
+> edilip UI degisikliklerini asla gormeyen `AtomicCell<HealingMode>`) tamamen
+> KALDIRILDI (I30'daki gibi olu-state birakmadan) — `subscribe()`'tan `mode`
+> parametresi de cikti. Tum mod okumasi tek noktadan: `HealingMode::current()`
+> = `from_raw(HEALING_MODE.load(Relaxed))`. `evaluate_adaptive` **ve** I1'de
+> eklenen `evaluate_rule_engine`/`collect_rule_actions` (taze bir I20 ornegi
+> mirasi almislardi) artik canli global okuyor. Mimari: mod `run()` ticker'inda
+> periyot basina BIR kez okunup `on_periodic(mode)` → `evaluate_adaptive(mode)`
+> / `collect_rule_actions(mode)`'a geciriliyor (DI) — hem periyot-ici tutarli
+> gorunum, hem testler global'e dokunmadan deterministik (paralel-test yarisi
+> yok). `run`/`handle_system`/`handle_media`'daki magic `== 3` de
+> `== HealingMode::Manual`'e cevrildi. `evaluate_adaptive` artik AutoPilot+Assist'te
+> calisir (tekil arka-plan kalibrasyonu, per-aksiyon is_critical ayrimi yok —
+> o granuler filtre rule-engine yolunda). 43 orchestrator testi PASS.
 
 **Kaynak:** Fable 5 (5.5) — I19'un somut sonucu.
 
