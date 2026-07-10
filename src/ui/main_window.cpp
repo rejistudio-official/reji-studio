@@ -351,6 +351,14 @@ void MainWindow::buildCentralWidget() {
             this, [this] { lbl_status_->setText(tr("Geri alma isteği gönderildi")); });
     connect(healing_overlay_, &reji::HealingOverlay::actionApproved,
             this, [](uint32_t action_id) { rj_action_approve(action_id); });
+
+    // V8/I19: başlangıç modunu Rust'a bir kez senkronla. healingModeChanged yalnız
+    // OK'e basınca emit ediliyor; bu olmadan HEALING_MODE startup'ta 0 (AutoPilot)
+    // kalırken UI combo default'u CoPilot gösterir → ayrışık. DAVRANIŞ DEĞİŞİKLİĞİ:
+    // varsayılan başlangıç modu artık AutoPilot yerine CoPilot (UI ile tutarlı).
+    if (settings_dialog_) {
+        rj_set_healing_mode(static_cast<uint32_t>(settings_dialog_->healingMode()));
+    }
 }
 
 // ---------------------------------------------------------------------------

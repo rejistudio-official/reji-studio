@@ -938,10 +938,12 @@ katmani FFI'yi cagirsin.
 > tek enum; settings_dialog onu include eder) 0..=3 = AutoPilot/CoPilot/Assist/
 > Manual → Rust `from_raw` ile birebir. Sinyal `SettingsDialog::onOkClicked`'te
 > emit ediliyor (OK'e basinca senkron). `reji_app` derlendi+linklendi (sembol
-> cozuldu). NOT (acik minor): baslangic default'u — HEALING_MODE=0 (AutoPilot)
-> vs UI combo default CoPilot; kullanici Settings'i acip OK'lemeden bu ikisi
-> ayrisik. Startup senkron (ctor'da tek `rj_set_healing_mode(healingMode())`)
-> onerildi ama kullanicinin dar kapsam talebi geregi EKLENMEDI — karar bekliyor.
+> cozuldu). **Startup senkronu EKLENDI (kullanici onayiyla):** ctor'da
+> healing_overlay_/settings_dialog_ kurulduktan sonra bir kez
+> `rj_set_healing_mode(static_cast<uint32_t>(settings_dialog_->healingMode()))`.
+> DAVRANIS DEGISIKLIGI (gozlemlenebilir): varsayilan baslangic modu AutoPilot →
+> CoPilot (UI ile tutarli; startup'ta self-healing artik otomatik degil, onaya
+> sunuluyor). SESSION_NOTES'ta acikca not edildi (durustluk).
 
 **Kaynak:** Fable 5 (5.4) — tek kaynak, I1/I20 ile iliskili (ayni
 healing.rs bolgesi).

@@ -1618,10 +1618,19 @@ uçtan uca etkisizdi. Kullanıcı onayıyla düzeltildi: `main_window.cpp`'deki 
 `rj_set_healing_mode(static_cast<uint32_t>(mode))` eklendi. `reji::HealingMode`
 (healing_overlay.h, tek enum) 0..=3 Rust `from_raw` ile birebir; sinyal
 `onOkClicked`'te emit. `reji_app` derlendi+linklendi (sembol çözüldü, yalnız
-pre-existing uyarılar). Açık minör: startup default (HEALING_MODE=0/AutoPilot
-vs UI combo default CoPilot) senkron edilmedi — kullanıcının dar kapsam talebi
-gereği, karar bekliyor. Manuel GUI davranış testi (Manual seç+OK →
-`rj_get_healing_mode()==3`) kullanıcının elinde (interaktif combo).
+pre-existing uyarılar).
+
+**Startup senkronu EKLENDİ (kullanıcı onayıyla) — DAVRANIŞ DEĞİŞİKLİĞİ (gözlemlenebilir):**
+`MainWindow` ctor'unda healing_overlay_/settings_dialog_ kurulduktan sonra bir kez
+`rj_set_healing_mode(static_cast<uint32_t>(settings_dialog_->healingMode()))`
+çağrılıyor. `healingModeChanged` yalnız OK'e basınca emit edildiğinden, bu olmadan
+startup'ta HEALING_MODE=0 (AutoPilot) kalırken UI combo default'u CoPilot
+gösteriyordu (ayrışık). Artık **varsayılan başlangıç modu AutoPilot yerine CoPilot**
+— UI ile tutarlı, ama önceki üstü kapalı AutoPilot davranışından farklı: startup'ta
+self-healing aksiyonları artık otomatik uygulanmıyor, kullanıcı onayına sunuluyor
+(CoPilot semantiği). Küçük ama kullanıcı gözlemleyebilir; dürüstlük gereği açıkça
+not edildi. Manuel GUI davranış testi (Manual seç+OK → `rj_get_healing_mode()==3`)
+kullanıcının elinde (interaktif combo).
 
 ### I11 — ARAŞTIRILDI, KARAR BEKLİYOR (kod değişmedi)
 Race doğrulandı ama planın "C++ thread'i kaldır" varsayımı yanlış: iki tüketici
