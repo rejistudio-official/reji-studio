@@ -1323,3 +1323,29 @@ kontrol içerik-korunumunu kanıtlar; biri diğerinin yerine geçmez.
 
 Kritik: "VUID yok" **tek başına** I28'i kapatmaya YETMEZ — görsel eksen zorunlu.
 (Bu proje pattern'i: bayat "temiz=doğru" varsayımı I22/same_adapter_ ile aynı tuzak.)
+
+## Oturum: 10 Temmuz 2026 — V8/I28 Kapanışı (dual-GPU HW doğrulaması)
+
+### Sonuç
+I28 (`execute_copy()` acquire barrier `oldLayout=UNDEFINED`) gerçek çift-GPU
+donanımda (AMD 780M + RTX 4070) doğrulandı ve **KAPANDI**. Yukarıdaki iki-eksen
+karar matrisi uygulandı, her iki eksen de temiz:
+
+- **VUID ekseni (temiz):** `VK_LAYER_KHRONOS_validation` aktif olduğu
+  **`vulkaninfo` çıktısı + loader debug çıktısıyla kanıtlandı** (her iki cihaz da
+  layer zincirinde görünüyor). Normal çalışma sırasında `vvl_output.txt` **tamamen
+  boş** — hiç VUID/error/warn yok. Yani layer gerçekten yükleniyor ama şikâyet
+  üretmiyor; "layer sessiz kaldığı için temiz göründü" tuzağı `vulkaninfo` kanıtıyla
+  elendi.
+- **Görsel eksen (temiz):** normal açılış/preview doğru render ediliyor, görsel
+  bozukluk (siyah/çöp/ilk-kare) yok.
+
+D2/E4 yorumundaki kasıtlı tasarım (`oldLayout=UNDEFINED` + keyed mutex external
+ownership transfer) böylece doğrulanmış sayılıyor; kod değişikliği gerekmedi.
+
+### Açık kalan minör boşluk (dürüstlük notu)
+Sahne geçişi anındaki **slot round-robin reuse** senaryosu ayrıca test edilmedi.
+Sürekli/tekrarlayan kopya yolu doğrulandı, ama "farklı içerikli bir sahneden hemen
+sonra aynı slotu yeniden kullanma" özel durumu kapsanmadı. Gelecekte fırsat olursa
+(`Remove-Item vvl_output.txt` + sahne değişimli koşu) tamamlanabilir — **blocker
+değil**.

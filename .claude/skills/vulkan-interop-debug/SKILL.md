@@ -42,6 +42,7 @@ noktasıdır — genel Vulkan bilgisiyle değil, buradaki gerçeklerle başla.
 | Rastgele crash / VK_ERROR_DEVICE_LOST | Validation layer AÇ (aşağıda), VUID topla; command buffer yaşam döngüsü (reset-while-pending, V7-H1 sınıfı) |
 | Capture hiç başlamıyor | Duplication hangi adapter'da deneniyor? AMD dışıysa E_ACCESSDENIED normaldir |
 | İyileşme döngüsü (sürekli recreate) | RecoveryCoordinator log'ları + healing.rs hysteresis (5s) — kural fırtınası mı, gerçek device-lost mu ayır |
+| Kopya sonrası siyah/çöp preview (`oldLayout=UNDEFINED` şüphesi, D2/E4) | I28 — 10.07 dual-GPU HW'de doğrulandı, kasıtlı tasarım, validation temiz (yalnız sahne-geçişi slot reuse alt-senaryosu açık) |
 
 ## Standart ayıklama prosedürü
 
