@@ -148,3 +148,22 @@ target_link_libraries(test_gpu_resource_pitch
 )
 
 add_test(NAME GpuResourcePitchTest COMMAND test_gpu_resource_pitch)
+
+# ── V8/I10: paylaşımlı SEH filtresi karar mantığı birim testi ──
+# seh_filter.cpp doğrudan derlenir (yalnız windows.h'e bağlı, __try içermez) —
+# reji_pipeline/Rust link gerekmez. Gerçek fault tetiklemeden pass-through
+# sınıflandırması + AV pencere/eşik valfini doğrular (sentetik now_ms).
+add_executable(test_seh_filter
+    test_seh_filter.cpp
+    ${CMAKE_SOURCE_DIR}/src/pipeline/seh_filter.cpp
+)
+
+target_include_directories(test_seh_filter PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include
+)
+
+target_link_libraries(test_seh_filter
+    gtest gtest_main
+)
+
+add_test(NAME SehFilterTest COMMAND test_seh_filter)
