@@ -82,6 +82,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         // ile birebir sıralı.
         rj_set_healing_mode(static_cast<uint32_t>(mode));
         syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
+        syncWsPasswordToRust();   // V8/I8: WS parolasını da senkronla
     });
     if (healing_overlay_) {
         healing_overlay_->setSettingsDialog(settings_dialog_);
@@ -365,6 +366,7 @@ void MainWindow::buildCentralWidget() {
         // V8/I33c: per-kategori auto-onay ayarlarını da startup'ta Rust'a senkronla
         // (kapı motorda — UI checkbox default'ları motora ulaşmalı).
         syncAutoApproveToRust();
+        syncWsPasswordToRust();  // V8/I8: WS parolasını startup'ta Rust'a senkronla
     }
 }
 
@@ -377,6 +379,16 @@ void MainWindow::syncAutoApproveToRust() {
     rj_set_action_auto_approve(RJ_ACTION_CAT_BITRATE,    settings_dialog_->isBitrateAuto());
     rj_set_action_auto_approve(RJ_ACTION_CAT_RESOLUTION, settings_dialog_->isResolutionAuto());
     rj_set_action_auto_approve(RJ_ACTION_CAT_FPS,        settings_dialog_->isFpsAuto());
+}
+
+// V8/I8: SettingsDialog WS parolasını Rust motoruna iter (boş = auth kapalı).
+// Startup'ta ve healingModeChanged (OK) her tetiklendiğinde çağrılır — parola
+// yalnız yeni WS bağlantılarına uygulanır (mevcut oturumlar sürer). QByteArray
+// çağrı boyunca canlı; Rust değeri kopyalar. Parola burada LOGLANMAZ.
+void MainWindow::syncWsPasswordToRust() {
+    if (!settings_dialog_) return;
+    const QByteArray pw = settings_dialog_->wsPassword().toUtf8();
+    rj_set_ws_password(pw.constData());
 }
 
 // ---------------------------------------------------------------------------
@@ -561,6 +573,7 @@ void MainWindow::onSettingsClicked() {
             if (healing_overlay_) healing_overlay_->setHealingMode(mode);
             rj_set_healing_mode(static_cast<uint32_t>(mode));  // V8/I19: modu Rust'a ilet (bkz. ctor'daki handler)
             syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
+            syncWsPasswordToRust();   // V8/I8: WS parolasını da senkronla
         });
         if (healing_overlay_) healing_overlay_->setSettingsDialog(settings_dialog_);
     }

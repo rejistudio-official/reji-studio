@@ -95,6 +95,8 @@ private slots:
 private:
     /// V8/I33c: SettingsDialog auto-onay checkbox'larını Rust motoruna senkronlar.
     void syncAutoApproveToRust();
+    /// V8/I8: SettingsDialog WS parolasını Rust motoruna senkronlar (boş = auth kapalı).
+    void syncWsPasswordToRust();
     void buildMenuBar();
     void buildCentralWidget();
     void buildStatusBar();

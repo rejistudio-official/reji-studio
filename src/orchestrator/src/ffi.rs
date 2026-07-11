@@ -893,6 +893,41 @@ pub extern "C" fn rj_set_action_auto_approve(category: u32, enabled: bool) -> bo
     .unwrap_or(false)
 }
 
+/// V8/I8: WebSocket kontrol parolasını ayarlar. `null` VEYA boş string → auth
+/// KAPALI (`None`, bugünkü toleranslı davranış). Parola loglanmaz. Her BAĞLANTI
+/// açılışında taze okunur → çalışırken değişim yalnız yeni bağlantılara uygulanır,
+/// mevcut doğrulanmış oturumlar sürer. UI (SettingsDialog) startup'ta ve OK'te
+/// çağırır (I19 startup senkronu deseni).
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_set_ws_password(password: *const c_char) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_set_ws_password ignored");
+            return false;
+        };
+        // null → None (auth kapalı). CStr trusted C++ Settings'ten; boş → None.
+        let pw: Option<String> = if password.is_null() {
+            None
+        } else {
+            let s = unsafe { CStr::from_ptr(password) }.to_string_lossy().into_owned();
+            if s.is_empty() { None } else { Some(s) }
+        };
+        match state._ws_state.password.write() {
+            Ok(mut guard) => {
+                *guard = pw;   // parola değeri LOGLANMAZ (yalnız set gerçeği)
+                eprintln!("[FFI] WS auth {}", if guard.is_some() { "etkin" } else { "kapalı" });
+                true
+            }
+            Err(_) => {
+                eprintln!("[FFI] WS password kilidi poisoned — set başarısız");
+                false
+            }
+        }
+    }))
+    .unwrap_or(false)
+}
+
 /// v0.4+: Get current healing mode (0=AutoPilot, 1=CoPilot, 2=Assist, 3=Manual)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]

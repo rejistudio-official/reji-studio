@@ -39,6 +39,9 @@ public:
     QSpinBox*  srt_port_spin{nullptr};
     QLineEdit* rtmp_url_edit{nullptr};    // rtmp://host/app (stream key HARİÇ)
     QLineEdit* rtmp_key_edit{nullptr};    // stream key — Password echo modu
+
+    // V8/I8: WebSocket kontrol parolası (boş = auth kapalı) — Password echo modu
+    QLineEdit* ws_password_edit{nullptr};
 };
 
 SettingsDialog::SettingsDialog(QWidget* parent)
@@ -146,6 +149,14 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     srt_layout->addRow(tr("RTMP URL:"), d_->rtmp_url_edit);
     srt_layout->addRow(tr("Stream Key:"), d_->rtmp_key_edit);
 
+    // ===== V8/I8: Uzaktan Kontrol (WebSocket) parolası =====
+    auto* grp_ws = new QGroupBox(tr("Uzaktan Kontrol (WebSocket)"), this);
+    auto* ws_layout = new QFormLayout(grp_ws);
+    d_->ws_password_edit = new QLineEdit(this);
+    d_->ws_password_edit->setEchoMode(QLineEdit::Password);
+    d_->ws_password_edit->setPlaceholderText(tr("boş = kimlik doğrulama kapalı"));
+    ws_layout->addRow(tr("Parola:"), d_->ws_password_edit);
+
     // Seçili protokole göre alanları etkinleştir/pasifleştir
     auto update_protocol_fields = [this](int index) {
         const bool rtmp = (index == 1);
@@ -164,6 +175,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
         d_->srt_port_spin->setValue(qs.value("srt/port", 9000).toInt());
         d_->rtmp_url_edit->setText(qs.value("rtmp/url", "").toString());
         d_->rtmp_key_edit->setText(qs.value("rtmp/key", "").toString());
+        d_->ws_password_edit->setText(qs.value("ws/password", "").toString());  // V8/I8
         const int proto = qs.value("output/protocol", 0).toInt();
         d_->combo_protocol->setCurrentIndex(proto == 1 ? 1 : 0);
         update_protocol_fields(d_->combo_protocol->currentIndex());
@@ -187,6 +199,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     layout_main->addWidget(grp_copilot);
     layout_main->addWidget(grp_hotreload);
     layout_main->addWidget(grp_srt);
+    layout_main->addWidget(grp_ws);
     layout_main->addStretch();
     layout_main->addLayout(layout_buttons);
 
@@ -239,6 +252,9 @@ void SettingsDialog::onOkClicked() {
     // Not: stream key QSettings'e (registry) düz metin yazılır — OBS ile aynı
     // yaklaşım; işletim sistemi kullanıcı profili koruması varsayılır.
     qs.setValue("rtmp/key", d_->rtmp_key_edit->text());
+    // V8/I8: WS parolası — RTMP key ile aynı yaklaşım (QSettings/registry düz metin,
+    // OBS ile tutarlı; OS kullanıcı profili koruması varsayılır, keychain kapsam dışı).
+    qs.setValue("ws/password", d_->ws_password_edit->text());
 
     emit healingModeChanged(d_->current_mode);
     accept();
@@ -303,6 +319,12 @@ QString SettingsDialog::rtmpUrl() const {
 
 QString SettingsDialog::rtmpStreamKey() const {
     return d_->rtmp_key_edit ? d_->rtmp_key_edit->text().trimmed() : QString();
+}
+
+// V8/I8: WS kontrol parolası. Trim YAPILMAZ — parola bütünlüğü (baştaki/sondaki
+// boşluk anlamlı olabilir). Boş string → Rust tarafında auth kapalı (None).
+QString SettingsDialog::wsPassword() const {
+    return d_->ws_password_edit ? d_->ws_password_edit->text() : QString();
 }
 
 } // namespace reji

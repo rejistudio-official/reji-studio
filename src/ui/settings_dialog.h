@@ -36,6 +36,7 @@ public:
     uint32_t transportProtocol() const;   // rj::TransportProtocol değeri (0=SRT, 1=RTMP)
     QString  rtmpUrl() const;             // sunucu URL'i (rtmp://host/app — key HARİÇ)
     QString  rtmpStreamKey() const;
+    QString  wsPassword() const;          // V8/I8: WS kontrol parolası (boş = auth kapalı)
 
 signals:
     void healingModeChanged(HealingMode mode);
