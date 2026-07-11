@@ -55,6 +55,11 @@ public:
     // New API: action event notification (thread-safe via Qt::QueuedConnection)
     void onActionEvent(const ActionEvent& event);
 
+    // V8/I33: Rust pending TTL doldu / mod değişti → o aksiyonun onay prompt'unu
+    // temizle (id == mevcut onay bekleyen aksiyon ise). require_approval=false
+    // event'lerde çağrılmaz — yalnız kind==Invalidated akışı için.
+    void onActionInvalidated(uint32_t action_id);
+
     // Vulkan init failure notification (graceful degradation)
     void onVulkanInitFailed();
 
@@ -71,6 +76,7 @@ public:
 signals:
     void undoRequested();
     void actionApproved(uint32_t action_id);  // emitted when user checks Co-Pilot checkbox
+    void actionRejected(uint32_t action_id);  // V8/I33: emitted when user clicks "Reddet"
 
 protected:
     void paintEvent(QPaintEvent* ev) override;
@@ -81,6 +87,12 @@ private slots:
     void onCoPilotTimeout();
 
 private:
+    // V8/I33: CoPilot onay prompt'unu göster/temizle (approve/reject/timeout/
+    // invalidate ortak temizlik yolu). Kapı MOTORDA — prompt yalnız
+    // require_approval=true event'inde açılır.
+    void showApprovalPrompt(const ActionEvent& event);
+    void clearApprovalPrompt();
+
     class Impl;
     std::unique_ptr<Impl> d_;
 };

@@ -27,6 +27,7 @@ public:
     // New fields for action events
     HealingMode  healing_mode{HealingMode::CoPilot};
     QListWidget* action_list{nullptr};          // Co-Pilot checkboxes
+    QPushButton* btn_reject{nullptr};           // V8/I33: CoPilot "Reddet" (explicit reject)
     QListWidget* history_list{nullptr};         // Last 10 actions
     QTimer*      co_pilot_timeout{nullptr};     // 30s timeout per action
     uint32_t     current_action_id{0};          // Track current approval-pending
@@ -59,9 +60,30 @@ HealingOverlay::HealingOverlay(QWidget* parent)
     connect(d_->btn_undo, &QPushButton::clicked, this, &HealingOverlay::undoRequested);
     connect(d_->btn_undo, &QPushButton::clicked, this, &HealingOverlay::hide);
 
+    // ===== V8/I33: Co-Pilot "Reddet" butonu (explicit reject → kural cooldown) ==
+    d_->btn_reject = new QPushButton(tr("Reddet"), this);
+    d_->btn_reject->setStyleSheet(
+        "QPushButton{background:#7a2f2f;color:white;border-radius:4px;"
+        "            padding:3px 10px;font-size:12px;}"
+        "QPushButton:hover{background:#9a3a3a;}");
+    d_->btn_reject->hide();
+    connect(d_->btn_reject, &QPushButton::clicked, this, [this] {
+        // Explicit reddetme: Rust'a bildir (kural cooldown uygulanır), prompt'u
+        // temizle. Timeout'tan FARKLI — timeout cooldown UYGULAMAZ (yalnız TTL).
+        if (d_->current_action_id != 0) {
+            emit actionRejected(d_->current_action_id);
+            clearApprovalPrompt();
+            d_->lbl_message->setText(tr("Eylem reddedildi"));
+            d_->remaining_ms = 2000;
+            d_->lbl_countdown->setText("2s");
+            d_->timer->start();
+        }
+    });
+
     auto* row = new QHBoxLayout;
     row->setContentsMargins(0, 0, 0, 0);
     row->addWidget(d_->lbl_countdown, 1);
+    row->addWidget(d_->btn_reject, 0);
     row->addWidget(d_->btn_undo, 0);
 
     // ===== New: action list (Co-Pilot checkboxes) =====
@@ -131,112 +153,97 @@ void HealingOverlay::onActionEvent(const ActionEvent& event) {
         delete d_->history_list->takeItem(d_->history_list->count() - 1);
     }
 
-    // Mode-specific behavior
+    // V8/I33: Onay kapısı MOTORDA (Rust) — require_approval alanı yetkilidir;
+    // overlay artık per-kategori ayarları YENİDEN HESAPLAMAZ (kapı tek yerde).
+    if (event.require_approval) {
+        // CoPilot manuel-kategori: aksiyon Rust'ta pending, onay bekliyor.
+        showApprovalPrompt(event);
+        return;
+    }
+
+    // Bilgi event'i: aksiyon Rust'ta ZATEN aktüatöre gitti (uygulanıyor). Yalnız
+    // görüntüle — actionApproved EMIT ETME (aksiyon zaten uygulanıyor; eskiden
+    // CoPilot-auto burada approve emit ediyordu, artık Rust doğrudan aktüatöre
+    // yazıyor).
+    QString prefix;
     switch (d_->healing_mode) {
-        case HealingMode::AutoPilot: {
-            d_->lbl_message->setText(QString("Auto: %1").arg(event.description));
-            d_->history_list->show();
-            show();
-            raise();
-            d_->remaining_ms = 5000;
-            d_->lbl_countdown->setText("5s");
+        case HealingMode::Assist:  prefix = tr("Kayıt (Assist)"); break;
+        case HealingMode::Manual:  prefix = tr("Kayıt");          break; // normalde gelinmez
+        default:                   prefix = tr("Otomatik");       break; // AutoPilot / CoPilot-auto
+    }
+    d_->lbl_message->setText(QString("%1: %2").arg(prefix, event.description));
+    d_->history_list->show();
+    show();
+    raise();
+    d_->remaining_ms = 3000;
+    d_->lbl_countdown->setText("3s");
+    d_->timer->start();
+}
+
+// V8/I33: CoPilot onay prompt'u — checkbox (approve) + "Reddet" (reject) + 30s
+// UI timeout. Yalnız require_approval=true event'inde açılır.
+void HealingOverlay::showApprovalPrompt(const ActionEvent& event) {
+    d_->lbl_message->setText(tr("Eylem onayı (%1s, timeout → iptal):")
+        .arg(rj::constants::kCoPilotApprovalTimeoutMs / 1000));
+    d_->action_list->clear();
+    d_->action_list->show();
+
+    auto* item = new QListWidgetItem(event.description);
+    item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+    item->setCheckState(Qt::Unchecked);
+    d_->action_list->addItem(item);
+
+    d_->current_action_id = event.id;
+
+    disconnect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
+               this, nullptr);
+    connect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
+            this, [this, id = event.id](const QModelIndex&, const QModelIndex&) {
+        auto* it = d_->action_list->item(0);
+        if (it && it->checkState() == Qt::Checked) {
+            emit actionApproved(id);   // Rust: pending → aktüatör kuyruğu
+            clearApprovalPrompt();
+            d_->lbl_message->setText(tr("Eylem onaylandı"));
+            d_->remaining_ms = 2000;
+            d_->lbl_countdown->setText("2s");
             d_->timer->start();
-            break;
         }
+    });
 
-        case HealingMode::CoPilot: {
-            // Yaklaşım C: Check settings for this action type
-            bool is_auto = false;
-            if (d_->settings_dialog) {
-                switch (event.type) {
-                    case ActionType::BitrateReduce:
-                    case ActionType::BitrateRecover:
-                        is_auto = d_->settings_dialog->isBitrateAuto();
-                        break;
-                    case ActionType::ResolutionScale:
-                    case ActionType::ResolutionRestore:
-                        is_auto = d_->settings_dialog->isResolutionAuto();
-                        break;
-                    case ActionType::FpsLimit:
-                    case ActionType::FpsRestore:
-                        is_auto = d_->settings_dialog->isFpsAuto();
-                        break;
-                    case ActionType::LogOnly:
-                        is_auto = true;  // log-only: onay gerektirmez
-                        break;
-                }
-            }
+    d_->btn_reject->show();
+    d_->history_list->show();
+    show();
+    raise();
+    d_->co_pilot_timeout->start();
+}
 
-            if (is_auto) {
-                // Auto-execute immediately
-                emit actionApproved(event.id);
-                d_->lbl_message->setText(QString("Auto: %1").arg(event.description));
-                d_->history_list->show();
-                show();
-                raise();
-                d_->remaining_ms = 3000;
-                d_->lbl_countdown->setText("3s");
-                d_->timer->start();
-            } else {
-                // Manual: show checkbox, 30s timeout → iptal
-                d_->lbl_message->setText(tr("Eylem onayı (30s, timeout → iptal):"));
-                d_->action_list->clear();
-                d_->action_list->show();
+// V8/I33: onay prompt'unu temizle — approve/reject/timeout/invalidate ortak yolu.
+void HealingOverlay::clearApprovalPrompt() {
+    d_->co_pilot_timeout->stop();
+    d_->action_list->clear();
+    d_->action_list->hide();
+    d_->btn_reject->hide();
+    d_->current_action_id = 0;
+}
 
-                auto* item = new QListWidgetItem(event.description);
-                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-                item->setCheckState(Qt::Unchecked);
-                d_->action_list->addItem(item);
-
-                d_->current_action_id = event.id;
-
-                disconnect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
-                           this, nullptr);
-                connect(d_->action_list->model(), &QAbstractItemModel::dataChanged,
-                        this, [this, id = event.id](const QModelIndex&, const QModelIndex&) {
-                    auto item = d_->action_list->item(0);
-                    if (item && item->checkState() == Qt::Checked) {
-                        emit actionApproved(id);
-                        d_->action_list->clear();
-                        d_->action_list->hide();
-                        d_->co_pilot_timeout->stop();
-                    }
-                });
-
-                show();
-                raise();
-                d_->co_pilot_timeout->start();
-            }
-            break;
-        }
-
-        case HealingMode::Assist: {
-            d_->lbl_message->setText(tr("Kayıt (Assist modu):"));
-            d_->history_list->show();
-            show();
-            raise();
-            d_->remaining_ms = 3000;
-            d_->lbl_countdown->setText("3s");
-            d_->timer->start();
-            break;
-        }
-
-        case HealingMode::Manual: {
-            d_->history_list->show();
-            if (!d_->manual_mode_warned) {
-                d_->manual_mode_warned = true;
-                QMessageBox::warning(this, tr("Healing Disabled"),
-                    tr("Healing is disabled (Manual mode).\nYou must adjust settings manually."));
-            }
-            break;
-        }
+void HealingOverlay::onActionInvalidated(uint32_t action_id) {
+    // V8/I33: Rust pending TTL doldu / mod değişti. Ekranda o aksiyon
+    // gösteriliyorsa görsel temizlik yap. Aksiyon zaten Rust'ta düştü —
+    // cooldown YOK (explicit reject'ten farkı budur).
+    if (action_id == d_->current_action_id) {
+        clearApprovalPrompt();
+        d_->lbl_message->setText(tr("Eylem zaman aşımına uğradı (iptal edildi)"));
+        d_->remaining_ms = 2000;
+        d_->lbl_countdown->setText("2s");
+        d_->timer->start();
     }
 }
 
 void HealingOverlay::onCoPilotTimeout() {
-    d_->co_pilot_timeout->stop();
-    d_->action_list->clear();
-    d_->action_list->hide();
+    // V8/I33: UI-yerel görüntü zaman aşımı — yalnız görsel temizlik. Rust'a
+    // REJECT GÖNDERME (timeout cooldown UYGULAMAZ); Rust'ın kendi pending TTL'i
+    // aksiyonu düşürüp Invalidated event'i gönderir.
+    clearApprovalPrompt();
     d_->lbl_message->setText(tr("Eylem zaman aşımına uğradı (iptal edildi)"));
     d_->remaining_ms = 2000;
     d_->lbl_countdown->setText("2s");

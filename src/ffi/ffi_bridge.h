@@ -6,11 +6,12 @@
 /* ffi_auto.h, C++ standard başlıkları içerdiğinden extern "C" dışında     */
 /* include edilmeli. cbindgen C++ modunda fonksiyonlar kendi extern "C"     */
 /* annotation'larıyla üretilir.                                             */
-/* Provides: MetricSample, RjCommand, RjAction, RjActionType,              */
+/* Provides: MetricSample, RjCommand, RjAction, RjActionType, RjActionEvent,*/
 /*           rj_start_monitor, rj_metrics_push, rj_command_drain,          */
 /*           rj_pipeline_status, rj_connection_lost, rj_action_dequeue,    */
-/*           rj_action_approve, rj_set_healing_mode, rj_get_healing_mode,  */
-/*           rj_reload_rules                                                */
+/*           rj_action_event_dequeue, rj_action_approve, rj_action_reject, */
+/*           rj_set_action_auto_approve, rj_set_healing_mode,             */
+/*           rj_get_healing_mode, rj_reload_rules                          */
 #include "ffi_auto.h"
 
 #ifdef __cplusplus
@@ -52,6 +53,15 @@ typedef enum {
 #define RJ_ACTION_CAP_FPS            CapFps
 #define RJ_ACTION_RESTORE_FPS        RestoreFps
 #define RJ_ACTION_LOG_ONLY           LogOnly
+
+/* ── V8/I33: RjActionEvent.kind değerleri (ffi.rs RJ_ACTION_EVENT_* eşleşir) ─── */
+#define RJ_ACTION_EVENT_NEW          0u  /* yeni event (bilgi veya onay isteği)   */
+#define RJ_ACTION_EVENT_INVALIDATED  1u  /* pending TTL doldu / mod değişti        */
+
+/* ── V8/I33: rj_set_action_auto_approve kategorileri (ffi.rs RJ_ACTION_CAT_*) ── */
+#define RJ_ACTION_CAT_BITRATE        0u
+#define RJ_ACTION_CAT_RESOLUTION     1u
+#define RJ_ACTION_CAT_FPS            2u
 
 /* ── Bridge-specific declarations (not in ffi_auto.h) ───────────────────── */
 __declspec(noinline) extern int rj_metrics_poll(RjMetricSample* out);

@@ -88,10 +88,13 @@ private slots:
     void removeScene();
     /// Opens Settings dialog
     void onSettingsClicked();
-    /// 200 ms poll: drains rj_action_dequeue and feeds HealingOverlay.
+    /// 200 ms poll: V8/I33 — drains rj_action_event_dequeue (UI event kuyruğu,
+    /// aktüatörden ayrı) and feeds HealingOverlay.
     void pollHealingActions();
 
 private:
+    /// V8/I33c: SettingsDialog auto-onay checkbox'larını Rust motoruna senkronlar.
+    void syncAutoApproveToRust();
     void buildMenuBar();
     void buildCentralWidget();
     void buildStatusBar();

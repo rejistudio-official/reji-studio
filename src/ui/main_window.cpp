@@ -81,6 +81,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         // reji::HealingMode 0..=3 (AutoPilot/CoPilot/Assist/Manual), Rust from_raw
         // ile birebir sıralı.
         rj_set_healing_mode(static_cast<uint32_t>(mode));
+        syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
     });
     if (healing_overlay_) {
         healing_overlay_->setSettingsDialog(settings_dialog_);
@@ -351,6 +352,9 @@ void MainWindow::buildCentralWidget() {
             this, [this] { lbl_status_->setText(tr("Geri alma isteği gönderildi")); });
     connect(healing_overlay_, &reji::HealingOverlay::actionApproved,
             this, [](uint32_t action_id) { rj_action_approve(action_id); });
+    // V8/I33: explicit reddetme → Rust (pending'den siler + kural cooldown).
+    connect(healing_overlay_, &reji::HealingOverlay::actionRejected,
+            this, [](uint32_t action_id) { rj_action_reject(action_id); });
 
     // V8/I19: başlangıç modunu Rust'a bir kez senkronla. healingModeChanged yalnız
     // OK'e basınca emit ediliyor; bu olmadan HEALING_MODE startup'ta 0 (AutoPilot)
@@ -358,7 +362,21 @@ void MainWindow::buildCentralWidget() {
     // varsayılan başlangıç modu artık AutoPilot yerine CoPilot (UI ile tutarlı).
     if (settings_dialog_) {
         rj_set_healing_mode(static_cast<uint32_t>(settings_dialog_->healingMode()));
+        // V8/I33c: per-kategori auto-onay ayarlarını da startup'ta Rust'a senkronla
+        // (kapı motorda — UI checkbox default'ları motora ulaşmalı).
+        syncAutoApproveToRust();
     }
+}
+
+// V8/I33c: SettingsDialog'daki per-kategori auto-onay checkbox'larını Rust
+// motoruna iter (kapı motorda; UI yalnız değeri iletir). Startup'ta ve
+// healingModeChanged (OK) her tetiklendiğinde çağrılır. chk_source_auto inert
+// (source-switch aksiyonu yok) — dahil edilmez.
+void MainWindow::syncAutoApproveToRust() {
+    if (!settings_dialog_) return;
+    rj_set_action_auto_approve(RJ_ACTION_CAT_BITRATE,    settings_dialog_->isBitrateAuto());
+    rj_set_action_auto_approve(RJ_ACTION_CAT_RESOLUTION, settings_dialog_->isResolutionAuto());
+    rj_set_action_auto_approve(RJ_ACTION_CAT_FPS,        settings_dialog_->isFpsAuto());
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +560,7 @@ void MainWindow::onSettingsClicked() {
                 this, [this](reji::HealingMode mode) {
             if (healing_overlay_) healing_overlay_->setHealingMode(mode);
             rj_set_healing_mode(static_cast<uint32_t>(mode));  // V8/I19: modu Rust'a ilet (bkz. ctor'daki handler)
+            syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
         });
         if (healing_overlay_) healing_overlay_->setSettingsDialog(settings_dialog_);
     }
@@ -573,26 +592,36 @@ void MainWindow::pollMetrics() {
 // HealingOverlay.  Non-blocking: returns immediately when queue is empty.
 // ---------------------------------------------------------------------------
 void MainWindow::pollHealingActions() {
-    RjAction action{};
-    if (rj_action_dequeue(&action) == 0) return;
+    // V8/I33 (I11): aktüatör kuyruğu (rj_action_dequeue) yerine AYRI UI event
+    // kuyruğundan (rj_action_event_dequeue) çekilir — UI artık aktüatörle aynı
+    // kuyruğu yarıştırmaz.
+    RjActionEvent ev{};
+    if (rj_action_event_dequeue(&ev) == 0) return;
+
+    // V8/I33: Invalidated (Rust pending TTL doldu / mod değişti) → UI temizliği.
+    if (ev.kind == RJ_ACTION_EVENT_INVALIDATED) {
+        if (healing_overlay_) healing_overlay_->onActionInvalidated(ev.id);
+        return;
+    }
 
     reji::ActionEvent event{};
-    event.id              = action.id;
-    event.require_approval = false;  // overlay kendi healing_mode'una göre karar verir
-    event.timestamp       = QDateTime::currentDateTime().toString("HH:mm:ss");
+    event.id               = ev.id;
+    // V8/I33: onay kararı MOTORDAN gelir (overlay yeniden hesaplamaz).
+    event.require_approval = (ev.require_approval != 0);
+    event.timestamp        = QDateTime::currentDateTime().toString("HH:mm:ss");
 
-    switch (action.action_type) {
+    switch (ev.action_type) {
         case RJ_ACTION_BITRATE_REDUCE:
             event.type        = reji::ActionType::BitrateReduce;
-            event.description = tr("Bitrate düşürülüyor → %1 kbps").arg(action.param1);
+            event.description = tr("Bitrate düşürülüyor → %1 kbps").arg(ev.param1);
             break;
         case RJ_ACTION_BITRATE_RECOVER:
             event.type        = reji::ActionType::BitrateRecover;
-            event.description = tr("Bitrate normale döndürülüyor → %1 kbps").arg(action.param1);
+            event.description = tr("Bitrate normale döndürülüyor → %1 kbps").arg(ev.param1);
             break;
         case RJ_ACTION_SCALE_RESOLUTION:
             event.type        = reji::ActionType::ResolutionScale;
-            event.description = tr("Çözünürlük düşürülüyor (%1%)").arg(action.param1);
+            event.description = tr("Çözünürlük düşürülüyor (%1%)").arg(ev.param1);
             break;
         case RJ_ACTION_RESTORE_RESOLUTION:
             event.type        = reji::ActionType::ResolutionRestore;
@@ -600,7 +629,7 @@ void MainWindow::pollHealingActions() {
             break;
         case RJ_ACTION_CAP_FPS:
             event.type        = reji::ActionType::FpsLimit;
-            event.description = tr("FPS sınırlanıyor → %1 fps").arg(action.param1);
+            event.description = tr("FPS sınırlanıyor → %1 fps").arg(ev.param1);
             break;
         case RJ_ACTION_RESTORE_FPS:
             event.type        = reji::ActionType::FpsRestore;
