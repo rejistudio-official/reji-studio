@@ -1,6 +1,6 @@
 // ws_server.rs — WebSocket kontrol API
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade},
     extract::State,
     response::IntoResponse,
     routing::get,
@@ -300,6 +300,17 @@ async fn send_env(
     }
 }
 
+/// V8/I8: Bağlantıyı obs-websocket close-code'uyla kapatır (ör. 4007 NotIdentified,
+/// 4009 AuthenticationFailed). Mevcut implicit `break` (kod'suz drop) yalnızca
+/// koparma; obs istemcileri (obs-websocket-js vb.) auth reddini KAPATMA KODUNDAN
+/// okur — bu yüzden auth reddi kod'lu Close frame ile bildirilmeli. Close bir
+/// kontrol frame'idir → WireMode (JSON/msgpack) bağımsız çalışır. Gönderim
+/// başarısızsa yutulur (bağlantı zaten kapanıyor).
+async fn close_with(socket: &mut WebSocket, code: u16, reason: &str) {
+    let frame = CloseFrame { code, reason: reason.to_owned().into() };
+    let _ = socket.send(Message::Close(Some(frame))).await;
+}
+
 /// Gelen bir istemci mesajının türü.
 enum ClientMsg {
     /// obs-websocket Identify (op 1), istenen rpcVersion ile.
@@ -563,4 +574,55 @@ fn log_to_file(msg: &str) {
         let _ = writeln!(f, "{}", msg);
     }
     eprintln!("{}", msg);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+
+    /// Minimal sunucu: bağlanınca verilen close-code ile kapatır (private
+    /// `close_with`'i gerçek bir WebSocket üzerinde çalıştırır). Dinlenen portu döndürür.
+    async fn spawn_closer(code: u16) -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let app = Router::new().route(
+            "/ws",
+            get(move |ws: WebSocketUpgrade| async move {
+                ws.on_upgrade(move |mut socket| async move {
+                    close_with(&mut socket, code, "test").await;
+                })
+            }),
+        );
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        port
+    }
+
+    /// Verilen URL'e bağlanıp ilk Close frame'inin taşıdığı kodu döndürür.
+    async fn recv_close_code(url: &str) -> Option<u16> {
+        use tokio_tungstenite::tungstenite::Message as TMsg;
+        let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+        while let Some(Ok(msg)) = ws.next().await {
+            if let TMsg::Close(Some(cf)) = msg {
+                return Some(u16::from(cf.code));
+            }
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn test_close_with_sends_obs_close_codes() {
+        // V8/I8 (commit 1): close_with, obs close-code'larını (4007/4009) istemciye
+        // doğru iletir — auth reddinin kod'lu Close frame ile bildirilmesinin temeli.
+        for code in [
+            obs_protocol::close_code::NOT_IDENTIFIED,
+            obs_protocol::close_code::AUTHENTICATION_FAILED,
+        ] {
+            let port = spawn_closer(code).await;
+            let got = recv_close_code(&format!("ws://127.0.0.1:{}/ws", port)).await;
+            assert_eq!(got, Some(code), "close frame {} taşımalı", code);
+        }
+    }
 }

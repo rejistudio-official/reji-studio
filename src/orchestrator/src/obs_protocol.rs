@@ -28,6 +28,15 @@ pub(crate) mod op {
     pub(crate) const REQUEST_RESPONSE: u8 = 7;
 }
 
+/// obs-websocket v5 WebSocketCloseCode (spec: obsproject/obs-websocket) — I8 auth
+/// için gereken alt küme. `pub(crate)`: iç protokol değerleri, FFI ABI'si değil.
+pub(crate) mod close_code {
+    /// Doğrulanmamış oturumdan Identify dışı mesaj (Request veya legacy `{cmd}`).
+    pub(crate) const NOT_IDENTIFIED: u16 = 4007;
+    /// Identify'daki `authentication` yanlış veya (parola gerekliyken) eksik.
+    pub(crate) const AUTHENTICATION_FAILED: u16 = 4009;
+}
+
 /// Desteklenen tek RPC versiyonu.
 pub(crate) const RPC_VERSION: u8 = 1;
 
