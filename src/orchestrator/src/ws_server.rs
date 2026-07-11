@@ -7,7 +7,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 use crossbeam::queue::ArrayQueue;
@@ -73,6 +73,12 @@ pub struct WsState {
     /// WS→C++ komut kuyruğu — FfiState'teki ile AYNI Arc (metric_state deseni). SetScene (5)
     /// komutu (Aşama 5) buraya push edilir; iki ayrı kuyruk oluşturulmaz.
     pub ws_command_queue: Arc<ArrayQueue<(i32, i32)>>,
+    /// V8/I8: WebSocket kontrol parolası. `None`/boş = auth KAPALI (bugünkü
+    /// toleranslı davranış birebir). `Some(pw)` = obs-websocket auth zorunlu.
+    /// `rj_set_ws_password` (C++ Settings) yazar; her BAĞLANTI açılışında (Hello)
+    /// taze okunur → çalışırken değişim yalnız yeni bağlantılara uygulanır,
+    /// mevcut doğrulanmış oturumlar sürer. FfiState._ws_state ile AYNI Arc.
+    pub password: Arc<RwLock<Option<String>>>,
 }
 
 /// Legacy `{cmd:...}` ve obs-websocket StartStream/StopStream yollarının ORTAK stream-komut
@@ -313,8 +319,8 @@ async fn close_with(socket: &mut WebSocket, code: u16, reason: &str) {
 
 /// Gelen bir istemci mesajının türü.
 enum ClientMsg {
-    /// obs-websocket Identify (op 1), istenen rpcVersion ile.
-    Identify { rpc: Option<u64> },
+    /// obs-websocket Identify (op 1), istenen rpcVersion + (varsa) authentication.
+    Identify { rpc: Option<u64>, authentication: Option<String> },
     /// obs-websocket Request (op 6). requestId yanıtta bire bir geri döner.
     Request {
         request_type: String,
@@ -341,6 +347,11 @@ fn classify_value(v: &Value) -> ClientMsg {
     match v.get("op").and_then(Value::as_u64) {
         Some(op) if op as u8 == obs_op::IDENTIFY => ClientMsg::Identify {
             rpc: v.get("d").and_then(|d| d.get("rpcVersion")).and_then(Value::as_u64),
+            authentication: v
+                .get("d")
+                .and_then(|d| d.get("authentication"))
+                .and_then(Value::as_str)
+                .map(String::from),
         },
         Some(op) if op as u8 == obs_op::REQUEST => {
             let d = v.get("d");
@@ -382,6 +393,27 @@ fn handle_legacy_cmd(text: &str, state: &WsState) {
     }
 }
 
+/// V8/I8: Bağlantı başına oturum durumu. `identified` obs handshake'i tamamlandı mı;
+/// `authenticated` parola gereğinin karşılanıp karşılanmadığı (parola YOKken vacuously
+/// true → bugünkü toleranslı davranış). `auth` yalnız parola ayarlıyken Some — Identify
+/// doğrulaması için gereken bağlamı (bağlantı açılışında snapshot'lanan parola + o oturuma
+/// özel salt/challenge) taşır; snapshot sayesinde parola çalışırken değişse bile bu oturum
+/// açılıştaki parolaya göre doğrulanır.
+struct Session {
+    identified: bool,
+    // commit 4'te okunacak (doğrulanmamış oturumdan Request/{cmd} → 4007). Şimdilik
+    // yalnız Identify başarısında yazılıyor.
+    #[allow(dead_code)]
+    authenticated: bool,
+    auth: Option<PendingAuth>,
+}
+
+struct PendingAuth {
+    salt: String,
+    challenge: String,
+    password: String,
+}
+
 /// Sınıflandırılmış istemci mesajını işler; `false` dönerse bağlantı kapatılmalıdır.
 /// `raw_text`: yalnızca JSON telinde ham metin (legacy `{cmd}` yolu + log için). msgpack
 /// telinde `None` — legacy yol msgpack'te anlamsızdır (control.html alt-protokol teklif
@@ -390,15 +422,37 @@ async fn process_client_msg(
     socket: &mut WebSocket,
     wire_mode: WireMode,
     msg: ClientMsg,
-    identified: &mut bool,
+    session: &mut Session,
     state: &WsState,
     raw_text: Option<&str>,
 ) -> bool {
     match msg {
-        ClientMsg::Identify { rpc } => {
-            if *identified {
+        ClientMsg::Identify { rpc, authentication } => {
+            if session.identified {
+                // Spec 4008 (AlreadyIdentified) ile kapatmayı öngörür; toleranslı ruhla
+                // yoksay+log seçildi (bugünkü davranış korunur) — spec sapması, belgelenmiş.
                 eprintln!("[WS] tekrar Identify geldi (yok sayıldı)");
                 return true;
+            }
+            // V8/I8: parola ayarlıysa authentication'ı DOĞRULA; yanlış/eksik → 4009 kapat.
+            if let Some(pending) = &session.auth {
+                let ok = authentication
+                    .as_deref()
+                    .map(|resp| obs_protocol::verify_auth(
+                        &pending.password, &pending.salt, &pending.challenge, resp,
+                    ))
+                    .unwrap_or(false);
+                if !ok {
+                    // Parola/deneme değeri ASLA loglanmaz — yalnız ret gerçeği.
+                    eprintln!("[WS] Identify auth başarısız → 4009 ile kapatılıyor");
+                    close_with(
+                        socket,
+                        obs_protocol::close_code::AUTHENTICATION_FAILED,
+                        "Authentication failed",
+                    ).await;
+                    return false;
+                }
+                session.authenticated = true;
             }
             // rpcVersion 1 değilse yine de 1 olarak negotiate et (esnek)
             if rpc != Some(obs_protocol::RPC_VERSION as u64) {
@@ -410,14 +464,14 @@ async fn process_client_msg(
             if !send_env(socket, wire_mode, &obs_protocol::identified()).await {
                 return false;
             }
-            *identified = true;
+            session.identified = true;
             eprintln!("[WS] obs-websocket istemcisi identified");
             true
         }
-        // op 6 Request → dispatch. Identify zorunlu değil (toleranslı mod):
-        // Identify gelmeden gelen Request de işlenir, reddedilmez.
+        // op 6 Request → dispatch. Parolasızken Identify zorunlu değil (toleranslı mod).
+        // Parola ayarlıyken doğrulanmamış Request reddi commit 4'te (4007).
         ClientMsg::Request { request_type, request_id, request_data } => {
-            if !*identified {
+            if !session.identified {
                 eprintln!(
                     "[WS] Identify'sız Request işleniyor (toleranslı mod): {}",
                     request_type
@@ -446,15 +500,42 @@ async fn process_client_msg(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: WireMode) {
-    // Hello (op 0) gönder — hemen ardından normal select! döngüsüne girilir.
+    // V8/I8: Parolayı bağlantı açılışında SNAPSHOT'la — çalışırken değişse bile bu
+    // oturum açılıştaki parolaya göre doğrulanır (mevcut oturumlar sürer). Boş string
+    // = auth kapalı (None gibi).
+    let password_snapshot = state
+        .password
+        .read()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|p| !p.is_empty());
+
+    // Hello (op 0) gönder — parola ayarlıysa authentication (challenge+salt) ile.
     // AYRI BLOKLAYAN "Identify bekleniyor" adımı YOK: Identify ve soft-timeout
     // döngü içinde ele alınır; evt_rx metrik akışı ilk andan itibaren kesintisiz iletilir.
-    if !send_env(&mut socket, wire_mode, &obs_protocol::hello()).await {
-        return;
-    }
+    let mut session = match &password_snapshot {
+        Some(pw) => {
+            let (salt, challenge) = obs_protocol::gen_salt_challenge();
+            let hello = obs_protocol::hello_with_auth(&challenge, &salt);
+            if !send_env(&mut socket, wire_mode, &hello).await {
+                return;
+            }
+            Session {
+                identified: false,
+                authenticated: false,
+                auth: Some(PendingAuth { salt, challenge, password: pw.clone() }),
+            }
+        }
+        None => {
+            if !send_env(&mut socket, wire_mode, &obs_protocol::hello()).await {
+                return;
+            }
+            // Parola yok → authenticated vacuously true (gating kapalı, bugünkü davranış).
+            Session { identified: false, authenticated: true, auth: None }
+        }
+    };
 
     let mut evt_rx = state.evt_rx.subscribe();
-    let mut identified = false;
 
     // Identify için soft-timeout: süre dolarsa YALNIZCA log'lanır — bağlantı kapatılmaz,
     // event akışı hiç kesilmez. Legacy istemci (obs handshake yapmayan) böyle sürdürülür.
@@ -502,7 +583,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                             break;
                         }
                         let m = classify(&text);
-                        if !process_client_msg(&mut socket, wire_mode, m, &mut identified, &state, Some(&text)).await {
+                        if !process_client_msg(&mut socket, wire_mode, m, &mut session, &state, Some(&text)).await {
                             break;
                         }
                     }
@@ -514,7 +595,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                         match rmp_serde::from_slice::<Value>(&bin) {
                             Ok(v) => {
                                 let m = classify_value(&v);
-                                if !process_client_msg(&mut socket, wire_mode, m, &mut identified, &state, None).await {
+                                if !process_client_msg(&mut socket, wire_mode, m, &mut session, &state, None).await {
                                     break;
                                 }
                             }
@@ -528,8 +609,11 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                     _ => break,
                 }
             }
-            // Identify soft-timeout: tek sefer, yalnızca log; akışı bloklamaz/kesmez
-            _ = &mut identify_deadline, if !identified && !deadline_fired => {
+            // Identify soft-timeout: tek sefer, yalnızca log; akışı bloklamaz/kesmez.
+            // V8/I8: parola ayarlıyken de yalnız log — doğrulanmamış oturum zaten hiçbir
+            // şey yapamaz (commit 4: her Request/{cmd} → 4007), zamanla kapatmak şart değil
+            // (spec sapması, bugünkü toleranslı davranışla tutarlı, belgelenmiş).
+            _ = &mut identify_deadline, if !session.identified && !deadline_fired => {
                 deadline_fired = true;
                 eprintln!(
                     "[WS] Identify {}s içinde gelmedi → legacy istemci (bağlantı sürüyor)",

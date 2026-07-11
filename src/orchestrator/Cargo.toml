@@ -25,6 +25,8 @@ subtle      = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-tungstenite  = "0.24"
 futures-util       = "0.3"
+sha2               = { workspace = true }  # V8/I8: entegrasyon testinde client-side auth hesabı
+base64             = { workspace = true }
 
 [build-dependencies]
 cbindgen = "0.27"

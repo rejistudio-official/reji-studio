@@ -400,6 +400,9 @@ fn rj_start_monitor_impl() {
             current_scene_idx: Arc::new(AtomicU32::new(0)),
             // FfiState.ws_command_queue ile AYNI Arc — iki ayrı kuyruk yok (metric_state deseni).
             ws_command_queue: ws_command_queue.clone(),
+            // V8/I8: WS kontrol parolası — başlangıçta None (auth kapalı). rj_set_ws_password
+            // (commit 5) bu Arc'ı günceller; her bağlantı açılışında taze okunur.
+            password: Arc::new(std::sync::RwLock::new(None)),
         });
         {
             // Spawn öncesi log

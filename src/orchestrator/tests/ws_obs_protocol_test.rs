@@ -47,8 +47,31 @@ fn make_state() -> (Arc<WsState>, broadcast::Receiver<String>, broadcast::Sender
         scene_names: Arc::new(std::sync::Mutex::new(Vec::new())),
         current_scene_idx: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         ws_command_queue: Arc::new(crossbeam::queue::ArrayQueue::new(32)),
+        password: Arc::new(std::sync::RwLock::new(None)),
     });
     (state, cmd_rx, evt_tx)
+}
+
+/// obs istemci tarafı authentication string'i (spec formülü, sunucudan BAĞIMSIZ
+/// hesaplanır — testin değeri budur). V8/I8.
+fn client_auth(password: &str, salt: &str, challenge: &str) -> String {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let secret = b64.encode(Sha256::digest(format!("{}{}", password, salt).as_bytes()));
+    b64.encode(Sha256::digest(format!("{}{}", secret, challenge).as_bytes()))
+}
+
+/// Sıradaki Close frame'inin kodunu döndürür (handshake mesajlarını atlar).
+async fn next_close_code(ws: &mut Client) -> Option<u16> {
+    loop {
+        match ws.next().await {
+            Some(Ok(Message::Close(Some(cf)))) => return Some(u16::from(cf.code)),
+            Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => continue,
+            Some(Ok(Message::Text(_))) | Some(Ok(Message::Binary(_))) => continue,
+            _ => return None,
+        }
+    }
 }
 
 /// Üretimdeki ffi.rs cmd_rx döngüsünün test karşılığı: cmd_tx'i tüketip streaming_active +
@@ -857,4 +880,72 @@ async fn json_modu_hala_calisir() {
     assert_eq!(resp["op"], 7);
     assert_eq!(resp["d"]["requestStatus"]["code"], 100);
     assert_eq!(resp["d"]["requestId"], "j1");
+}
+
+// ===== V8/I8: WS auth (commit 3 — handshake entegrasyonu) =====
+
+#[tokio::test]
+async fn auth_parolasiz_hello_authentication_alani_yok() {
+    // Regresyon: parola yokken Hello'da authentication OLMAMALI (bugünkü davranış birebir).
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+    let mut ws = connect(port).await;
+
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["op"], 0);
+    assert!(
+        hello["d"].get("authentication").is_none(),
+        "parolasız Hello'da authentication alanı olmamalı"
+    );
+}
+
+#[tokio::test]
+async fn auth_dogru_parola_ile_identified() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    *state.password.write().unwrap() = Some("s3cret".to_string());
+    let port = free_port();
+    spawn_server(port, state);
+    let mut ws = connect(port).await;
+
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["op"], 0);
+    let salt = hello["d"]["authentication"]["salt"].as_str().expect("salt");
+    let challenge = hello["d"]["authentication"]["challenge"].as_str().expect("challenge");
+    let auth = client_auth("s3cret", salt, challenge);
+
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1, "authentication": auth}})).await;
+    let identified = next_json(&mut ws).await;
+    assert_eq!(identified["op"], 2, "doğru parola → Identified (op 2)");
+}
+
+#[tokio::test]
+async fn auth_yanlis_parola_4009_ile_kapanir() {
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    *state.password.write().unwrap() = Some("s3cret".to_string());
+    let port = free_port();
+    spawn_server(port, state);
+    let mut ws = connect(port).await;
+
+    let hello = next_json(&mut ws).await;
+    let salt = hello["d"]["authentication"]["salt"].as_str().unwrap();
+    let challenge = hello["d"]["authentication"]["challenge"].as_str().unwrap();
+    let wrong = client_auth("YANLIS", salt, challenge);
+
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1, "authentication": wrong}})).await;
+    assert_eq!(next_close_code(&mut ws).await, Some(4009), "yanlış parola → 4009 close");
+}
+
+#[tokio::test]
+async fn auth_eksik_authentication_4009() {
+    // Parola ayarlı ama Identify authentication'sız → 4009 (eksik = başarısız).
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    *state.password.write().unwrap() = Some("s3cret".to_string());
+    let port = free_port();
+    spawn_server(port, state);
+    let mut ws = connect(port).await;
+
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    assert_eq!(next_close_code(&mut ws).await, Some(4009), "eksik authentication → 4009");
 }
