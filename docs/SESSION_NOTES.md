@@ -1659,3 +1659,61 @@ Ayrıntı: FABLE5_BUG_PLAN_V8.md I11.
 - `src/orchestrator/src/ffi.rs` — subscribe çağrısı (mode arg kaldırıldı), unused
   import temizliği, mode doc yorumları
 - `docs/FABLE5_BUG_PLAN_V8.md` — I19/I20 DÜZELTILDI, I11 araştırma bulgusu
+
+---
+
+## Oturum: 11 Temmuz 2026 — V8/I33 + I11 (CoPilot onay kapısı, 7 commit'lik seri)
+
+### Özet
+I33 (rj_action_approve stub) + I11 (çift-consumer race) tek pakette çözüldü.
+**Faz 0 keşfi kapsamı büyüttü** (I19 deseninin tekrarı): sorun yalnız FFI stub'ı
+değildi — aktüatör (`action_thread_main`) POP'ta HER aksiyonu moddan/onaydan
+bağımsız uyguluyordu; UI onayı (`rj_action_approve`) no-op'tu → CoPilot onayı
+uçtan uca hayaliydi. Faz 0/1 (keşif + tasarım) kullanıcı onayından geçti, sonra
+7 commit'lik seri.
+
+### Kararlar (kullanıcı onaylı)
+- **Mimari:** iki ayrı kuyruk (tek-tüketici+fan-out DEĞİL) — aktüatör + UI event.
+- **ID:** u32-global (u64 önerisi RjAction 20B ABI çatallaşmasını doğuracağı için
+  reddedildi; wrap gerçekçi hızda ~13 yıl).
+- **Cooldown:** RuleEngine'de (hysteresis ailesi), 120s sabit.
+- **Auto-onay:** kapı UI-yerel değil MOTORDA; UI startup senkronu (I19 deseni).
+- **Reject UX:** explicit "Reddet" butonu → cooldown; 30s timeout → yalnız
+  geçersizleştirme (cooldown yok). reject≠timeout.
+
+### 7 commit (df1c163..b20608f, master'a HENÜZ push edilmedi)
+1. `df1c163` — global monoton `next_action_id` (tick-yerel ID kaldırıldı) + `Action.rule_id`.
+2. `af42cdb` — iki-kuyruk: `RjActionEvent` (24B) + `ui_event_queue` + `rj_action_event_dequeue` (I11).
+3. `6133dae` — pending deposu (`pending_actions`, TTL 30s) + `rj_action_approve` gerçek + `rj_action_reject` + mod-değişimi/TTL süpürme→Invalidated.
+4. `8e82ed4` — per-kategori auto-onay (`ACTION_AUTO_APPROVE` + `rj_set_action_auto_approve`) + producer routing (`requires_approval`) + `RoutedAction`.
+5. `a58d428` — reject cooldown (`apply_cooldown` + `cooldown_until`, `REJECT_COOLDOWN=120s`).
+6. `b20608f` — C++ wiring: `pollHealingActions`→event-queue, "Reddet" butonu (`actionRejected`→`rj_action_reject`), auto-onay startup senkronu, `onActionEvent` require_approval'a güvenir, `onActionInvalidated`.
+7. docs (bu commit) — V8 plan I33/I11/I34, SESSION_NOTES, ffi-safety-review, CONTEXT, talimat arşivi.
+
+### Doğrulama
+- Rust: 50 lib + 5 rules + 23 ws = tümü PASS (10 yeni test: next_action_id,
+  action_event roundtrip, pending approve/reject/sweep/mode-clear, auto_approve,
+  requires_approval, reject cooldown).
+- ABI: `RjActionEvent` static_assert (C++ sizeof_check.cpp) + zig comptime PASS;
+  `sizeof_check.exe`=24B; cbindgen üretti. (check-abi.ps1 wrapper'ı I22'nin bayat
+  RjMetricSample 56/64 beklentisinde ÖNCEDEN patlıyor — bu seriden bağımsız.)
+- C++: `reji_app` derlendi + LİNKLENDİ (rj_action_event_dequeue/reject/
+  set_action_auto_approve sembolleri çözüldü → wiring uçtan uca gerçek, I19 dersi).
+- ctest: yalnız bilinen 2 kırık (FrameProfilerTest, ShaderCacheTest) — yeni regresyon yok.
+
+### Kullanıcıya görünen davranış değişiklikleri
+- CoPilot manuel-kategori aksiyonları artık gerçekten onaya kadar bekler.
+- Explicit reddetme kuralı 120s bastırır (spam yok); timeout bastırmaz.
+- Per-kategori auto-onay artık motorda uygulanır (eski UI-yerel + aktüatör yarışı yok).
+- TTL(30s) dolan pending UI'dan düşer.
+
+### KULLANICIDA (otonom yapılmadı) + gotcha
+- **GUI davranış onayı:** CoPilot'ta gerçek eşik aşımı → pending görünür → onayla
+  (uygulanır) / reddet (uygulanmaz + 120s bastırılır) / timeout (geçersizleşir,
+  cooldown yok). Kod incelemesi + otomatik test + build/link ile doğrulandı;
+  görsel/etkileşim onayı bekliyor.
+- **Gotcha (ffi-safety-review skill'ine işlendi):** yeni FFI fonksiyonu eklerken
+  C++ Release build'inden ÖNCE `cargo build --release` şart — aksi halde
+  `target/release/reji_orchestrator.lib` bayat kalır, LINK `unresolved external
+  rj_*`'da patlar (ffi_auto.h bildirimi görünse bile).
+- **Açık minör:** `chk_source_auto` inert (I34, Sprint 4).

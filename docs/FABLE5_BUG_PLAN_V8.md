@@ -40,7 +40,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I30 | MiniMax     | Cross-adapter shared texture'da D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX flag'i YOK (capture_dxgi.cpp'de var, gpu_resource_manager.cpp'de yok) **[KEŞİF 09.07: ÖLÜ KODU HEDEFLİYOR — flag eklemek encode yolunun E_INVALIDARG kök nedenini çözmez, keyed_mutex_* üyeleri zaten %100 ölü]** **[DÜZELTILDI: flag EKLENMEDİ; ölü keyed_mutex_*+copy_fence_ üyeleri VE transfer() cross-adapter dalı temizlendi]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I31 | Opus+GLM    | BGRA/RGBA format tutarsizligi — cross-adapter RGBA zorluyor, Vulkan/GL BGRA bekliyor, kanal takasi riski **[KEŞİF 09.07: HARİTALANDI, DEFEKT YOK — preview yolunda tek swizzle noktası (shader .bgra), zincir tutarlı]** | gpu_resource_manager.cpp, preview_widget.cpp, gpu_interop_subsystem.cpp | Yuksek | Sprint 1 |
 | I32 | Keşif (09.07) | invalidate_pool() aynı VkImage/VkDeviceMemory'yi 3 slotta ayrı ayrı free ediyor (tek import, 3-slot alias) — çözünürlük/reinit'te üçlü-free/UB **[DÜZELTILDI]** | external_memory_bridge.zig:276-285 | Kritik | Sprint 1 |
-| I33 | I1'den ayrıştırıldı (09.07) | rj_action_approve() hâlâ stub — CoPilot modunda gerçek kullanıcı onayı yok, her zaman "1" (onaylandı) dönüyor. AutoPilot etkilenmiyor (onay gerektirmez), ama CoPilot modu yanıltıcı | ffi.rs | Yuksek | Sprint 2 |
+| I33 | I1'den ayrıştırıldı (09.07) | rj_action_approve() hâlâ stub — CoPilot onay kapısı UÇTAN UCA YOK (yalnız FFI stub değil) **[DÜZELTILDI 11.07 — 7 commit'lik seri df1c163..b20608f. Faz 0 keşfi: aktüatör POP'ta her aksiyonu moddan bağımsız uyguluyordu; CoPilot onayı I19 deseninin tekrarı (hayali). Yeniden tanım + alt maddeler I33a/b/c. Ayrıca I11 aynı seride çözüldü. Detay: aşağıdaki I33 bölümü + SESSION_NOTES 11.07]** | ffi.rs, healing.rs, rules.rs, main_window.cpp, healing_overlay.* | Yuksek | Sprint 2 |
 | I4  | Fable+Opus  | CPU fallback transfer() row-pitch farkini yok sayiyor — buffer overrun/bozulma **[DÜZELTILDI]** | gpu_resource_manager.cpp | Kritik | Sprint 1 |
 | I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali **[DÜZELTILDI]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores **[DÜZELTILDI 10.07: alive_ atomic flag eklendi — SEH sadece AV yakalar, stale-ama-gecerli-gorunen handle sessiz UB kalirdi; flag handle'dan bagimsiz erken cikis]** | copy_optimizer.cpp | Kritik | Sprint 1 |
@@ -48,7 +48,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I8  | Fable+Opus  | WS sunucusu auth'suz — drive-by stream kill saldiri vektoru | ws_server.rs | Yuksek | Sprint 2 |
 | I9  | Fable+Opus  | CoUninitialize() RPC_E_CHANGED_MODE'da kosulsuz cagriliyor (2 yerde) | command_router.cpp | Yuksek | Sprint 2 |
 | I10 | Fable+Opus  | SEH filtreleri EXCEPTION_ACCESS_VIOLATION/stack overflow yutuyor | command_router.cpp, wasapi_capture.cpp, +4 dosya | Yuksek | Sprint 2 |
-| I11 | Opus        | Cift consumer race — C++ action thread (100ms poll) + UI'nin kendi 200ms poll'u ayni kuyruğu yariyor | command_router.cpp, main_window.cpp | Yuksek | Sprint 2 |
+| I11 | Opus        | Cift consumer race — C++ action thread (100ms poll) + UI'nin kendi 200ms poll'u ayni kuyruğu yariyor **[DÜZELTILDI 11.07 — I33 serisinde iki-kuyruk mimarisiyle: aktüatör kuyruğu (rj_action_dequeue) + AYRI UI event kuyruğu (rj_action_event_dequeue). İki tüketici artık farklı kuyruklar; yarış yapısal olarak yok. commit af42cdb (mimari) + b20608f (UI yönlendirme)]** | command_router.cpp, main_window.cpp | Yuksek | Sprint 2 |
 | I12 | Fable       | MainWindow yikim sirasi — GL widget paintGL yaparken copy_optimizer_.shutdown() cagrilabiliyor **[DÜZELTILDI 10.07: ~MainWindow'da stopFrameThread sonrasi, shutdown oncesi preview_widget_->setCopyOptimizer(nullptr)+setBridge(nullptr) eklendi — paintGL GUI thread'inde, referans koparildiktan sonra torn-down optimizer'a cagri yok. run.log sever→Shutdown-complete sirasi dogrulandi]** | main_window.cpp | Yuksek | Sprint 2 |
 | I13 | Opus        | GL render tamamlanmamis Vulkan blit sonucunu orneklyebiliyor — ilk kare sira hatasi **[DOĞRULANDI 10.07: ZATEN GATE'LI — current_pool_idx_=last_used_slot() bir onceki submit'in slot'unu gosterir (execute_copy yeni slot'a yazar), render'dan once o slot'un GL sync semaphore'unda glWaitSemaphoreEXT ile GPU-tarafi bekleme (preview_widget.cpp:584-590). Kod degismedi]** | preview_widget.cpp | Yuksek | Sprint 2 |
 | I14 | Fable       | rj_metrics_poll deklare edilmis ama Rust implementasyonu yok — UI metrik barı muhtemelen hic guncellenmiyor | ffi_bridge.h, main_window.cpp | Yuksek | Sprint 2 |
@@ -146,7 +146,42 @@ olmadan deterministik doğrulama; `enqueue_action` sarmalayıcısı ince üç sa
 
 ---
 
-### I33 — rj_action_approve() Hâlâ Stub (I1'den Ayrıştırıldı)
+### I33 — CoPilot Onay Kapısı Uçtan Uca Yok (I1'den Ayrıştırıldı → yeniden tanımlandı)
+
+> **DÜZELTILDI 11.07.2026 — 7 commit'lik seri (df1c163, af42cdb, 6133dae,
+> 8e82ed4, a58d428, b20608f + docs).** Faz 0 keşfi kapsamı büyüttü: sorun yalnız
+> `rj_action_approve` stub'ı DEĞİLDİ. Aktüatör (`command_router::action_thread_main`)
+> POP ettiği HER aksiyonu moddan/onaydan bağımsız anında uyguluyordu; UI'ın
+> onayı (`rj_action_approve`) ise no-op'tu. Yani CoPilot onayı uçtan uca hayaliydi
+> — I19 deseninin (C++ wiring boşluğu) birebir tekrarı. Üç alt maddeye bölündü:
+>
+> - **I33a — Pending-onay deposu + iki-kuyruk (I11 ile birlikte):** Tek
+>   `action_queue` iki tüketici tarafından POP edilip yarışıyordu (I11). Artık
+>   iki kuyruk: `action_queue` (aktüatör — yalnız uygulanmaya hazır) + yeni
+>   `ui_event_queue` (`RjActionEvent`, `rj_action_event_dequeue`). CoPilot
+>   manuel-kategori aksiyonları Rust'ta `pending_actions` (Mutex<HashMap>) +
+>   TTL(30s) deposunda tutulur; `rj_action_approve(id)` → aktüatöre taşır,
+>   `rj_action_reject(id)` → siler. TTL/mod-değişimi → UI'a Invalidated event.
+>   ID'ler artık global monoton (`next_action_id`, tick-yerel kaldırıldı).
+> - **I33b — Reject cooldown:** Reddedilen aksiyonun kuralı `REJECT_COOLDOWN`
+>   (120s) boyunca `RuleEngine`'de bastırılır (yeni `apply_cooldown` +
+>   `cooldown_until` haritası, evaluate'te hysteresis yanında kontrol) — aksi
+>   halde ~1s tick'te yeniden üretilip spamlerdi. Timeout ise cooldown UYGULAMAZ
+>   (yalnız TTL geçersizleştirir — reject≠timeout).
+> - **I33c — Per-kategori auto-onay motorda:** Kapı UI-yerel değil MOTORDA
+>   (`ACTION_AUTO_APPROVE` bit maskesi + `rj_set_action_auto_approve`). CoPilot'ta
+>   `requires_approval = CoPilot && !kategori-auto`. UI startup + değişiklikte
+>   3 checkbox'ı (bitrate/resolution/fps) motora senkronlar (I19 deseni). UI
+>   `HealingOverlay` artık `require_approval` alanına güvenir, yeniden hesaplamaz.
+>
+> **Reject UX (kullanıcı kararı):** explicit "Reddet" butonu → cooldown; 30s UI
+> timeout → yalnız görsel temizlik (cooldown yok). **ID genişliği (kullanıcı
+> kararı):** u32-global (u64 yerine — RjAction 20B ABI çatallaşmasını önler, wrap
+> gerçekçi hızda ~13 yıl). **Doğrulama:** 50 lib + 5 rules + 23 ws Rust testi
+> PASS; reji_app derlendi+linklendi; ABI static_assert + zig PASS; ctest yalnız
+> bilinen 2 kırık. GUI davranış onayı (approve/reject tıklama) KULLANICIDA.
+> **AÇIK MİNÖR:** `chk_source_auto` checkbox'ı inert (source-switch aksiyonu yok)
+> → aşağıdaki Sprint 4 temizlik notu.
 
 **Kaynak:** V8/I1 talimatı (09.07.2026) — I1 bağlanırken CoPilot onay akışının
 ayrı bir sorun olduğu netleşti, karıştırılmasın diye ayrı madde yapıldı.
@@ -693,7 +728,15 @@ ama dokunulan dosya sayisi fazla (6+ dosya).
 
 ### I11 — Cift Consumer Race: Action Queue Iki Yerden Tuketiliyor
 
-> **ARASTIRILDI 11.07 — KARAR BEKLIYOR (kod degismedi):** Race DOGRULANDI ama
+> **DÜZELTILDI 11.07 (I33 serisinde):** Aşağıdaki araştırmanın önerdiği
+> "iki ayrı kuyruk" mimarisi uygulandı. Aktüatör `action_queue`'yu (rj_action_dequeue)
+> tek başına tüketir; UI ayrı `ui_event_queue`'dan (rj_action_event_dequeue) çeker.
+> İki tüketici farklı kuyruklar → yarış yapısal olarak yok. Üretici, routing
+> kararını (aktüatör vs pending vs UI-event) enqueue anında verir. commit
+> af42cdb (iki-kuyruk) + b20608f (UI yönlendirme). Aşağıdaki araştırma notu
+> (tarihsel) korunuyor:
+>
+> **ARASTIRILDI 11.07 — (karar bu seride verildi):** Race DOGRULANDI ama
 > planin "Secenek A" varsayimi (C++ thread'i kaldir, "UI zaten kendi poll'unu
 > yapiyor") YANLIS cikti. Iki tuketici FARKLI, gercek amaclara sahip; ikisi de
 > ayni tek `action_queue`'dan `rj_action_dequeue` ile **POP** ediyor (peek degil):
@@ -995,6 +1038,13 @@ bolgesi, ayni test kapsamı).
 ---
 
 ## Sprint 4 — Dusuk: Temizlik ve Bakim
+
+> **I34 (keşif 11.07, I33 serisinden) — inert `chk_source_auto` checkbox.**
+> `settings_dialog.cpp`'deki "Source auto" onay kutusu, karşılık gelen bir
+> source-switch aksiyon tipi olmadığından fiilen ölü (I33c'de auto-onay 3
+> kategoriye — bitrate/resolution/fps — bağlandı, source dahil edilmedi). Öneri:
+> kaldır ya da gerçek source-switch aksiyonu gelene kadar gizle. Düşük öncelik,
+> davranışsal etki yok.
 
 ---
 

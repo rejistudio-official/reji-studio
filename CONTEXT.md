@@ -81,7 +81,7 @@ Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I
 | I8 | WS auth yok | ⏳ Açık |
 | I9 | `CoUninitialize()` koşulsuz | ⏳ Açık |
 | I10 | SEH filtreleri AV/stack overflow yutuyor | ⏳ Açık |
-| I11 | Çift action-queue consumer race | 🔍 Araştırıldı — iki tüketici de gerekli, karar bekliyor, I33 ile birlikte ele alınacak |
+| I11 | Çift action-queue consumer race | ✅ Düzeltildi (11.07, I33 serisi — iki-kuyruk mimarisi: aktüatör + ayrı UI event kuyruğu) |
 | I12 | MainWindow yıkım sırası | ✅ Düzeltildi (referans koparma) |
 | I13 | İlk kare sıralaması | ✅ Doğrulandı — zaten doğru gate'li |
 | I14 | `rj_metrics_poll` implemente değil | ⏳ Açık |
@@ -95,7 +95,7 @@ Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I
 | I30 | Cross-adapter'da KEYEDMUTEX flag eksik | ✅ Kapandı — flag eklenmedi (zaten root-cause değil), ölü kod temizlendi |
 | I31 | BGRA/RGBA format tutarsızlığı | ✅ Çürütüldü — haritalandı, defekt yok |
 | I32 | `invalidate_pool()` üçlü-free | ✅ Düzeltildi (kritik, gerçek memory corruption riski) |
-| I33 | `rj_action_approve()` stub (CoPilot onayı sahte) | ⏳ Açık, Sprint 2, I11 ile birlikte planlı |
+| I33 | CoPilot onay kapısı uçtan uca yok (stub'dan fazlası) | ✅ Düzeltildi (11.07, 7 commit df1c163..b20608f — pending deposu/reject cooldown/auto-onay motorda; alt maddeler I33a/b/c). GUI davranış onayı kullanıcıda |
 
 **V8'e önemli bir ek not:** Sprint 1'in "I2+I3 tek paket" varsayımı çürütüldü — bkz. bölüm 4, WGC/DXGI keşfi.
 
@@ -144,15 +144,15 @@ AMD Vulkan keyed-mutex copy_optimizer zinciri
 
 ## 5. Şu An Nerede Kaldık — Sıradaki Somut Adımlar
 
-Hiçbir acil/bloke eden iş yok. Aşağıdakiler, öncelik sırasına göre makul sonraki adımlar — hangisiyle devam edileceği kullanıcı tercihine bağlı:
+Hiçbir acil/bloke eden iş yok. **I33+I11 (CoPilot onay kapısı) 11.07'de tamamlandı** (bkz. bölüm 2 tablosu + `SESSION_NOTES.md` 11 Temmuz). Aşağıdakiler, öncelik sırasına göre makul sonraki adımlar — hangisiyle devam edileceği kullanıcı tercihine bağlı:
 
-1. **I33 + I11 birlikte** — CoPilot onay akışının gerçek implementasyonu (`rj_action_approve` stub'ı) + çift action-queue consumer'ın doğru fan-out/tek-tüketici mimarisine kavuşturulması. İkisi de aynı "aksiyonlar kullanıcıya nasıl ulaşıyor" sorusuna değiniyor, birlikte planlanmalı.
-2. **I8 (WS auth)** — gerçek güvenlik açığı, Faz 1'in `ws_server.rs`'iyle aynı dosya (koordine et).
-3. **I9, I10, I14** — Sprint 2'nin kalan düşük-orta öncelikli maddeleri.
-4. **Sprint 3-4 (I15-I18, I21-I26)** — performans/mimari tutarlılık/temizlik, hiç dokunulmadı, çoğu düşük efor.
-5. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — ROADMAP'teki bir sonraki büyük faz, hiç başlanmadı. (Sonrasında Faz 4 — NDI, Faz 5 — Zig global state tam çözümü.)
+1. **I8 (WS auth)** — gerçek güvenlik açığı, Faz 1'in `ws_server.rs`'iyle aynı dosya (koordine et).
+2. **I9, I10, I14** — Sprint 2'nin kalan düşük-orta öncelikli maddeleri.
+3. **Sprint 3-4 (I15-I18, I21-I26, + I34 inert checkbox)** — performans/mimari tutarlılık/temizlik, hiç dokunulmadı, çoğu düşük efor.
+4. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — ROADMAP'teki bir sonraki büyük faz, hiç başlanmadı. (Sonrasında Faz 4 — NDI, Faz 5 — Zig global state tam çözümü.)
 
 **Kullanıcının elinde bekleyen (Claude Code otonom yapamıyor):**
+- **CoPilot onay/reddet GUI doğrulaması (I33'ü tam kapatır)** — CoPilot'ta gerçek eşik aşımı → pending görünür → onayla (uygulanır) / reddet (uygulanmaz + 120s bastırılır) / timeout (geçersizleşir, cooldown yok)
 - Twitch/YouTube gerçek ingest testi (Faz 2'yi tam kapatır)
 - Manual healing mode GUI doğrulaması (I19/I20'yi tam kapatır)
 - I32'nin validation-layer double-free VUID karşılaştırması (opsiyonel, ek kanıt)

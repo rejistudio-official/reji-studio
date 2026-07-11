@@ -94,8 +94,14 @@ güvenilir bulunmadı, denendi ve reddedildi.)
 
 ## Bilinen hata modları
 
-- **Link hatası `unresolved external rj_...`** → cbindgen üretimi eskimiş;
-  `cargo build` ile `build.rs`'i tetikle, sonra CMake.
+- **Link hatası `unresolved external rj_...`** → iki olası neden:
+  1. cbindgen üretimi eskimiş; `cargo build` ile `build.rs`'i tetikle, sonra CMake.
+  2. **Bayat RELEASE lib** (V8/I33'te fiilen yaşandı): C++ **Release** build'i
+     `target/release/reji_orchestrator.lib`'e linkler; yalnız `cargo build`
+     (debug) çalıştırdıysan bu lib yeni `#[no_mangle]` export'u içermez →
+     `.obj` derlenir ama LINK `unresolved external`'da patlar. Çözüm: yeni FFI
+     fonksiyonu eklediğinde C++ build'inden ÖNCE **`cargo build --release`**
+     çalıştır (ffi_auto.h'de bildirim görünse bile release `.lib` ayrı üretilir).
 - **sizeof mismatch** → çoğunlukla padding: alan sırasını Rust'ta değiştirip
   C++'ta değiştirmemek. `abi-check` çıktısındaki offset'i iki başlıkla karşılaştır.
 - **Sessiz veri bozulması** → enum discriminant uyumsuzluğu; `#[repr(u32)]`

@@ -22,6 +22,7 @@ hazırlanmış tek seferlik bir uygulama/keşif talimatına karşılık gelir.
 | `V8_I32_TALIMAT.md` | V8 I32 — `invalidate_pool` üçlü-free hatası | FIXED + PUSHED |
 | `V8_KESIF_GUNCELLEME_I32_TALIMAT.md` | V8 I32 — keşif güncellemesi | DONE (keşif) |
 | `V8_NOEXCEPT_TALIMAT.md` | V8 ek madde — `ITransport` arayüzünü `noexcept` ile sağlamlaştırma | Talimat (output/ katmanı) |
+| `TALIMAT_I33_I11.md` | V8 I33 + I11 — CoPilot onay kapısı + action-queue mimarisi (7 commit'lik seri) | FIXED (df1c163..b20608f); GUI onayı kullanıcıda |
 
 ## Not
 
