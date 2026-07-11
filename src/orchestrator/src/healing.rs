@@ -66,6 +66,22 @@ impl HealingMode {
     }
 }
 
+/// V8/I33c: kuraldan üretilmiş, FFI'ya hazır aksiyon + onu üreten kuralın ID'si.
+/// `rule_id`, CoPilot pending yolunda reject → RuleEngine cooldown (commit 5)
+/// eşlemesi için taşınır.
+struct RoutedAction {
+    rj: RjAction,
+    rule_id: String,
+}
+
+/// V8/I33c: CoPilot'ta bir aksiyonun kullanıcı onayı gerektirip gerektirmediği
+/// (saf karar — test edilebilir). Yalnız `CoPilot`'ta VE aksiyonun kategorisi
+/// otomatik-onaylı DEĞİLSE onay gerekir. `AutoPilot`/`Assist`: onay yok
+/// (otomatik). `Manual`: zaten aksiyon üretilmez.
+fn requires_approval(mode: HealingMode, category_auto: bool) -> bool {
+    mode == HealingMode::CoPilot && !category_auto
+}
+
 /// Kalibrasyon eşikleri ve eylem sınırları.
 #[derive(Debug, Clone, Copy)]
 pub struct HealingThresholds {
@@ -392,7 +408,7 @@ impl HealingMonitor {
     /// "manual" mode'lu kural yok). `Assist` modda yalnız `is_critical` aksiyonlar
     /// otomatik uygulanır; kritik olmayanlar loglanır ("kritik otomatik,
     /// diğerleri log" — UI sözü).
-    fn collect_rule_actions(&self, mode: HealingMode) -> Vec<RjAction> {
+    fn collect_rule_actions(&self, mode: HealingMode) -> Vec<RoutedAction> {
         // Manual: adaptasyon tamamen kapalı — motoru hiç çağırma.
         if mode == HealingMode::Manual {
             return Vec::new();
@@ -437,16 +453,19 @@ impl HealingMonitor {
                     );
                     return None;
                 }
-                Some(RjAction {
-                    // V8/I33: FFI-facing benzersiz ID global sayaçtan (tick-yerel
-                    // `a.id` kaldırıldı — pending deposu ID çakışması olmasın diye).
-                    id: next_action_id(),
-                    action_type: convert_action_type(a.action_type),
-                    param1: a.param1,
-                    param2: a.param2,
-                    // RjAction'ın canary'si doğrulanmıyor (MetricSample'ın aksine —
-                    // apply_action yalnız action_type'a bakar); mevcut kalıp 0.
-                    canary: 0,
+                Some(RoutedAction {
+                    rj: RjAction {
+                        // V8/I33: FFI-facing benzersiz ID global sayaçtan (tick-yerel
+                        // `a.id` kaldırıldı — pending deposu ID çakışması olmasın diye).
+                        id: next_action_id(),
+                        action_type: convert_action_type(a.action_type),
+                        param1: a.param1,
+                        param2: a.param2,
+                        // RjAction'ın canary'si doğrulanmıyor (MetricSample'ın aksine —
+                        // apply_action yalnız action_type'a bakar); mevcut kalıp 0.
+                        canary: 0,
+                    },
+                    rule_id: a.rule_id,
                 })
             })
             .collect()
@@ -454,16 +473,29 @@ impl HealingMonitor {
 
     /// V8/I1: kural motoru aksiyonlarını action_queue'ya (FFI) iter.
     ///
-    /// V8/I33 (I11): İki-kuyruk — her aksiyon hem aktüatör kuyruğuna (uygula)
-    /// hem UI event kuyruğuna (bildir) gider; aynı kuyruğu paylaşmadıkları için
-    /// "aksiyon rastgele tek tüketiciye gider" yarışı yok. **Commit 2:** tüm
-    /// aksiyonlar info-event (require_approval=false) + aktüatöre; CoPilot pending
-    /// kapısı (require_approval=true → aktüatöre GİTMEZ) commit 4'te eklenecek.
+    /// V8/I33 (I11): İki-kuyruk — aksiyonlar aktüatör kuyruğuna (uygula) veya
+    /// pending deposuna (CoPilot onayı) gider; her ikisinde de UI event kuyruğuna
+    /// (bildir) bir event düşer. Aynı kuyruğu paylaşmadıkları için "aksiyon
+    /// rastgele tek tüketiciye gider" yarışı yok.
+    ///
+    /// V8/I33c: Routing kararı ENQUEUE anında verilir (`requires_approval`):
+    /// - Otomatik (AutoPilot / Assist / CoPilot-auto-kategori / LogOnly)
+    ///   → aktüatör kuyruğu + info-event.
+    /// - CoPilot-manuel-kategori → pending deposu + approval-event (aktüatöre
+    ///   GİTMEZ; yalnız `rj_action_approve` sonrası taşınır).
     fn evaluate_rule_engine(&self, mode: HealingMode) {
-        for action in self.collect_rule_actions(mode) {
-            crate::ffi::enqueue_ui_event(crate::ffi::RjActionEvent::info_event(&action));
-            if !enqueue_action(action) {
-                warn!(action_id = action.id, "rule action enqueue failed, kuyruk dolu");
+        for routed in self.collect_rule_actions(mode) {
+            let auto = crate::ffi::category_auto_approve(routed.rj.action_type);
+            if requires_approval(mode, auto) {
+                // CoPilot manuel-kategori: pending + approval event.
+                crate::ffi::enqueue_pending(routed.rj, routed.rule_id);
+            } else {
+                // Otomatik: aktüatör + info event.
+                let id = routed.rj.id;
+                crate::ffi::enqueue_ui_event(crate::ffi::RjActionEvent::info_event(&routed.rj));
+                if !enqueue_action(routed.rj) {
+                    warn!(action_id = id, "rule action enqueue failed, kuyruk dolu");
+                }
             }
         }
     }
@@ -639,8 +671,8 @@ mod tests {
 
         let actions = monitor.collect_rule_actions(HealingMode::AutoPilot);
         assert_eq!(actions.len(), 1, "eşiği aşan tek kural bir aksiyon üretmeli");
-        assert!(matches!(actions[0].action_type, RjActionType::BitrateReduce));
-        assert_eq!(actions[0].param1, 500);
+        assert!(matches!(actions[0].rj.action_type, RjActionType::BitrateReduce));
+        assert_eq!(actions[0].rj.param1, 500);
     }
 
     #[test]
@@ -702,7 +734,7 @@ mod tests {
         let actions = monitor.collect_rule_actions(HealingMode::Assist);
         assert_eq!(actions.len(), 1, "Assist modunda yalnız kritik aksiyon uygulanmalı");
         assert!(
-            matches!(actions[0].action_type, RjActionType::BitrateReduce),
+            matches!(actions[0].rj.action_type, RjActionType::BitrateReduce),
             "kalan aksiyon kritik olan (bitrate_reduce) olmalı"
         );
     }
@@ -720,6 +752,16 @@ mod tests {
             monitor.collect_rule_actions(HealingMode::Manual).is_empty(),
             "Manual modda hiçbir aksiyon üretilmemeli (tüm adaptasyon kapalı)"
         );
+    }
+
+    #[test]
+    fn test_requires_approval_only_copilot_manual_category() {
+        // V8/I33c: onay yalnız CoPilot + kategori-otomatik-DEĞİL durumunda.
+        assert!(requires_approval(HealingMode::CoPilot, false), "CoPilot + manuel kategori → onay");
+        assert!(!requires_approval(HealingMode::CoPilot, true), "CoPilot + auto kategori → onay yok");
+        assert!(!requires_approval(HealingMode::AutoPilot, false), "AutoPilot → onay yok");
+        assert!(!requires_approval(HealingMode::Assist, false), "Assist → onay yok");
+        assert!(!requires_approval(HealingMode::Manual, false), "Manual → onay yok");
     }
 
     #[test]

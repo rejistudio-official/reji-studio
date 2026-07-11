@@ -193,6 +193,40 @@ pub(crate) fn next_action_id() -> u32 {
     }
 }
 
+/// V8/I33c: Aksiyon kategorileri — UI'ın 3 auto-onay grubuyla (bitrate/
+/// resolution/fps) eşleşir. (`chk_source_auto` UI'da var ama karşılık gelen
+/// source-switch aksiyon tipi yok — inert; V8 Sprint 4 temizlik maddesi.)
+pub(crate) const RJ_ACTION_CAT_BITRATE: u32 = 0;
+pub(crate) const RJ_ACTION_CAT_RESOLUTION: u32 = 1;
+pub(crate) const RJ_ACTION_CAT_FPS: u32 = 2;
+
+/// V8/I33c: CoPilot per-kategori otomatik-onay bit maskesi
+/// (bit0=bitrate, bit1=resolution, bit2=fps). Kapı artık MOTORDA (UI-yerel
+/// değil) — tek görünür karar noktası. Varsayılan `0` = tüm kategoriler onay
+/// bekler (güvenli); UI startup senkronu + değişiklikte gerçek değerleri
+/// `rj_set_action_auto_approve` ile iter (I19 startup deseni).
+static ACTION_AUTO_APPROVE: AtomicU32 = AtomicU32::new(0);
+
+/// RjActionType → auto-onay kategorisi. `LogOnly` bir kategoriye ait değil
+/// (her zaman otomatik, onay gerektirmez → `None`).
+fn action_category(t: RjActionType) -> Option<u32> {
+    match t {
+        RjActionType::BitrateReduce | RjActionType::BitrateRecover => Some(RJ_ACTION_CAT_BITRATE),
+        RjActionType::ScaleResolution | RjActionType::RestoreResolution => Some(RJ_ACTION_CAT_RESOLUTION),
+        RjActionType::CapFps | RjActionType::RestoreFps => Some(RJ_ACTION_CAT_FPS),
+        RjActionType::LogOnly => None,
+    }
+}
+
+/// V8/I33c: CoPilot'ta bu aksiyon tipinin kategorisi otomatik-onaylı mı?
+/// `LogOnly` her zaman `true` (onay gerektirmez).
+pub(crate) fn category_auto_approve(t: RjActionType) -> bool {
+    match action_category(t) {
+        None => true,
+        Some(cat) => (ACTION_AUTO_APPROVE.load(Ordering::Relaxed) & (1 << cat)) != 0,
+    }
+}
+
 /// Kaç action_queue mesajının kapasitede doluluk nedeniyle düşürüldüğünü sayar.
 pub(crate) static DROPPED_ACTIONS_COUNT: AtomicU64 = AtomicU64::new(0);
 /// Kaç ws_command_queue mesajının kapasitede doluluk nedeniyle düşürüldüğünü sayar.
@@ -823,6 +857,27 @@ pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
     .unwrap_or(false)
 }
 
+/// V8/I33c: CoPilot per-kategori otomatik-onay ayarını Rust motoruna set eder.
+/// `category`: 0=bitrate, 1=resolution, 2=fps. `enabled=true` → o kategori
+/// CoPilot'ta onay beklemeden otomatik uygulanır; `false` → onay bekler.
+/// Geçersiz kategori → `false`. UI (SettingsDialog) startup'ta ve checkbox
+/// değişince çağırır — kapı UI-yerel değil MOTORDA (I19 startup senkronu deseni).
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_set_action_auto_approve(category: u32, enabled: bool) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if category > RJ_ACTION_CAT_FPS { return false; }
+        let bit = 1u32 << category;
+        if enabled {
+            ACTION_AUTO_APPROVE.fetch_or(bit, Ordering::Relaxed);
+        } else {
+            ACTION_AUTO_APPROVE.fetch_and(!bit, Ordering::Relaxed);
+        }
+        true
+    }))
+    .unwrap_or(false)
+}
+
 /// v0.4+: Get current healing mode (0=AutoPilot, 1=CoPilot, 2=Assist, 3=Manual)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
@@ -1223,6 +1278,29 @@ mod tests {
         );
         // Temizlenen aksiyon onaylanamaz.
         assert_eq!(rj_action_approve(id), 0);
+    }
+
+    #[test]
+    fn test_action_auto_approve_set_and_query() {
+        let _g = pending_guard(); // ACTION_AUTO_APPROVE global — serileştir + geri temizle
+        assert!(rj_set_action_auto_approve(RJ_ACTION_CAT_BITRATE, true));
+        assert!(category_auto_approve(RjActionType::BitrateReduce), "bitrate auto açıldı");
+        assert!(category_auto_approve(RjActionType::BitrateRecover), "aynı kategori");
+        assert!(!category_auto_approve(RjActionType::ScaleResolution), "resolution hâlâ manuel");
+
+        assert!(rj_set_action_auto_approve(RJ_ACTION_CAT_BITRATE, false));
+        assert!(!category_auto_approve(RjActionType::BitrateReduce), "bitrate auto kapandı");
+
+        // LogOnly her zaman otomatik
+        assert!(category_auto_approve(RjActionType::LogOnly));
+        // Geçersiz kategori reddedilir
+        assert!(!rj_set_action_auto_approve(3, true));
+        assert!(!rj_set_action_auto_approve(99, true));
+
+        // Temizle — diğer testlerin routing'ini etkilemesin.
+        for cat in [RJ_ACTION_CAT_BITRATE, RJ_ACTION_CAT_RESOLUTION, RJ_ACTION_CAT_FPS] {
+            let _ = rj_set_action_auto_approve(cat, false);
+        }
     }
 
     #[test]
