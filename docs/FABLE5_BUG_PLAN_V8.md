@@ -174,8 +174,10 @@ olmadan deterministik doğrulama; `enqueue_action` sarmalayıcısı ince üç sa
 >   3 checkbox'ı (bitrate/resolution/fps) motora senkronlar (I19 deseni). UI
 >   `HealingOverlay` artık `require_approval` alanına güvenir, yeniden hesaplamaz.
 >
-> **Reject UX (kullanıcı kararı):** explicit "Reddet" butonu → cooldown; 30s UI
-> timeout → yalnız görsel temizlik (cooldown yok). **ID genişliği (kullanıcı
+> **Reject UX (kullanıcı kararı):** explicit "Reddet" butonu → cooldown; süre
+> dolumu → Rust pending TTL(30s) → Invalidated event → UI temizliği (cooldown
+> yok). UI-yerel paralel sayaç YOK — temizlik tek kaynaktan (Rust), iki-saat
+> yarışı yok. **ID genişliği (kullanıcı
 > kararı):** u32-global (u64 yerine — RjAction 20B ABI çatallaşmasını önler, wrap
 > gerçekçi hızda ~13 yıl). **Doğrulama:** 50 lib + 5 rules + 23 ws Rust testi
 > PASS; reji_app derlendi+linklendi; ABI static_assert + zig PASS; ctest yalnız

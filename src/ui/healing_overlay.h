@@ -83,8 +83,6 @@ protected:
 
 private slots:
     void onTick();
-    void onActionCheckboxToggled(uint32_t action_id, bool checked);
-    void onCoPilotTimeout();
 
 private:
     // V8/I33: CoPilot onay prompt'unu göster/temizle (approve/reject/timeout/

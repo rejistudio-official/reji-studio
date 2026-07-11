@@ -29,7 +29,6 @@ public:
     QListWidget* action_list{nullptr};          // Co-Pilot checkboxes
     QPushButton* btn_reject{nullptr};           // V8/I33: CoPilot "Reddet" (explicit reject)
     QListWidget* history_list{nullptr};         // Last 10 actions
-    QTimer*      co_pilot_timeout{nullptr};     // 30s timeout per action
     uint32_t     current_action_id{0};          // Track current approval-pending
     bool         manual_mode_warned{false};     // Manual mode one-time warning
 
@@ -116,9 +115,10 @@ HealingOverlay::HealingOverlay(QWidget* parent)
     d_->timer->setInterval(1000);
     connect(d_->timer, &QTimer::timeout, this, &HealingOverlay::onTick);
 
-    d_->co_pilot_timeout = new QTimer(this);
-    d_->co_pilot_timeout->setInterval(rj::constants::kCoPilotApprovalTimeoutMs);
-    connect(d_->co_pilot_timeout, &QTimer::timeout, this, &HealingOverlay::onCoPilotTimeout);
+    // V8/I33: UI-yerel co_pilot_timeout KALDIRILDI. Onay prompt'unun süresi
+    // dolduğunda temizlik TEK KAYNAKTAN gelir: Rust pending TTL süpürmesi →
+    // kind=Invalidated event → onActionInvalidated(). Böylece "UI temizledi ama
+    // Rust'ta pending duruyor" iki-saat yarışı yok (kaynak-of-truth Rust deposu).
 }
 
 HealingOverlay::~HealingOverlay() = default;
@@ -214,12 +214,11 @@ void HealingOverlay::showApprovalPrompt(const ActionEvent& event) {
     d_->history_list->show();
     show();
     raise();
-    d_->co_pilot_timeout->start();
+    // Not: UI zaman aşımı sayacı YOK — süre dolumu Rust TTL'inden (Invalidated) gelir.
 }
 
-// V8/I33: onay prompt'unu temizle — approve/reject/timeout/invalidate ortak yolu.
+// V8/I33: onay prompt'unu temizle — approve/reject/invalidate ortak yolu.
 void HealingOverlay::clearApprovalPrompt() {
-    d_->co_pilot_timeout->stop();
     d_->action_list->clear();
     d_->action_list->hide();
     d_->btn_reject->hide();
@@ -237,17 +236,6 @@ void HealingOverlay::onActionInvalidated(uint32_t action_id) {
         d_->lbl_countdown->setText("2s");
         d_->timer->start();
     }
-}
-
-void HealingOverlay::onCoPilotTimeout() {
-    // V8/I33: UI-yerel görüntü zaman aşımı — yalnız görsel temizlik. Rust'a
-    // REJECT GÖNDERME (timeout cooldown UYGULAMAZ); Rust'ın kendi pending TTL'i
-    // aksiyonu düşürüp Invalidated event'i gönderir.
-    clearApprovalPrompt();
-    d_->lbl_message->setText(tr("Eylem zaman aşımına uğradı (iptal edildi)"));
-    d_->remaining_ms = 2000;
-    d_->lbl_countdown->setText("2s");
-    d_->timer->start();
 }
 
 void HealingOverlay::onVulkanInitFailed() {
@@ -277,15 +265,6 @@ QStringList HealingOverlay::actionHistory(int limit) const {
 
 void HealingOverlay::setSettingsDialog(SettingsDialog* dialog) {
     d_->settings_dialog = dialog;
-}
-
-void HealingOverlay::onActionCheckboxToggled(uint32_t action_id, bool checked) {
-    if (checked) {
-        emit actionApproved(action_id);
-        d_->action_list->clear();
-        d_->action_list->hide();
-        d_->co_pilot_timeout->stop();
-    }
 }
 
 void HealingOverlay::paintEvent(QPaintEvent*) {
