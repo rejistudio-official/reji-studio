@@ -431,11 +431,7 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
         result = (pfn_wait_semaphores_(device_, &wait_info, 0) == VK_SUCCESS);
     } __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::CopyOptWait, &cap)) {
     }
-    if (cap.fired) {
-        // I10-a: mevcut görünürlük korunuyor (I10-b'de seh_report'a taşınacak).
-        fprintf(stderr, "[GpuCopyOptimizer] SEH: 0x%08lX\n", cap.code);
-        fflush(stderr);
-    }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::CopyOptWait);
     return result;
 }
 
@@ -495,9 +491,7 @@ void GpuCopyOptimizer::shutdown() {
         fflush(stderr);
     }
     if (cap.fired) {
-        // I10-a: mevcut görünürlük korunuyor (I10-b'de seh_report'a taşınacak).
-        fprintf(stderr, "[GpuCopyOptimizer] SEH exception during shutdown: 0x%08lX\n", cap.code);
-        fflush(stderr);
+        rj::seh_report(cap, rj::SehSite::CopyOptShutdown);
     } else {
         cleanup_pipeline();
         fprintf(stderr, "[GpuCopyOptimizer] Shutdown complete\n");
