@@ -90,6 +90,27 @@ struct FfiState {
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
 pub(crate) static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
 
+/// V8/I33: Süreç-global, monoton aksiyon ID sayacı. Eskiden ID'ler
+/// `RuleEngine::evaluate()` içinde her tick `1`'den başlıyordu (tick-yerel) —
+/// pending-onay deposu ID ile anahtarlanacağından tick'ler arası çakışma
+/// üretirdi. Bu sayaç tek kaynak: `next_action_id()` her aksiyona benzersiz
+/// bir ID verir, RuleEngine hot-reload'undan bağımsız (global static, motorda
+/// değil). `0` "geçersiz/yok" sentinel'i olarak ayrılır — asla dağıtılmaz.
+static NEXT_ACTION_ID: AtomicU32 = AtomicU32::new(1);
+
+/// Sıradaki benzersiz aksiyon ID'sini döndürür (monoton, atomik). `0` atlanır
+/// (sentinel). Wrap ~4.29 milyar aksiyonda; gerçekçi hızda (10/sn) ~13 yıl
+/// kesintisiz çalışma gerektirir — pratikte ulaşılamaz.
+pub(crate) fn next_action_id() -> u32 {
+    let id = NEXT_ACTION_ID.fetch_add(1, Ordering::Relaxed);
+    if id == 0 {
+        // Wrap sonrası 0'a denk geldik — bir kez daha ilerle, 0'ı atla.
+        NEXT_ACTION_ID.fetch_add(1, Ordering::Relaxed)
+    } else {
+        id
+    }
+}
+
 /// Kaç action_queue mesajının kapasitede doluluk nedeniyle düşürüldüğünü sayar.
 pub(crate) static DROPPED_ACTIONS_COUNT: AtomicU64 = AtomicU64::new(0);
 /// Kaç ws_command_queue mesajının kapasitede doluluk nedeniyle düşürüldüğünü sayar.
@@ -799,6 +820,19 @@ mod tests {
         assert_eq!(rj_get_healing_mode(), 0, "geçersiz mod önceki değeri ezememeli");
         assert!(!rj_set_healing_mode(u32::MAX));
         assert_eq!(rj_get_healing_mode(), 0);
+    }
+
+    #[test]
+    fn test_next_action_id_monotonic_and_nonzero() {
+        // V8/I33: global sayaç monoton artmalı ve asla 0 (sentinel) dönmemeli.
+        // fetch_add atomik olduğundan paralel testler yalnız aralığı büyütür,
+        // b > a bağıntısını bozmaz (wrap testte imkânsız).
+        let a = next_action_id();
+        let b = next_action_id();
+        let c = next_action_id();
+        assert!(a != 0 && b != 0 && c != 0, "ID 0 sentinel'i dağıtılmamalı");
+        assert!(b > a, "ID monoton artmalı (b > a)");
+        assert!(c > b, "ID monoton artmalı (c > b)");
     }
 
     #[test]

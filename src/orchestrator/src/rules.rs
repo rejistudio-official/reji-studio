@@ -56,7 +56,11 @@ pub enum ActionType {
 /// Aksiyon — kural değerlendirildiğinde oluşturulan komut.
 #[derive(Debug, Clone)]
 pub struct Action {
-    pub id: u32,
+    /// V8/I33b: aksiyonu üreten kuralın ID'si — reject cooldown'ında
+    /// (RuleEngine) kuralı bastırmak için pending deposu bu eşlemeyi taşır.
+    /// FFI-facing benzersiz aksiyon ID'si artık burada değil; `next_action_id()`
+    /// ile healing.rs'te RjAction'a atanır (tick-yerel ID kaldırıldı).
+    pub rule_id: String,
     pub action_type: ActionType,
     pub param1: i32,
     pub param2: i32,
@@ -69,7 +73,7 @@ pub struct Action {
 impl Default for Action {
     fn default() -> Self {
         Self {
-            id: 0,
+            rule_id: String::new(),
             action_type: ActionType::LogOnly,
             param1: 0,
             param2: 0,
@@ -262,7 +266,6 @@ impl RuleEngine {
         let hysteresis_ms = *self.hysteresis_ms.lock().unwrap();
         let mut last_trigger = self.last_trigger.lock().unwrap();
         let mut actions = Vec::new();
-        let mut action_id = 1u32;
         let now = Instant::now();
 
         for rule in rules.iter() {
@@ -283,10 +286,9 @@ impl RuleEngine {
 
             // Condition evaluation
             if eval_condition(&rule.condition, metrics) {
-                let action = self.create_action(&rule, action_id, metrics)?;
+                let action = self.create_action(&rule, metrics)?;
                 last_trigger.insert(rule.id.clone(), now);
                 actions.push(action);
-                action_id = action_id.wrapping_add(1);
             }
         }
 
@@ -297,7 +299,6 @@ impl RuleEngine {
     fn create_action(
         &self,
         rule: &Rule,
-        action_id: u32,
         _metrics: &RuleMetrics,
     ) -> Result<Action, Box<dyn std::error::Error>> {
         let action_type = match rule.action.as_str() {
@@ -328,7 +329,7 @@ impl RuleEngine {
         let log_only = matches!(action_type, ActionType::LogOnly);
 
         Ok(Action {
-            id: action_id,
+            rule_id: rule.id.clone(),
             action_type,
             param1,
             param2,
@@ -487,10 +488,10 @@ mod tests {
         };
 
         let action = engine
-            .create_action(&rule, 1, &RuleMetrics::default())
+            .create_action(&rule, &RuleMetrics::default())
             .unwrap();
 
-        assert_eq!(action.id, 1);
+        assert_eq!(action.rule_id, "test_reduce");
         assert_eq!(action.action_type, ActionType::BitrateReduce);
         assert_eq!(action.param1, 500);
         assert!(action.is_critical);

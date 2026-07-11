@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use crate::constants;
 
 use crate::event_bus::{HealingEvent, MediaEvent, SystemEvent};
-use crate::ffi::{enqueue_action, RjAction, RjActionType};
+use crate::ffi::{enqueue_action, next_action_id, RjAction, RjActionType};
 use crate::metrics::MetricState;
 use crate::rules::{ActionType, RuleEngine, RuleMetrics};
 
@@ -424,27 +424,27 @@ impl HealingMonitor {
 
         actions
             .into_iter()
-            .filter(|a| {
+            .filter_map(|a| {
                 // Assist: yalnız kritik aksiyonlar otomatik; gerisi loglanıp bırakılır.
                 if mode == HealingMode::Assist && !a.is_critical {
                     info!(
-                        action_id = a.id,
                         action = ?a.action_type,
+                        rule_id = %a.rule_id,
                         "Assist modu: kritik olmayan aksiyon loglandı, uygulanmadı"
                     );
-                    false
-                } else {
-                    true
+                    return None;
                 }
-            })
-            .map(|a| RjAction {
-                id: a.id,
-                action_type: convert_action_type(a.action_type),
-                param1: a.param1,
-                param2: a.param2,
-                // RjAction'ın canary'si doğrulanmıyor (MetricSample'ın aksine —
-                // apply_action yalnız action_type'a bakar); mevcut kalıp 0.
-                canary: 0,
+                Some(RjAction {
+                    // V8/I33: FFI-facing benzersiz ID global sayaçtan (tick-yerel
+                    // `a.id` kaldırıldı — pending deposu ID çakışması olmasın diye).
+                    id: next_action_id(),
+                    action_type: convert_action_type(a.action_type),
+                    param1: a.param1,
+                    param2: a.param2,
+                    // RjAction'ın canary'si doğrulanmıyor (MetricSample'ın aksine —
+                    // apply_action yalnız action_type'a bakar); mevcut kalıp 0.
+                    canary: 0,
+                })
             })
             .collect()
     }
