@@ -1,4 +1,5 @@
 #include "wasapi_capture.h"
+#include "seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 
 #include <Functiondiscoverykeys_devpkey.h>
 #include <ksmedia.h>
@@ -22,17 +23,8 @@ inline int64_t now_us() noexcept {
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-// SEH filter — kritik exception'ları sisteme iletir, diğerlerini yakalar.
-// Kural: filter içinde C++ nesnesi yaratma/yıkma ve herhangi bir fonksiyon
-// çağrısı yasak; filter exception handler'ı seçer, başka iş yapmaz.
-extern "C" __declspec(noinline) LONG seh_filter(unsigned code) noexcept {
-    if (code == EXCEPTION_STACK_OVERFLOW ||
-        code == EXCEPTION_BREAKPOINT     ||
-        code == EXCEPTION_SINGLE_STEP) {
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
-    return EXCEPTION_EXECUTE_HANDLER;
-}
+// V8/I10: yerel seh_filter kaldırıldı — paylaşımlı rj::seh_filter (seh_filter.h)
+// kullanılıyor. SO/BP/SS pass-through aynı; ek olarak görünürlük + eskalasyon.
 } // namespace
 
 // ============================================================================
@@ -41,35 +33,49 @@ extern "C" __declspec(noinline) LONG seh_filter(unsigned code) noexcept {
 __declspec(noinline) HRESULT WasapiCapture::seh_get_buffer(
     IAudioCaptureClient* c, BYTE** d, UINT32* n,
     DWORD* f, UINT64* dp, UINT64* qp) noexcept {
-    __try { return c->GetBuffer(d, n, f, dp, qp); }
-    __except (seh_filter(GetExceptionCode())) { return E_FAIL; }
+    rj::SehCapture cap{}; HRESULT rv;
+    __try { rv = c->GetBuffer(d, n, f, dp, qp); }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::WasapiGetBuffer, &cap)) { rv = E_FAIL; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::WasapiGetBuffer);
+    return rv;
 }
 
 __declspec(noinline) HRESULT WasapiCapture::seh_release_buffer(
     IAudioCaptureClient* c, UINT32 n) noexcept {
-    __try { return c->ReleaseBuffer(n); }
-    __except (seh_filter(GetExceptionCode())) { return E_FAIL; }
+    rj::SehCapture cap{}; HRESULT rv;
+    __try { rv = c->ReleaseBuffer(n); }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::WasapiReleaseBuffer, &cap)) { rv = E_FAIL; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::WasapiReleaseBuffer);
+    return rv;
 }
 
 __declspec(noinline) HRESULT WasapiCapture::seh_next_packet_size(
     IAudioCaptureClient* c, UINT32* n) noexcept {
-    __try { return c->GetNextPacketSize(n); }
-    __except (seh_filter(GetExceptionCode())) { return E_FAIL; }
+    rj::SehCapture cap{}; HRESULT rv;
+    __try { rv = c->GetNextPacketSize(n); }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::WasapiNextPacket, &cap)) { rv = E_FAIL; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::WasapiNextPacket);
+    return rv;
 }
 
 __declspec(noinline) HRESULT WasapiCapture::seh_audio_stop(IAudioClient* c) noexcept {
-    __try { return c ? c->Stop() : S_OK; }
-    __except (seh_filter(GetExceptionCode())) { return E_FAIL; }
+    rj::SehCapture cap{}; HRESULT rv;
+    __try { rv = c ? c->Stop() : S_OK; }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::WasapiAudioStop, &cap)) { rv = E_FAIL; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::WasapiAudioStop);
+    return rv;
 }
 
 __declspec(noinline) void WasapiCapture::seh_shutdown_leaf(
     IMMDeviceEnumerator* enm, IMMNotificationClient* nc,
     HANDLE h1, HANDLE h2) noexcept {
+    rj::SehCapture cap{};
     __try {
         if (enm && nc) enm->UnregisterEndpointNotificationCallback(nc);
         if (h1 && h1 != INVALID_HANDLE_VALUE) ::SetEvent(h1);
         if (h2 && h2 != INVALID_HANDLE_VALUE) ::SetEvent(h2);
-    } __except (seh_filter(GetExceptionCode())) { }
+    } __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::WasapiShutdownLeaf, &cap)) { }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::WasapiShutdownLeaf);
 }
 
 // ============================================================================

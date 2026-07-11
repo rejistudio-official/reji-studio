@@ -9,6 +9,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 #endif
 
 namespace rj {
@@ -26,8 +27,11 @@ struct SrtSendArgs {
 };
 __declspec(noinline)
 static int seh_srt_send(SrtSendArgs* a) noexcept {
-    __try   { return a->out->send(a->data, a->size, a->pts) ? 0 : 1; }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return -2; }
+    SehCapture cap{}; int rv;
+    __try   { rv = a->out->send(a->data, a->size, a->pts) ? 0 : 1; }
+    __except(seh_filter(GetExceptionInformation(), SehSite::SrtSend, &cap)) { rv = -2; }
+    if (cap.fired) seh_report(cap, SehSite::SrtSend);
+    return rv;
 }
 #endif
 

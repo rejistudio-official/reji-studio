@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <ws2tcpip.h>
 #include <objbase.h>
+#include "seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 
 #include <atomic>
 #include <array>
@@ -128,48 +129,48 @@ static void seh_leaf_global_cleanup(int do_srt_cleanup) noexcept {
     if (do_srt_cleanup) srt_cleanup();
 }
 
-static LONG seh_filter(DWORD code) noexcept {
-    if (code == EXCEPTION_STACK_OVERFLOW ||
-        code == EXCEPTION_BREAKPOINT     ||
-        code == EXCEPTION_SINGLE_STEP) {
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
-    return EXCEPTION_EXECUTE_HANDLER;
-}
+// V8/I10: yerel seh_filter kaldırıldı — paylaşımlı rj::seh_filter (seh_filter.h).
+// SO/BP/SS pass-through aynı; ek olarak görünürlük + eskalasyon valfi.
 
 static int seh_safe_sendmsg(SRTSOCKET s, const char* b, int l,
                             int ttl, int io) noexcept {
-    int rv = -1;
+    rj::SehCapture cap{}; int rv = -1;
     __try { rv = seh_leaf_sendmsg(s, b, l, ttl, io); }
-    __except (seh_filter(GetExceptionCode())) { rv = -1; }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::SrtLeafSendmsg, &cap)) { rv = -1; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::SrtLeafSendmsg);
     return rv;
 }
 
 static int seh_safe_close(SRTSOCKET s) noexcept {
-    int rv = -1;
+    rj::SehCapture cap{}; int rv = -1;
     __try { rv = seh_leaf_close(s); }
-    __except (seh_filter(GetExceptionCode())) { rv = -1; }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::SrtLeafClose, &cap)) { rv = -1; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::SrtLeafClose);
     return rv;
 }
 
 static int seh_safe_epoll_release(int eid) noexcept {
-    int rv = -1;
+    rj::SehCapture cap{}; int rv = -1;
     __try { rv = seh_leaf_epoll_release(eid); }
-    __except (seh_filter(GetExceptionCode())) { rv = -1; }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::SrtLeafEpollRelease, &cap)) { rv = -1; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::SrtLeafEpollRelease);
     return rv;
 }
 
 static int seh_safe_setsockopt(SRTSOCKET s, int opt,
                                const void* v, int l) noexcept {
-    int rv = -1;
+    rj::SehCapture cap{}; int rv = -1;
     __try { rv = seh_leaf_setsockopt(s, opt, v, l); }
-    __except (seh_filter(GetExceptionCode())) { rv = -1; }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::SrtLeafSetsockopt, &cap)) { rv = -1; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::SrtLeafSetsockopt);
     return rv;
 }
 
 static void seh_safe_global_cleanup(int do_srt_cleanup) noexcept {
+    rj::SehCapture cap{};
     __try { seh_leaf_global_cleanup(do_srt_cleanup); }
-    __except (seh_filter(GetExceptionCode())) { }
+    __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::SrtLeafGlobalCleanup, &cap)) { }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::SrtLeafGlobalCleanup);
 }
 
 } // namespace

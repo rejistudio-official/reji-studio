@@ -9,13 +9,8 @@
 #include <vulkan/vulkan_win32.h>
 #include "copy_optimizer.h"
 #include "gpu/vulkan_initializer.h"
+#include "seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 #include <cstdio>
-
-// B15: SEH filter — captures exception code, always executes handler
-static DWORD SehFilter(DWORD code, DWORD* out_code) {
-    *out_code = code;
-    return EXCEPTION_EXECUTE_HANDLER;
-}
 
 #define CHECK_VK(expr) \
     do { \
@@ -425,9 +420,8 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
         return false;
     }
 
-    bool result    = false;
-    bool seh_fired = false;
-    DWORD seh_code = 0;
+    bool result = false;
+    rj::SehCapture cap{};
     __try {
         VkSemaphoreWaitInfo wait_info{};
         wait_info.sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
@@ -435,11 +429,11 @@ bool GpuCopyOptimizer::is_copy_ready(VkSemaphore timeline_semaphore, uint64_t ex
         wait_info.pSemaphores    = &timeline_semaphore;
         wait_info.pValues        = &expected_value;
         result = (pfn_wait_semaphores_(device_, &wait_info, 0) == VK_SUCCESS);
-    } __except (SehFilter(GetExceptionCode(), &seh_code)) {
-        seh_fired = true;
+    } __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::CopyOptWait, &cap)) {
     }
-    if (seh_fired) {
-        fprintf(stderr, "[GpuCopyOptimizer] SEH: 0x%08lX\n", seh_code);
+    if (cap.fired) {
+        // I10-a: mevcut görünürlük korunuyor (I10-b'de seh_report'a taşınacak).
+        fprintf(stderr, "[GpuCopyOptimizer] SEH: 0x%08lX\n", cap.code);
         fflush(stderr);
     }
     return result;
@@ -456,8 +450,7 @@ void GpuCopyOptimizer::shutdown() {
         return;
     }
 
-    bool seh_fired      = false;
-    DWORD seh_code      = 0;
+    rj::SehCapture cap{};
     bool wait_timed_out = false;
 
     __try {
@@ -493,8 +486,7 @@ void GpuCopyOptimizer::shutdown() {
         phys_device_ = VK_NULL_HANDLE;
         timeline_counter_ = 0;
         pfn_get_semaphore_counter_value_ = nullptr;
-    } __except (SehFilter(GetExceptionCode(), &seh_code)) {
-        seh_fired = true;
+    } __except (rj::seh_filter(GetExceptionInformation(), rj::SehSite::CopyOptShutdown, &cap)) {
     }
 
     // D15: All C++ calls and logging outside __try
@@ -502,8 +494,9 @@ void GpuCopyOptimizer::shutdown() {
         fprintf(stderr, "[GpuCopyOptimizer] shutdown: GPU idle wait timed out\n");
         fflush(stderr);
     }
-    if (seh_fired) {
-        fprintf(stderr, "[GpuCopyOptimizer] SEH exception during shutdown: 0x%08lX\n", seh_code);
+    if (cap.fired) {
+        // I10-a: mevcut görünürlük korunuyor (I10-b'de seh_report'a taşınacak).
+        fprintf(stderr, "[GpuCopyOptimizer] SEH exception during shutdown: 0x%08lX\n", cap.code);
         fflush(stderr);
     } else {
         cleanup_pipeline();

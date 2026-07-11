@@ -20,6 +20,7 @@
 
 #include "capture_dxgi.h"   // reji::DxgiCapturePipeline::encode_gpu()->d3d_device()
 #include "ffi_bridge.h"     // rj_connection_lost (SEH-leaf içinde)
+#include "seh_filter.h"     // V8/I10: paylaşımlı SEH filtresi
 
 namespace rj {
 namespace {
@@ -38,8 +39,10 @@ inline void dbglog(const char* fmt, ...) noexcept {
 // SEH leaf: FFI çağrısı __try içinde — __declspec(noinline), yok edilebilir local yok.
 __declspec(noinline)
 static void seh_connection_lost(const char* reason) noexcept {
+    SehCapture cap{};
     __try   { rj_connection_lost(reason); }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+    __except(seh_filter(GetExceptionInformation(), SehSite::ConnectionLost, &cap)) {}
+    if (cap.fired) seh_report(cap, SehSite::ConnectionLost);
 }
 
 } // namespace

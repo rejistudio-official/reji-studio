@@ -3,6 +3,7 @@ project(reji_pipeline CXX C ASM_MASM)
 
 set(PIPELINE_SOURCES
     pipeline.cpp
+    seh_filter.cpp
     frame_pacer.cpp
     metrics_subsystem.cpp
     output_subsystem.cpp

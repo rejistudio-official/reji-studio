@@ -40,6 +40,7 @@
 #include "include/output_subsystem.h"
 #include "include/gpu_interop_subsystem.h"
 #include "include/recovery_coordinator.h"
+#include "include/seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 #include "ffi_bridge.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -123,16 +124,20 @@ inline void dbglog(const char* fmt, ...) noexcept {
 
 __declspec(noinline)
 static void seh_start_monitor() noexcept {
+    rj::SehCapture cap{};
     __try   { rj_start_monitor(); }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+    __except(rj::seh_filter(GetExceptionInformation(), rj::SehSite::StartMonitor, &cap)) {}
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::StartMonitor);
 }
 
 // seh_connection_lost Aşama 9'da RecoveryCoordinator'a taşındı (tek kullanıcıydı).
 
 __declspec(noinline)
 static void seh_uninit_com(bool* ok) noexcept {
+    rj::SehCapture cap{};
     __try   { CoUninitialize(); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { if (ok) *ok = false; }
+    __except(rj::seh_filter(GetExceptionInformation(), rj::SehSite::UninitCom, &cap)) { if (ok) *ok = false; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::UninitCom);
 }
 
 // Shutdown subsystems via raw pointers  no C++ destructors in scope.
@@ -143,6 +148,7 @@ static bool seh_shutdown_subsystems(
     rj::ITransport*                       out) noexcept
 {
     bool ok = true;
+    rj::SehCapture cap{};
     __try {
         if (audio) { (void)audio->stop(); (void)audio->shutdown(); }
         if (enc)   { enc->flush(); enc->shutdown(); }
@@ -151,7 +157,8 @@ static bool seh_shutdown_subsystems(
         // RtmpTransport eklenince her iki implementasyonun da shutdown()'ının
         // burada güvenle exception fırlatmadığından emin ol.
         if (out)   { (void)out->shutdown(); }
-    } __except(EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+    } __except(rj::seh_filter(GetExceptionInformation(), rj::SehSite::ShutdownSubsys, &cap)) { ok = false; }
+    if (cap.fired) rj::seh_report(cap, rj::SehSite::ShutdownSubsys);
     return ok;
 }
 

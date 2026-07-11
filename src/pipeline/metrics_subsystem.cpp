@@ -9,6 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <algorithm>
+#include "seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 
 namespace rj {
 namespace {
@@ -25,8 +26,10 @@ inline uint64_t ft64(const FILETIME& f) noexcept {
 // SEH leaf: FFI push  __declspec(noinline), __try içinde yok edilebilir local yok.
 __declspec(noinline)
 static void seh_metrics_push(const RjMetricSample* s) noexcept {
+    SehCapture cap{};
     __try   { rj_metrics_push(s); }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+    __except(seh_filter(GetExceptionInformation(), SehSite::MetricsPush, &cap)) {}
+    if (cap.fired) seh_report(cap, SehSite::MetricsPush);
 }
 
 } // namespace

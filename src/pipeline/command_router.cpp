@@ -11,6 +11,7 @@
 #include <objbase.h>
 #include <cstdarg>
 #include <cstdio>
+#include "seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 
 namespace rj {
 namespace {
@@ -23,20 +24,31 @@ inline void dbglog(const char* fmt, ...) noexcept {
 }
 
 //  SEH leaf functions  __declspec(noinline), POD params, no destructible locals.
+//  V8/I10: paylaşımlı seh_filter — SO/BP/SS pass-through; yakalanan istisna
+//  __try DIŞINDA seh_report ile işlenir.
 __declspec(noinline)
 static int seh_command_drain(RjCommand* buf, int max) noexcept {
-    __try   { return rj_command_drain(buf, max); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return -1; }
+    SehCapture cap{}; int rv;
+    __try   { rv = rj_command_drain(buf, max); }
+    __except(seh_filter(GetExceptionInformation(), SehSite::CmdDrain, &cap)) { rv = -1; }
+    if (cap.fired) seh_report(cap, SehSite::CmdDrain);
+    return rv;
 }
 __declspec(noinline)
 static int seh_ws_command_dequeue(int* cmd, int* param) noexcept {
-    __try   { return rj_ws_command_dequeue(cmd, param); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    SehCapture cap{}; int rv;
+    __try   { rv = rj_ws_command_dequeue(cmd, param); }
+    __except(seh_filter(GetExceptionInformation(), SehSite::WsDequeue, &cap)) { rv = 0; }
+    if (cap.fired) seh_report(cap, SehSite::WsDequeue);
+    return rv;
 }
 __declspec(noinline)
 static uint16_t seh_get_ws_port() noexcept {
-    __try   { return rj_get_ws_port(); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    SehCapture cap{}; uint16_t rv;
+    __try   { rv = rj_get_ws_port(); }
+    __except(seh_filter(GetExceptionInformation(), SehSite::GetWsPort, &cap)) { rv = 0; }
+    if (cap.fired) seh_report(cap, SehSite::GetWsPort);
+    return rv;
 }
 
 } // namespace
