@@ -7,6 +7,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use base64::Engine as _;
+use sha2::{Digest, Sha256};
+
 /// obs-websocket v5 mesaj zarfı: her mesaj `{op, d}` biçimindedir.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WsEnvelope {
@@ -67,6 +70,20 @@ pub fn hello() -> WsEnvelope {
     }
 }
 
+/// V8/I8: Parola AYARLIYKEN gönderilen Hello (op 0) — `authentication` alanı
+/// istemciye challenge+salt taşır. Parola yokken `hello()` kullanılır (alan yok,
+/// bugünkü davranış birebir korunur).
+pub fn hello_with_auth(challenge: &str, salt: &str) -> WsEnvelope {
+    WsEnvelope {
+        op: op::HELLO,
+        d: json!({
+            "obsWebSocketVersion": OBS_WS_VERSION,
+            "rpcVersion": RPC_VERSION,
+            "authentication": { "challenge": challenge, "salt": salt },
+        }),
+    }
+}
+
 /// Identify başarıyla işlendiğinde gönderilen Identified (op 2) zarfı.
 pub fn identified() -> WsEnvelope {
     WsEnvelope {
@@ -75,6 +92,58 @@ pub fn identified() -> WsEnvelope {
             "negotiatedRpcVersion": RPC_VERSION,
         }),
     }
+}
+
+// ===== V8/I8: obs-websocket v5 auth çekirdeği (saf, test edilebilir) =====
+//
+// Spec (obsproject/obs-websocket protocol.md):
+//   secret = base64( sha256( password + salt ) )
+//   auth   = base64( sha256( secret + challenge ) )
+// Base64 standart (padding'li); sha256 ham 32 byte çıktısı base64'lenir.
+
+// NOT: aşağıdaki auth çekirdeği commit 3'te (handshake entegrasyonu) çağrılacak;
+// o zamana dek yalnız birim testlerden kullanılıyor → geçici allow(dead_code).
+
+/// `input`'un SHA-256 özetini standart base64 (padding'li) olarak döndürür.
+#[allow(dead_code)]
+fn sha256_b64(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    base64::engine::general_purpose::STANDARD.encode(hasher.finalize())
+}
+
+/// obs-websocket v5 authentication string'ini üretir (spec zinciri).
+#[allow(dead_code)]
+pub(crate) fn compute_auth(password: &str, salt: &str, challenge: &str) -> String {
+    let secret = sha256_b64(&format!("{}{}", password, salt));
+    sha256_b64(&format!("{}{}", secret, challenge))
+}
+
+/// İstemcinin gönderdiği `client_response`'u beklenen değerle **sabit-zamanlı**
+/// karşılaştırır. Uzunluk farkında erken `false` (beklenen değer daima 44 karakter
+/// = sha256→base64 sabit uzunluk, dolayısıyla bu dal uzunluk sızdırmaz).
+#[allow(dead_code)]
+pub(crate) fn verify_auth(password: &str, salt: &str, challenge: &str, client_response: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    let expected = compute_auth(password, salt, challenge);
+    if expected.len() != client_response.len() {
+        return false;
+    }
+    expected.as_bytes().ct_eq(client_response.as_bytes()).into()
+}
+
+/// Oturum başına yeni (salt, challenge) üretir — OS CSPRNG'den 32'şer bayt,
+/// standart base64. İki değer birbirinden ve bağlantılar arasında bağımsız.
+#[allow(dead_code)]
+pub(crate) fn gen_salt_challenge() -> (String, String) {
+    (random_b64_32(), random_b64_32())
+}
+
+#[allow(dead_code)]
+fn random_b64_32() -> String {
+    let mut buf = [0u8; 32];
+    getrandom::getrandom(&mut buf).expect("OS CSPRNG başarısız");
+    base64::engine::general_purpose::STANDARD.encode(buf)
 }
 
 /// obs-websocket RequestStatus kodları (spec: obsproject/obs-websocket).
@@ -150,6 +219,39 @@ pub(crate) fn pseudo_uuid(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_verify_auth_correct_wrong_and_corrupt() {
+        // V8/I8: round-trip — compute_auth ile üretilen yanıt verify_auth'tan geçer.
+        let (salt, challenge) = ("Zm9vc2FsdA==", "YmFyY2hhbGxlbmdl");
+        let good = compute_auth("hunter2", salt, challenge);
+        assert!(verify_auth("hunter2", salt, challenge, &good), "doğru parola geçmeli");
+        assert!(!verify_auth("wrong", salt, challenge, &good), "yanlış parola reddedilmeli");
+        // Bozuk / base64 olmayan / boş istemci yanıtı → false (panik yok).
+        assert!(!verify_auth("hunter2", salt, challenge, "!!! not base64 !!!"));
+        assert!(!verify_auth("hunter2", salt, challenge, ""));
+    }
+
+    #[test]
+    fn test_compute_auth_deterministic_and_fixed_length() {
+        // Aynı girdi aynı çıktı; sha256→base64 daima 44 karakter (padding'li).
+        let a = compute_auth("p", "s", "c");
+        let b = compute_auth("p", "s", "c");
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 44, "sha256(32B)→base64 = 44 karakter");
+        // Farklı parola farklı sonuç.
+        assert_ne!(compute_auth("p1", "s", "c"), compute_auth("p2", "s", "c"));
+    }
+
+    #[test]
+    fn test_gen_salt_challenge_unique() {
+        let (s1, c1) = gen_salt_challenge();
+        let (s2, c2) = gen_salt_challenge();
+        assert_ne!(s1, c1, "aynı çağrıda salt≠challenge");
+        assert_ne!(s1, s2, "çağrılar arası salt farklı");
+        assert_ne!(c1, c2, "çağrılar arası challenge farklı");
+        assert_eq!(s1.len(), 44, "32 rastgele bayt → base64 = 44 karakter");
+    }
 
     #[test]
     fn pseudo_uuid_kararli() {

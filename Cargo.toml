@@ -21,3 +21,8 @@ toml        = { version = "0.8" }
 redb        = { version = "2" }
 axum        = { version = "0.7" }
 tracing     = { version = "0.1" }
+# V8/I8 WS auth (obs-websocket challenge/salt): minimal, audited (RustCrypto)
+sha2        = { version = "0.10" }  # SHA-256 (spec zorunlu)
+base64      = { version = "0.22" }  # challenge/salt/auth base64 zinciri
+getrandom   = { version = "0.2" }   # OS CSPRNG — salt/challenge (rand'dan hafif, tek amaç)
+subtle      = { version = "2" }     # sabit-zamanlı karşılaştırma (timing-attack)
