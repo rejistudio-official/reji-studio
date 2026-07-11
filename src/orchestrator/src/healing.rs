@@ -272,6 +272,9 @@ impl HealingMonitor {
                     }
                 }
                 _ = ticker.tick() => {
+                    // V8/I33a: pending TTL süpürme moddan bağımsız (Manual'da bile
+                    // önceden birikmiş pending'ler süresi dolunca UI'dan düşmeli).
+                    crate::ffi::sweep_expired_pending();
                     let mode = HealingMode::current();
                     if mode == HealingMode::Manual { continue; } // Manual — komut üretme
                     self.on_periodic(mode);

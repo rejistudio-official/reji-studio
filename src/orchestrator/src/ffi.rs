@@ -5,13 +5,14 @@
 //! - C++ → Rust: metric_ring (256-slot, lock-free ArrayQueue).
 //! - Rust → C++: command_queue (64-slot, lock-free ArrayQueue).
 
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Mutex};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam::queue::ArrayQueue;
 use tokio::sync::broadcast;
@@ -94,8 +95,6 @@ const _: () = assert!(core::mem::size_of::<RjActionEvent>() == 24);
 
 /// UI event türleri — `RjActionEvent::kind`. C++ tarafı `ffi_bridge.h`'de eşler.
 pub(crate) const RJ_ACTION_EVENT_NEW: u32 = 0;
-// commit 3'te (pending TTL dolumu / mod değişimi → UI'a geçersizleşme) kullanılacak.
-#[allow(dead_code)]
 pub(crate) const RJ_ACTION_EVENT_INVALIDATED: u32 = 1;
 
 impl RjActionEvent {
@@ -110,13 +109,56 @@ impl RjActionEvent {
             kind: RJ_ACTION_EVENT_NEW,
         }
     }
+
+    /// Approval event: CoPilot'ta onay bekleyen aksiyon (require_approval=true, New).
+    pub(crate) fn approval_event(a: &RjAction) -> Self {
+        RjActionEvent {
+            id: a.id,
+            action_type: a.action_type,
+            param1: a.param1,
+            param2: a.param2,
+            require_approval: 1,
+            kind: RJ_ACTION_EVENT_NEW,
+        }
+    }
+
+    /// Invalidated event: pending aksiyon TTL doldu ya da mod değişti — UI bunu
+    /// (checkbox/banner) temizlesin. `require_approval` anlamsız (0).
+    pub(crate) fn invalidated_event(a: &RjAction) -> Self {
+        RjActionEvent {
+            id: a.id,
+            action_type: a.action_type,
+            param1: a.param1,
+            param2: a.param2,
+            require_approval: 0,
+            kind: RJ_ACTION_EVENT_INVALIDATED,
+        }
+    }
 }
+
+/// V8/I33a: CoPilot'ta onay bekleyen bir aksiyonun deposu kaydı. `RjAction`
+/// (uygulanacak veri) + `rule_id` (reject → RuleEngine cooldown eşlemesi,
+/// commit 5) + `created` (TTL). Pending deposu kaynak-of-truth'tur; UI event'i
+/// yalnız bildirimdir (kaybolursa TTL/re-üretim telafi eder).
+struct PendingEntry {
+    action: RjAction,
+    #[allow(dead_code)] // commit 5: reject cooldown'ında RuleEngine'e geçilecek
+    rule_id: String,
+    created: Instant,
+}
+
+/// V8/I33a: Onay bekleyen aksiyonun geçerlilik süresi. Dolunca UI'a
+/// Invalidated bildirimi gider ve entry düşer (metrik düzeldiyse bir sonraki
+/// tick koşul hâlâ varsa zaten yeniden üretir). Şimdilik sabit — kullanıcı
+/// gözlemine göre ayarlanabilir; konfigürasyon yüzeyine YAGNI gereği çıkarılmadı.
+const PENDING_TTL: Duration = Duration::from_secs(30);
 
 struct FfiState {
     metric_ring:       Arc<ArrayQueue<MetricSample>>,
     command_queue:     Arc<ArrayQueue<RjCommand>>,
     action_queue:      Arc<ArrayQueue<RjAction>>,      // v0.4+ Runtime Adaptation (AKTÜATÖR — uygulanmaya hazır)
     ui_event_queue:    Arc<ArrayQueue<RjActionEvent>>, // V8/I33 (I11): UI bildirimi — aktüatörden ayrı
+    pending_actions:   Mutex<HashMap<u32, PendingEntry>>, // V8/I33a: CoPilot onay bekleyen aksiyonlar (id → entry)
     ws_command_queue:  Arc<ArrayQueue<(i32, i32)>>,    // (cmd_type, param) — WS → C++ kuyruk
     _metric_state:     Arc<MetricState>,
     _runtime:          Runtime,
@@ -362,6 +404,7 @@ fn rj_start_monitor_impl() {
             command_queue,
             action_queue,       // v0.4+ Runtime Adaptation (aktüatör)
             ui_event_queue,     // V8/I33 (I11): UI bildirim kuyruğu
+            pending_actions: Mutex::new(HashMap::new()), // V8/I33a: CoPilot pending deposu
             ws_command_queue,   // WS → C++ kuyruk
             _metric_state: metric_state,
             _runtime: runtime,
@@ -640,15 +683,125 @@ pub fn enqueue_ui_event(event: RjActionEvent) {
     }
 }
 
+/// V8/I33a: CoPilot'ta onay bekleyen aksiyonu depola + UI'a approval event
+/// gönder. Pending deposu kaynak-of-truth; UI event'i yalnız bildirim (kaybı
+/// TTL/re-üretim ile telafi edilir).
+pub fn enqueue_pending(action: RjAction, rule_id: String) {
+    let Some(state) = FFI_STATE.get() else {
+        eprintln!("[FFI] WARNING: FFI_STATE not initialized — enqueue_pending ignored");
+        return;
+    };
+    let event = RjActionEvent::approval_event(&action);
+    {
+        let mut pending = state.pending_actions.lock().unwrap();
+        pending.insert(
+            action.id,
+            PendingEntry { action, rule_id, created: Instant::now() },
+        );
+    }
+    enqueue_ui_event(event);
+}
+
+/// V8/I33a: TTL dolmuş pending aksiyonları süpür — her biri için UI'a
+/// Invalidated event gönderir ve entry'yi düşürür. HealingMonitor tick'inden
+/// (moddan bağımsız) periyodik çağrılır.
+pub fn sweep_expired_pending() {
+    let Some(state) = FFI_STATE.get() else { return; };
+    let now = Instant::now();
+    let expired: Vec<RjAction> = {
+        let mut pending = state.pending_actions.lock().unwrap();
+        let ids: Vec<u32> = pending
+            .iter()
+            .filter(|(_, e)| now.duration_since(e.created) >= PENDING_TTL)
+            .map(|(id, _)| *id)
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| pending.remove(&id).map(|e| e.action))
+            .collect()
+    };
+    for action in expired {
+        eprintln!("[Pending] TTL doldu, aksiyon iptal edildi: id={}", action.id);
+        enqueue_ui_event(RjActionEvent::invalidated_event(&action));
+    }
+}
+
+/// V8/I33a: Mod değişiminde tüm pending aksiyonları temizle (otomatik
+/// uygulanmaz) + UI'a Invalidated bildir. Gerekçe: bayat bir pending'i mod
+/// değişimi anında patlatmak sürpriz yan etki; koşul hâlâ geçerliyse bir
+/// sonraki tick zaten yeniden üretir.
+fn clear_pending_on_mode_change() {
+    let Some(state) = FFI_STATE.get() else { return; };
+    let drained: Vec<RjAction> = {
+        let mut pending = state.pending_actions.lock().unwrap();
+        pending.drain().map(|(_, e)| e.action).collect()
+    };
+    for action in drained {
+        enqueue_ui_event(RjActionEvent::invalidated_event(&action));
+    }
+}
+
 /// v0.4+: Approve pending action (Co-Pilot mode)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
-pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
+pub extern "C" fn rj_action_approve(action_id: u32) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
-        1  // TODO: Implement Co-Pilot approval
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_action_approve ignored");
+            return 0;
+        };
+        let mut pending = state.pending_actions.lock().unwrap();
+        let Some(entry) = pending.remove(&action_id) else {
+            // yok / süresi dolmuş / zaten işlenmiş — UI `0`'da checkbox'ı temizler.
+            return 0;
+        };
+        match state.action_queue.push(entry.action) {
+            Ok(_) => 1,
+            Err(returned) => {
+                // Aktüatör kuyruğu dolu (cap 64'te pratikte olmaz): sessiz drop
+                // YOK — aksiyonu pending'de TUT, `0` dön. Bir sonraki approve/TTL
+                // yeniden dener.
+                eprintln!(
+                    "[ActionQueue] FULL on approve — aksiyon pending'de tutuldu: id={}",
+                    action_id
+                );
+                pending.insert(
+                    action_id,
+                    PendingEntry { action: returned, rule_id: entry.rule_id, created: entry.created },
+                );
+                0
+            }
+        }
     }))
     .unwrap_or_else(|_| {
         eprintln!("[PANIC] rj_action_approve caught panic");
+        0
+    })
+}
+
+/// V8/I33a: CoPilot reddi — pending deposundan `id`'li aksiyonu SİL (uygulanmaz).
+/// `1` = bulundu+silindi; `0` = yok/süresi dolmuş/zaten işlenmiş (UI `0`'da
+/// checkbox'ı sessizce temizler). Reddedilen aksiyonun kuralına cooldown
+/// **commit 5**'te (RuleEngine) eklenecek — aksi halde bir sonraki tick yeniden
+/// üretilip kullanıcıyı spamler.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_action_reject(action_id: u32) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_action_reject ignored");
+            return 0;
+        };
+        let removed = state.pending_actions.lock().unwrap().remove(&action_id);
+        match removed {
+            Some(_entry) => {
+                // commit 5: RuleEngine cooldown(_entry.rule_id, REJECT_COOLDOWN) burada.
+                1
+            }
+            None => 0,
+        }
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_action_reject caught panic");
         0
     })
 }
@@ -659,7 +812,12 @@ pub extern "C" fn rj_action_approve(_action_id: u32) -> i32 {
 pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
         if mode > 3 { return false; }
-        HEALING_MODE.store(mode, Ordering::SeqCst);
+        // V8/I33a: mod GERÇEKTEN değiştiyse pending'leri temizle (aynı değere
+        // set — örn. startup senkronu — pending'i patlatmasın).
+        let prev = HEALING_MODE.swap(mode, Ordering::SeqCst);
+        if prev != mode {
+            clear_pending_on_mode_change();
+        }
         true
     }))
     .unwrap_or(false)
@@ -785,6 +943,19 @@ pub extern "C" fn rj_user_event_scene_switch(scene_id: u32) {
 mod tests {
     use super::*;
 
+    // V8/I33a: pending deposu + healing-mode testleri süreç-global FfiState'i
+    // paylaşır; paralel çalışınca mod değişimi bir testin pending'ini drain
+    // edebilir. Bu guard onları serileştirir (poison yok sayılır — bir testin
+    // paniği diğerlerini kilitlemesin).
+    static PENDING_TEST_GUARD: Mutex<()> = Mutex::new(());
+    fn pending_guard() -> std::sync::MutexGuard<'static, ()> {
+        PENDING_TEST_GUARD.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn mk_action(id: u32) -> RjAction {
+        RjAction { id, action_type: RjActionType::BitrateReduce, param1: 3500, param2: 0, canary: 0 }
+    }
+
     #[test]
     fn test_push_null_does_not_crash() {
         rj_metrics_push(std::ptr::null());
@@ -888,6 +1059,7 @@ mod tests {
 
     #[test]
     fn test_healing_mode_roundtrip() {
+        let _g = pending_guard(); // V8/I33a: mod değişimi pending'i drain eder — serileştir
         // AtomicU32 store/load doğruluğu
         assert!(rj_set_healing_mode(0));
         assert_eq!(rj_get_healing_mode(), 0);
@@ -905,6 +1077,7 @@ mod tests {
 
     #[test]
     fn test_healing_mode_invalid_rejected() {
+        let _g = pending_guard(); // V8/I33a: mod değişimi pending'i drain eder — serileştir
         // mode > 3 reddedilmeli, mevcut değer değişmemeli
         assert!(rj_set_healing_mode(0));
         assert!(!rj_set_healing_mode(4));
@@ -951,6 +1124,105 @@ mod tests {
 
         // Null çıkış güvenli
         assert_eq!(rj_action_event_dequeue(std::ptr::null_mut()), 0, "null out → 0");
+    }
+
+    #[test]
+    fn test_pending_approve_moves_to_actuator_queue() {
+        let _g = pending_guard();
+        rj_start_monitor();
+        let id = 900_001;
+        enqueue_pending(mk_action(id), "rule_x".to_string());
+
+        // Onay: pending'den aktüatör kuyruğuna taşınmalı, 1 dönmeli.
+        assert_eq!(rj_action_approve(id), 1, "geçerli pending onaylanınca 1 dönmeli");
+
+        // Aktüatör kuyruğunda görünmeli (paralel testlerin aksiyonları da olabilir).
+        let mut out = mk_action(0);
+        let mut found = false;
+        while rj_action_dequeue(&mut out as *mut _) == 1 {
+            if out.id == id { found = true; break; }
+        }
+        assert!(found, "onaylanan aksiyon aktüatör kuyruğunda olmalı");
+
+        // İkinci onay: artık pending'de yok → 0.
+        assert_eq!(rj_action_approve(id), 0, "zaten işlenmiş id yeniden onaylanınca 0");
+    }
+
+    #[test]
+    fn test_pending_approve_invalid_id_returns_zero() {
+        let _g = pending_guard();
+        rj_start_monitor();
+        // Hiç enqueue edilmemiş id → 0 (yok/süresi dolmuş/zaten işlenmiş).
+        assert_eq!(rj_action_approve(900_999), 0);
+    }
+
+    #[test]
+    fn test_pending_reject_removes_entry() {
+        let _g = pending_guard();
+        rj_start_monitor();
+        let id = 900_002;
+        enqueue_pending(mk_action(id), "rule_y".to_string());
+
+        assert_eq!(rj_action_reject(id), 1, "bulunan pending reddedilince 1");
+        assert_eq!(rj_action_reject(id), 0, "ikinci reddet → yok → 0");
+        // Reddedilen aksiyon uygulanmamalı: approve da 0 dönmeli.
+        assert_eq!(rj_action_approve(id), 0, "reddedilen aksiyon onaylanamaz");
+    }
+
+    #[test]
+    fn test_pending_sweep_expires_and_invalidates() {
+        let _g = pending_guard();
+        rj_start_monitor();
+        let id = 900_003;
+        // Doğrudan depoya TTL'i aşmış (backdated) bir entry koy — 30s beklemeden
+        // sweep davranışını test etmek için (test aynı modülde, private erişim OK).
+        {
+            let state = FFI_STATE.get().expect("monitor started");
+            let backdated = Instant::now()
+                .checked_sub(PENDING_TTL + Duration::from_secs(5))
+                .expect("backdate");
+            state.pending_actions.lock().unwrap().insert(
+                id,
+                PendingEntry { action: mk_action(id), rule_id: "rule_z".to_string(), created: backdated },
+            );
+        }
+
+        sweep_expired_pending();
+
+        // Entry düşmüş olmalı.
+        assert!(
+            !FFI_STATE.get().unwrap().pending_actions.lock().unwrap().contains_key(&id),
+            "TTL dolmuş entry sweep sonrası kalmamalı"
+        );
+        // UI'a Invalidated event gitmiş olmalı (kuyruğu tarayıp bul).
+        let mut out = RjActionEvent { id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0, require_approval: 0, kind: 0 };
+        let mut found = false;
+        while rj_action_event_dequeue(&mut out as *mut _) == 1 {
+            if out.id == id && out.kind == RJ_ACTION_EVENT_INVALIDATED { found = true; break; }
+        }
+        assert!(found, "sweep, TTL dolan aksiyon için Invalidated event üretmeli");
+    }
+
+    #[test]
+    fn test_mode_change_clears_pending() {
+        let _g = pending_guard();
+        rj_start_monitor();
+        let id = 900_004;
+        // CoPilot'a al, pending ekle, sonra farklı moda geç → pending temizlenmeli.
+        assert!(rj_set_healing_mode(1)); // CoPilot
+        enqueue_pending(mk_action(id), "rule_w".to_string());
+        assert!(
+            FFI_STATE.get().unwrap().pending_actions.lock().unwrap().contains_key(&id),
+            "pending eklendi"
+        );
+
+        assert!(rj_set_healing_mode(0)); // AutoPilot — mod değişti → clear
+        assert!(
+            !FFI_STATE.get().unwrap().pending_actions.lock().unwrap().contains_key(&id),
+            "mod değişiminde pending temizlenmeli"
+        );
+        // Temizlenen aksiyon onaylanamaz.
+        assert_eq!(rj_action_approve(id), 0);
     }
 
     #[test]
