@@ -122,6 +122,11 @@ void CommandRouter::drain_and_apply(CommandApplier apply_command,
 void CommandRouter::action_thread_main() {
     // D14: COM init once at thread start — required for WMI/DXGI calls on this thread
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    // V8/I9: CoUninitialize yalnız başarılı CoInitializeEx (S_OK/S_FALSE) için
+    // çağrılmalı. RPC_E_CHANGED_MODE FAILED'dır → bu çağrı COM'u BU thread'de
+    // initialize etmedi; koşulsuz uninit apartment ref-count'unu dengesizleştirir.
+    // (Doğru desen: wasapi_capture.cpp / srt_output.cpp::ComGuard.)
+    const bool com_ok = SUCCEEDED(hr);
     if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
         fprintf(stderr, "[Pipeline] COM init failed: 0x%08X\n", hr);
         fflush(stderr);
@@ -139,7 +144,7 @@ void CommandRouter::action_thread_main() {
     }
     dbglog("[Pipeline] action processor stopped");
 
-    CoUninitialize();  // D14: paired with CoInitializeEx above
+    if (com_ok) CoUninitialize();  // V8/I9: D14 çifti — yalnız başarılı init'te
 }
 
 } // namespace rj
