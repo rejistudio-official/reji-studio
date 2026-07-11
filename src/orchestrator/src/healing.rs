@@ -450,8 +450,15 @@ impl HealingMonitor {
     }
 
     /// V8/I1: kural motoru aksiyonlarını action_queue'ya (FFI) iter.
+    ///
+    /// V8/I33 (I11): İki-kuyruk — her aksiyon hem aktüatör kuyruğuna (uygula)
+    /// hem UI event kuyruğuna (bildir) gider; aynı kuyruğu paylaşmadıkları için
+    /// "aksiyon rastgele tek tüketiciye gider" yarışı yok. **Commit 2:** tüm
+    /// aksiyonlar info-event (require_approval=false) + aktüatöre; CoPilot pending
+    /// kapısı (require_approval=true → aktüatöre GİTMEZ) commit 4'te eklenecek.
     fn evaluate_rule_engine(&self, mode: HealingMode) {
         for action in self.collect_rule_actions(mode) {
+            crate::ffi::enqueue_ui_event(crate::ffi::RjActionEvent::info_event(&action));
             if !enqueue_action(action) {
                 warn!(action_id = action.id, "rule action enqueue failed, kuyruk dolu");
             }

@@ -73,10 +73,50 @@ pub struct RjAction {
 const _: () = assert!(core::mem::size_of::<RjAction>() == 20);
 const _: () = assert!(core::mem::size_of::<RjCommand>() == 24);
 
+/// V8/I33 (I11): UI bildirim event'i — aktüatör kuyruğundan (`RjAction`) AYRI
+/// bir kuyrukta akar. Aktüatör kuyruğu yalnız uygulanmaya HAZIR aksiyonları
+/// taşır; bu event UI'ı bilgilendirir (banner / CoPilot onayı / geçersizleşme).
+/// Böylece "uygula" ile "göster" tek kuyruğu paylaşmaz — I11 yarışı yapısal
+/// olarak ortadan kalkar. `#[repr(C)]`, `ffi_auto.h`'deki RjActionEvent ile bire bir.
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct RjActionEvent {
+    pub id: u32,
+    pub action_type: RjActionType,
+    pub param1: i32,
+    pub param2: i32,
+    /// 0 = bilgi (otomatik uygulanıyor/uygulandı), 1 = kullanıcı onayı gerekiyor.
+    pub require_approval: u32,
+    /// `RJ_ACTION_EVENT_*`: 0 = New, 1 = Invalidated (TTL dolumu / mod değişimi).
+    pub kind: u32,
+}
+const _: () = assert!(core::mem::size_of::<RjActionEvent>() == 24);
+
+/// UI event türleri — `RjActionEvent::kind`. C++ tarafı `ffi_bridge.h`'de eşler.
+pub(crate) const RJ_ACTION_EVENT_NEW: u32 = 0;
+// commit 3'te (pending TTL dolumu / mod değişimi → UI'a geçersizleşme) kullanılacak.
+#[allow(dead_code)]
+pub(crate) const RJ_ACTION_EVENT_INVALIDATED: u32 = 1;
+
+impl RjActionEvent {
+    /// Info event: otomatik uygulanan aksiyon için (require_approval=false, New).
+    pub(crate) fn info_event(a: &RjAction) -> Self {
+        RjActionEvent {
+            id: a.id,
+            action_type: a.action_type,
+            param1: a.param1,
+            param2: a.param2,
+            require_approval: 0,
+            kind: RJ_ACTION_EVENT_NEW,
+        }
+    }
+}
+
 struct FfiState {
     metric_ring:       Arc<ArrayQueue<MetricSample>>,
     command_queue:     Arc<ArrayQueue<RjCommand>>,
-    action_queue:      Arc<ArrayQueue<RjAction>>,      // v0.4+ Runtime Adaptation
+    action_queue:      Arc<ArrayQueue<RjAction>>,      // v0.4+ Runtime Adaptation (AKTÜATÖR — uygulanmaya hazır)
+    ui_event_queue:    Arc<ArrayQueue<RjActionEvent>>, // V8/I33 (I11): UI bildirimi — aktüatörden ayrı
     ws_command_queue:  Arc<ArrayQueue<(i32, i32)>>,    // (cmd_type, param) — WS → C++ kuyruk
     _metric_state:     Arc<MetricState>,
     _runtime:          Runtime,
@@ -115,6 +155,8 @@ pub(crate) fn next_action_id() -> u32 {
 pub(crate) static DROPPED_ACTIONS_COUNT: AtomicU64 = AtomicU64::new(0);
 /// Kaç ws_command_queue mesajının kapasitede doluluk nedeniyle düşürüldüğünü sayar.
 pub(crate) static DROPPED_WS_CMDS_COUNT: AtomicU64 = AtomicU64::new(0);
+/// V8/I33 (I11): UI event kuyruğunda ring-drop ile düşürülen event sayısı.
+pub(crate) static DROPPED_UI_EVENTS_COUNT: AtomicU64 = AtomicU64::new(0);
 
 fn now_us() -> u64 {
     SystemTime::now()
@@ -142,7 +184,8 @@ fn rj_start_monitor_impl() {
 
         let metric_ring       = Arc::new(ArrayQueue::<MetricSample>::new(256));
         let command_queue     = Arc::new(ArrayQueue::<RjCommand>::new(64));
-        let action_queue      = Arc::new(ArrayQueue::<RjAction>::new(64));  // v0.4+ Runtime Adaptation
+        let action_queue      = Arc::new(ArrayQueue::<RjAction>::new(64));  // v0.4+ Runtime Adaptation (aktüatör)
+        let ui_event_queue    = Arc::new(ArrayQueue::<RjActionEvent>::new(64)); // V8/I33 (I11): UI bildirim kuyruğu
         let ws_command_queue  = Arc::new(ArrayQueue::<(i32, i32)>::new(32)); // WS → C++ kuyruk
         let event_bus     = EventBus::new();
         let metric_state  = MetricState::new();
@@ -317,7 +360,8 @@ fn rj_start_monitor_impl() {
         FfiState {
             metric_ring,
             command_queue,
-            action_queue,       // v0.4+ Runtime Adaptation
+            action_queue,       // v0.4+ Runtime Adaptation (aktüatör)
+            ui_event_queue,     // V8/I33 (I11): UI bildirim kuyruğu
             ws_command_queue,   // WS → C++ kuyruk
             _metric_state: metric_state,
             _runtime: runtime,
@@ -474,6 +518,33 @@ pub extern "C" fn rj_action_dequeue(out: *mut RjAction) -> i32 {
     })
 }
 
+/// V8/I33 (I11): UI event kuyruğundan sıradaki event'i çeker. `1` = event var
+/// (`*out` dolduruldu), `0` = boş/null/init değil. Bu, `rj_action_dequeue`
+/// (aktüatör) ile AYRI kuyruktur — UI artık aktüatör kuyruğunu POP etmez,
+/// böylece "her aksiyon rastgele tek tüketiciye gider" yarışı yok.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_action_event_dequeue(out: *mut RjActionEvent) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if out.is_null() {
+            return 0;
+        }
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_action_event_dequeue ignored");
+            return 0;
+        };
+        if let Some(event) = state.ui_event_queue.pop() {
+            unsafe { *out = event; }
+            return 1;
+        }
+        0
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_action_event_dequeue caught panic");
+        0
+    })
+}
+
 /// Gerçek WS port'unu döndürür (sunucu henüz bind olmadıysa 0).
 /// C++ pipeline init sonrası çağrılmalı — run_frame() ilk iterasyonunda hazır olur.
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
@@ -546,6 +617,26 @@ pub fn enqueue_action(action: RjAction) -> bool {
             eprintln!("[ActionQueue] FULL — action dropped: {:?}  (total dropped: {})", action, total);
             false
         }
+    }
+}
+
+/// V8/I33 (I11): UI event kuyruğuna it. **Ring semantiği**: kuyruk doluysa
+/// (UI kapalı/donmuş) EN ESKİ event `force_push` ile düşürülür + sayaç/warn.
+/// Gerekçe: info-event kaybı zararsız; approval-event kaybı da pending deposu +
+/// TTL ile telafi edilir (pending kaynak-of-truth, event yalnız bildirim).
+/// Bu yüzden aktüatör kuyruğunun aksine (push-fail = drop-newest) burada
+/// drop-oldest tercih edilir — en güncel UI durumu korunur.
+pub fn enqueue_ui_event(event: RjActionEvent) {
+    let Some(state) = FFI_STATE.get() else {
+        eprintln!("[FFI] WARNING: FFI_STATE not initialized — enqueue_ui_event ignored");
+        return;
+    };
+    if let Some(evicted) = state.ui_event_queue.force_push(event) {
+        let total = DROPPED_UI_EVENTS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        eprintln!(
+            "[UiEventQueue] FULL — oldest event dropped: {:?}  (total dropped: {})",
+            evicted, total
+        );
     }
 }
 
@@ -833,6 +924,33 @@ mod tests {
         assert!(a != 0 && b != 0 && c != 0, "ID 0 sentinel'i dağıtılmamalı");
         assert!(b > a, "ID monoton artmalı (b > a)");
         assert!(c > b, "ID monoton artmalı (c > b)");
+    }
+
+    #[test]
+    fn test_action_event_dequeue_roundtrip_and_null_safe() {
+        // V8/I33 (I11): UI event kuyruğu aktüatörden ayrı; enqueue → dequeue
+        // aynı event'i döndürmeli, boşta 0, null'da 0.
+        rj_start_monitor();
+        let src = RjAction { id: 4242, action_type: RjActionType::BitrateReduce, param1: 3500, param2: 0, canary: 0 };
+        enqueue_ui_event(RjActionEvent::info_event(&src));
+
+        let mut out = RjActionEvent { id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0, require_approval: 9, kind: 9 };
+        // Kuyrukta başka testlerin event'i de olabilir (paralel/global state);
+        // bizim event'imizi bulana kadar drenaj yap.
+        let mut found = false;
+        while rj_action_event_dequeue(&mut out as *mut _) == 1 {
+            if out.id == 4242 {
+                assert_eq!(out.require_approval, 0, "info event onay gerektirmemeli");
+                assert_eq!(out.kind, RJ_ACTION_EVENT_NEW);
+                assert_eq!(out.param1, 3500);
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "enqueue edilen UI event'i dequeue ile bulunmalı");
+
+        // Null çıkış güvenli
+        assert_eq!(rj_action_event_dequeue(std::ptr::null_mut()), 0, "null out → 0");
     }
 
     #[test]

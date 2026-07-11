@@ -4,6 +4,7 @@
 // ABI constraints — derleme zamanı güvencesi; Rust const_assert ile eşleşmeli.
 static_assert(sizeof(RjMetricSample) == 64, "RjMetricSample ABI mismatch");
 static_assert(sizeof(RjAction)       == 20, "RjAction ABI mismatch");
+static_assert(sizeof(RjActionEvent)  == 24, "RjActionEvent ABI mismatch");
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI mismatch");
 
 // RjCommand field offsets
@@ -18,6 +19,14 @@ static_assert(offsetof(RjAction, action_type) ==  4, "RjAction::action_type offs
 static_assert(offsetof(RjAction, param1)      ==  8, "RjAction::param1 offset");
 static_assert(offsetof(RjAction, param2)      == 12, "RjAction::param2 offset");
 static_assert(offsetof(RjAction, canary)      == 16, "RjAction::canary offset");
+
+// RjActionEvent field offsets (V8/I33 — UI bildirim event'i)
+static_assert(offsetof(RjActionEvent, id)               ==  0, "RjActionEvent::id offset");
+static_assert(offsetof(RjActionEvent, action_type)      ==  4, "RjActionEvent::action_type offset");
+static_assert(offsetof(RjActionEvent, param1)           ==  8, "RjActionEvent::param1 offset");
+static_assert(offsetof(RjActionEvent, param2)           == 12, "RjActionEvent::param2 offset");
+static_assert(offsetof(RjActionEvent, require_approval) == 16, "RjActionEvent::require_approval offset");
+static_assert(offsetof(RjActionEvent, kind)             == 20, "RjActionEvent::kind offset");
 
 // RjMetricSample field offsets
 static_assert(offsetof(RjMetricSample, magic_head)       ==  0, "RjMetricSample::magic_head offset");
@@ -51,6 +60,7 @@ int main() {
     printf("=== RjMetricSample ABI Check ===\n");
     printf("sizeof(RjMetricSample) = %zu bytes\n", sizeof(RjMetricSample));
     printf("sizeof(RjAction) = %zu bytes\n", sizeof(RjAction));
+    printf("sizeof(RjActionEvent) = %zu bytes\n", sizeof(RjActionEvent));
     printf("sizeof(RjCommand) = %zu bytes\n", sizeof(RjCommand));
     printf("sizeof(RjHealingMode) = %zu bytes\n", sizeof(RjHealingMode));
     printf("\n=== RjActionType enum değerleri ===\n");
