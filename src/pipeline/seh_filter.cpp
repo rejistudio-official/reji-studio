@@ -9,12 +9,21 @@
 #include "seh_filter.h"
 
 #include <cstdio>
+#include <atomic>
+#include <intrin.h>  // __fastfail
 
 #ifdef _WIN32
 
 namespace rj {
 
 namespace {
+
+// I10-c: site-başı AV sayacı — kilitsiz, tahsissiz. Bir AV filtresinde (olası
+// bozuk heap/stack) kilit almak deadlock, heap'e dokunmak tehlikeli olurdu;
+// bu yüzden derleme-zamanı sabit boyutlu atomik diziler. Her site pratikte
+// tek thread'den (leaf'ler thread-yerel) çağrılır → tek-yazar, yarış zararsız.
+std::atomic<uint64_t> g_av_window_ms[static_cast<std::size_t>(SehSite::Count)];
+std::atomic<uint32_t> g_av_count[static_cast<std::size_t>(SehSite::Count)];
 
 // SehSite → okunabilir isim (log için). Sıra enum ile birebir olmalı.
 const char* site_name(SehSite site) noexcept {
@@ -37,7 +46,24 @@ const char* site_name(SehSite site) noexcept {
 
 } // namespace
 
-LONG seh_filter(EXCEPTION_POINTERS* ep, SehSite /*site*/, SehCapture* out) noexcept {
+bool seh_register_av(SehSite site, uint64_t now_ms) noexcept {
+    const std::size_t idx = static_cast<std::size_t>(site);
+    if (idx >= static_cast<std::size_t>(SehSite::Count)) return false;
+
+    const uint64_t start = g_av_window_ms[idx].load(std::memory_order_relaxed);
+    uint32_t cnt;
+    if (now_ms - start > kSehAvWindowMs) {
+        // Pencere süresi doldu (veya ilk çağrı: start==0) → yeni pencere.
+        g_av_window_ms[idx].store(now_ms, std::memory_order_relaxed);
+        g_av_count[idx].store(1, std::memory_order_relaxed);
+        cnt = 1;
+    } else {
+        cnt = g_av_count[idx].fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+    return cnt >= kSehAvThreshold;
+}
+
+LONG seh_filter(EXCEPTION_POINTERS* ep, SehSite site, SehCapture* out) noexcept {
     const unsigned long code =
         (ep && ep->ExceptionRecord) ? ep->ExceptionRecord->ExceptionCode : 0;
 
@@ -54,7 +80,11 @@ LONG seh_filter(EXCEPTION_POINTERS* ep, SehSite /*site*/, SehCapture* out) noexc
                            ? ep->ExceptionRecord->ExceptionAddress
                            : nullptr;
         out->fired   = true;
-        out->escalate = false;  // I10-c'de doldurulacak
+        // I10-c: yalnız ACCESS_VIOLATION eskalasyon valfine tabi. Tekrar eden
+        // AV = geçici sürücü hıçkırığı değil, gerçek bozulma olasılığı yüksek.
+        // GetTickCount64/atomik erişim SEH-güvenli (kilit/heap yok).
+        out->escalate = (code == EXCEPTION_ACCESS_VIOLATION) &&
+                        seh_register_av(site, GetTickCount64());
     }
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -74,6 +104,26 @@ void seh_report(const SehCapture& cap, SehSite site) noexcept {
     OutputDebugStringA("\n");
     fprintf(stderr, "%s\n", buf);
     fflush(stderr);
+
+    // I10-c: eskalasyon valfi. Aynı sitede pencerede eşik aşıldıysa yutmayı
+    // bırak — FATAL logu SENKRON yazıp __fastfail ile sonlan. __fastfail normal
+    // unwind yapmaz; bu yüzden yukarıdaki fflush + aşağıdaki log çağrı anında
+    // diske/DebugView'a gitmiş olmalı (WER minidump'ı faulting context'i ayrıca
+    // yakalar; bizim yapılandırılmış satırımız ek teşhis değeri taşır).
+    if (cap.escalate) {
+        char fbuf[256];
+        _snprintf_s(fbuf, sizeof(fbuf), _TRUNCATE,
+                    "[reji][FATAL] SEH AV esigi asildi: site=%s (%llu sn icinde >=%u AV) "
+                    "code=0x%08lX addr=%p — surec sonlandiriliyor (__fastfail)",
+                    site_name(site),
+                    static_cast<unsigned long long>(kSehAvWindowMs / 1000),
+                    kSehAvThreshold, cap.code, cap.address);
+        OutputDebugStringA(fbuf);
+        OutputDebugStringA("\n");
+        fprintf(stderr, "%s\n", fbuf);
+        fflush(stderr);
+        __fastfail(FAST_FAIL_FATAL_APP_EXIT);
+    }
 }
 
 } // namespace rj

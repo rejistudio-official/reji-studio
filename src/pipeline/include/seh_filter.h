@@ -25,8 +25,15 @@
 #endif
 #include <windows.h>
 #include <cstddef>
+#include <cstdint>
 
 namespace rj {
+
+// I10-c eskalasyon valfi parametreleri: aynı sitede kısa pencerede tekrar eden
+// ACCESS_VIOLATION, geçici sürücü hıçkırığından çok gerçek bellek bozulmasına
+// işaret eder — bu eşik aşıldığında yutmayı bırak, __fastfail ile sonlan.
+inline constexpr uint64_t kSehAvWindowMs  = 60'000;  // 60 sn
+inline constexpr uint32_t kSehAvThreshold = 3;       // pencerede >=3 AV → eskale
 
 // Her SEH leaf çağrı sitesi için ayrı kimlik — eskalasyon valfi (I10-c) site
 // başına sayaç tutar. Sıra önemsiz; Count dizilerin boyutunu verir.
@@ -81,6 +88,11 @@ inline bool seh_is_passthrough(unsigned long code) noexcept {
            code == EXCEPTION_BREAKPOINT     ||
            code == EXCEPTION_SINGLE_STEP;
 }
+
+// I10-c: site-başı AV sayacını günceller; pencerede eşik aşıldıysa true döner.
+// Kilitsiz/tahsissiz (sabit atomik dizi) — bir AV filtresinde güvenle çağrılır
+// (kilit/heap yok). now_ms enjekte edilebilir → birim testte doğrudan doğrulanır.
+bool seh_register_av(SehSite site, uint64_t now_ms) noexcept;
 
 // __except filter ifadesi. GetExceptionInformation() sonucunu alır, kararı
 // verir ve bağlamı *out'a yazar. Pass-through kodlarda EXCEPTION_CONTINUE_SEARCH,
