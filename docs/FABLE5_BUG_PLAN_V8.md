@@ -45,7 +45,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I5  | Fable       | execute_copy() basarisiz submit sonrasi layout state'i yanlis guncelliyor — Vulkan spec ihlali **[DÜZELTILDI]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores **[DÜZELTILDI 10.07: alive_ atomic flag eklendi — SEH sadece AV yakalar, stale-ama-gecerli-gorunen handle sessiz UB kalirdi; flag handle'dan bagimsiz erken cikis]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I7  | Fable       | WasapiCapture shutdown — callback UAF penceresi (Unregister sirasi yanlis) **[DOĞRULANDI 10.07: D16 (V3 Sprint 3) ile ZATEN ÇÖZÜLMÜŞ — yinelenen madde, kod degismedi. clear_owner-once stratejisi Unregister-once'tan FARKLI ama gecerli: tum callback'ler owner_'i atomic yukleyip null ise erken donuyor, Unregister'in bloklayici olmasina bagimli degil]** | wasapi_capture.cpp | Kritik | Sprint 1 |
-| I8  | Fable+Opus  | WS sunucusu auth'suz — drive-by stream kill saldiri vektoru | ws_server.rs | Yuksek | Sprint 2 |
+| I8  | Fable+Opus  | WS sunucusu auth'suz — drive-by stream kill saldiri vektoru **[DÜZELTILDI 11.07 — 7 commit b00116d..da843fd. Faz 0 keşfi: gerçek açık legacy `{cmd}` yolunda (obs handshake'ini baypas ediyor), control.html bir obs istemcisi DEĞİL. Eski "token+Origin" çözümü ÇÜRÜTÜLDÜ (Origin saldırgan sekme ile control.html'i ayırt edemez). Yerine oturum-düzeyi obs-websocket auth (challenge/salt/SHA256), legacy yol dahil tek bayrakla gate'li. Detay: aşağıdaki I8 bölümü + SESSION_NOTES 11.07]** | ws_server.rs, obs_protocol.rs, ffi.rs, settings_dialog.*, control.html | Yuksek | Sprint 2 |
 | I9  | Fable+Opus  | CoUninitialize() RPC_E_CHANGED_MODE'da kosulsuz cagriliyor (2 yerde) | command_router.cpp | Yuksek | Sprint 2 |
 | I10 | Fable+Opus  | SEH filtreleri EXCEPTION_ACCESS_VIOLATION/stack overflow yutuyor | command_router.cpp, wasapi_capture.cpp, +4 dosya | Yuksek | Sprint 2 |
 | I11 | Opus        | Cift consumer race — C++ action thread (100ms poll) + UI'nin kendi 200ms poll'u ayni kuyruğu yariyor **[DÜZELTILDI 11.07 — I33 serisinde iki-kuyruk mimarisiyle: aktüatör kuyruğu (rj_action_dequeue) + AYRI UI event kuyruğu (rj_action_event_dequeue). İki tüketici artık farklı kuyruklar; yarış yapısal olarak yok. commit af42cdb (mimari) + b20608f (UI yönlendirme)]** | command_router.cpp, main_window.cpp | Yuksek | Sprint 2 |
@@ -651,24 +651,57 @@ clear_owner();
 
 ### I8 — WS Sunucusu Auth'suz (Drive-by Stream Kill)
 
+> **DÜZELTILDI 11.07.2026 — 7 commit (b00116d, f99b240, 613f22a, 2daeac5,
+> dc97b8c, da843fd + docs). Eski "token+Origin" çözümü ÇÜRÜTÜLDÜ; tanım yeniden
+> yazıldı (I2/I3/I33 gibi).**
+>
+> **Faz 0 iki kritik bulgu (kapsamı yeniden çerçeveledi):**
+> 1. Gerçek açık obs handshake'inde DEĞİL, **legacy `{cmd}` yolunda**: saldırgan
+>    Identify hiç göndermeden `{"cmd":"stream_stop"}` atabiliyordu. Yalnız
+>    obs-auth eklemek açığı KAPATMAZDI.
+> 2. **control.html bir obs istemcisi değil** — legacy `{cmd}` gönderiyor, Hello/
+>    Identify yapmıyor. Naif auth onu tamamen kilitlerdi.
+> 3. **Origin kontrolü çürütüldü:** saldırgan sekme ile control.html aynı
+>    tarayıcıdan (aynı origin) gelir → origin ile ayırt edilemez. Parola doğru
+>    mekanizma (localhost bind zaten uzak erişimi engelliyor).
+>
+> **Uygulanan çözüm — oturum-düzeyi obs-websocket v5 auth (tek bayrak):**
+> - Parola AYARLIYKEN: Hello'da `authentication` (challenge+salt); Identify'da
+>   geçerli `authentication` (base64(sha256(base64(sha256(pw+salt))+challenge)),
+>   sabit-zamanlı doğrulama) gelmezse **4009**. Doğrulanmamış oturumdan Identify
+>   DIŞI HER mesaj (obs Request **VE** legacy `{cmd}`) → **4007** + warn.
+>   Tek `authenticated` bayrağı iki ayrı kapı yerine legacy yolu da kapatır.
+> - Parola YOKken: bugünkü toleranslı davranış **bit düzeyinde aynı** (Hello
+>   auth'suz, Identify opsiyonel, legacy çalışır) — 23 mevcut ws testi regresyonsuz.
+> - Parola kaynağı: `rj_set_ws_password` FFI + SettingsDialog alanı + startup
+>   senkronu (I19 deseni, find-references ile uçtan uca kanıtlandı). Boş = kapalı.
+>   Her bağlantıda taze okunur → çalışırken değişim yalnız yeni bağlantılara.
+> - control.html minimal obs-auth'a yükseltildi (Hello→prompt→Identify→sonra
+>   legacy {cmd}); crypto.subtle localhost secure context'te çalışır. Yanlış
+>   parola → 4009 → hata + kullanıcı-tetiklemeli yeniden dene (sessiz döngü yok).
+> - Close-code altyapısı ayrı/erken commit (`close_with`).
+>
+> **Spec sapmaları (bilinçli, belgelendi):** ikinci Identify → yoksay+log (4008
+> değil); parola ayarlıyken de 5s soft-timeout yalnız log (doğrulanmamış oturum
+> zaten 4007'ye takılır). **Kapsam dışı:** rate-limiting/brute-force (V8'e yeni
+> madde önerilebilir), TLS/wss. **AÇIK KALAN:** LAN erişimi için bind 0.0.0.0'a
+> açılırsa control.html'e saf-JS sha256 gerekir (kod yorumunda uyarı).
+> **Doğrulama:** 54 lib + 5 + 30 ws Rust testi PASS (11 yeni: close-code, auth
+> çekirdeği, handshake, 4007 legacy-gate); reji_app derlendi+linklendi; tarayıcı
+> davranış onayı (control.html parolalı/parolasız) KULLANICIDA.
+
 **Kaynak:** Fable 5 (6.3) + Opus 4.8 (6.4) — cift dogrulanmis, gercek
 saldiri senaryosu (canli yayinci hedefi dusunulunce onemli).
 
-**Sorun:** `127.0.0.1:7070-7073`'e herhangi bir lokal islem (veya kotu
-niyetli bir tarayici sekmesi — CORS WebSocket'i engellemez) baglanip
-`{"cmd":"stream_stop"}` gonderebilir.
+**Sorun (orijinal):** `127.0.0.1:7070-7073`'e herhangi bir lokal islem (veya
+kotu niyetli bir tarayici sekmesi — CORS WebSocket'i engellemez) baglanip
+`{"cmd":"stream_stop"}` gonderebilir. _(Faz 0: bu tam olarak legacy `{cmd}`
+yolu; yukarıdaki çözüm bunu 4007 ile kapatır.)_
 
-**Cozum:**
-1. Baslangicta rastgele bir oturum token'i uret, UI'ya ilet (ornegin
-   control.html'e query param olarak veya ilk WS mesaji olarak beklenir).
-2. `Origin` header'ini dogrula — tarayici origin'lerini reddet.
-3. obs-websocket uyumluluk katmani (Faz 1) zaten `Identify` adiminda auth
-   alani tasiyor — bu ikisini AYNI mekanizmada birlestirmek mantikli:
-   Faz 1 tasariminda auth "yok" olarak planlandi, bu bulgu isiginda
-   en azindan `Origin` kontrolu Faz 1'e eklenmeli.
-
-**Not:** Bu maddeyi Faz 1 (OBS-WebSocket) calismasiyla koordineli yap —
-ayni dosyada (`ws_server.rs`) cakisan degisiklikler olabilir.
+**Orijinal "Cozum" önerisi (ÇÜRÜTÜLDÜ — tarihsel, dürüstlük ilkesi gereği korunuyor):**
+token + `Origin` kontrolü öneriliyordu; Origin saldırgan sekme ile control.html'i
+ayırt edemediğinden ve ikinci bir kimlik sistemi gereksiz bakım/saldırı yüzeyi
+olduğundan reddedildi — yerine standart obs-websocket auth kullanıldı (yukarı bak).
 
 ---
 

@@ -1717,3 +1717,67 @@ uçtan uca hayaliydi. Faz 0/1 (keşif + tasarım) kullanıcı onayından geçti,
   `target/release/reji_orchestrator.lib` bayat kalır, LINK `unresolved external
   rj_*`'da patlar (ffi_auto.h bildirimi görünse bile).
 - **Açık minör:** `chk_source_auto` inert (I34, Sprint 4).
+
+---
+
+## Oturum: 11 Temmuz 2026 — V8/I8 WS Auth (7 commit'lik seri)
+
+### Özet
+obs-websocket kimlik doğrulaması. **Faz 0 iki kritik bulguyla kapsamı yeniden
+çerçeveledi** (üçüncü kez): (1) I8 açığı obs handshake'inde DEĞİL, **legacy `{cmd}`
+yolunda** (Identify'ı baypas ediyor) → yalnız obs-auth eklemek açığı kapatmazdı;
+(2) **control.html bir obs istemcisi değil** (legacy `{cmd}`) → naif auth onu
+kilitlerdi; (3) **Origin kontrolü çürütüldü** (saldırgan sekme = control.html,
+aynı origin). Eski "token+Origin" tanımı reddedildi. Faz 0/1 onaydan geçti.
+
+### Kararlar (kullanıcı onaylı)
+- **Oturum-düzeyi auth (tek bayrak), yol-düzeyi değil:** doğrulanmış oturumda hem
+  obs Request hem legacy `{cmd}` çalışır; doğrulanmamışta ikisi de reddedilir.
+- **control.html:** paralel token İCAT ETME → obs-auth'a minimal yükselt.
+- **Parola kaynağı:** FFI setter + SettingsDialog (env/config değil), startup senkronu.
+- **Close-code altyapısı** ayrı/erken commit.
+- **crypto.subtle** (Faz 0: bind 127.0.0.1 → localhost secure context → çalışır,
+  saf-JS sha256 gereksiz).
+
+### 7 commit (b00116d..da843fd, master'a HENÜZ push edilmedi)
+1. `b00116d` — close-code altyapısı (`close_with` + obs `close_code` 4007/4009 + test).
+2. `f99b240` — auth çekirdeği (saf): `compute_auth`/`verify_auth` (subtle sabit-zamanlı)/
+   `gen_salt_challenge` (getrandom)/`hello_with_auth`; deps sha2/base64/getrandom/subtle.
+3. `613f22a` — handshake entegrasyonu: `WsState.password` (RwLock, per-bağlantı
+   snapshot) + `Session` + Identify doğrulama + 4009; parolasız bit-aynı; JSON+msgpack.
+4. `2daeac5` — doğrulanmamış istek reddi (4007), legacy `{cmd}` açığı kapandı (tek bayrak).
+5. `dc97b8c` — parola wiring: `rj_set_ws_password` FFI + SettingsDialog alanı +
+   `syncWsPasswordToRust` startup senkronu (find-references).
+6. `da843fd` — control.html minimal obs-auth handshake (crypto.subtle, 4009 retry).
+7. docs (bu commit) — V8 I8 yeniden yazımı, SESSION_NOTES, obs-ws-protocol skill,
+   CONTEXT, ROADMAP, talimat arşivi.
+
+### Doğrulama
+- Rust: 54 lib + 5 rules + 30 ws = tümü PASS (11 yeni test: close-code, auth çekirdeği
+  ×3, handshake ×4, 4007-gate ×3). Client-side auth entegrasyon testinde BAĞIMSIZ
+  hesaplanır (sha2/base64 dev-dep) — spec-exactness Faz 3 gerçek istemcide.
+- C++: `reji_app` derlendi + LİNKLENDİ (rj_set_ws_password çözüldü). `cargo build
+  --release` ÖNCE (I33 gotcha'sı uygulandı).
+- Startup senkronu find-references ile uçtan uca: `syncWsPasswordToRust` 3 yerde
+  (ctor/startup/onSettingsClicked); onOkClicked healingModeChanged'i koşulsuz emit
+  ediyor → parola-only değişim bile Rust'a ulaşır (I19-boşluğu yok).
+
+### Kullanıcıya görünen davranış değişiklikleri
+- Parola ayarlanınca kimlik doğrulamayan eski toleranslı istemciler REDDEDİLİR
+  (control.html yükseltmesi bu yüzden şart).
+- **Parola yalnız YENİ bağlantılara uygulanır; tam etki için mevcut istemciler
+  yeniden bağlanmalı** (parolasızken açılmış oturumlar sürer — OBS-tutarlı).
+- Parolasızken davranış BİT-AYNI (23 mevcut ws testi regresyonsuz).
+
+### KULLANICIDA (otonom yapılmadı)
+- **Tarayıcı akışı:** control.html parolalı (prompt→bağlan / yanlış→4009 hata+retry)
+  ve parolasız. Kod incelemesi + otomatik test + build/link ile doğrulandı; tarayıcı
+  etkileşim onayı bekliyor.
+- **Gerçek istemci kütüphaneleri (Aşama 6 tarzı):** obs-websocket-js/simpleobsws ile
+  parolalı bağlantı + msgpack+parola (opsiyonel ek kanıt; otomatik ws testleri
+  handshake'i zaten kapsıyor).
+
+### Spec sapmaları (belgelendi) + kapsam
+- İkinci Identify → yoksay+log (4008 değil); parola ayarlıyken de 5s soft-timeout
+  yalnız log. Kapsam dışı: rate-limit/brute-force (V8'e yeni madde), TLS/wss.
+- Açık: bind 0.0.0.0'a açılırsa control.html'e saf-JS sha256 gerekir (yorumda uyarı).

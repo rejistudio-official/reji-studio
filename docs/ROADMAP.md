@@ -943,6 +943,13 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
 > Node-varsayılan obs-websocket-js (Companion'ın bağımlılığı) ve simpleobsws artık bağlanıyor.
 > Kalan açık yalnızca fiziksel donanım/gerçek Companion doğrulaması.
 
+> **Kimlik doğrulama ✅ (V8/I8, 2026-07-11):** obs-websocket v5 auth (challenge/salt/
+> SHA256, sabit-zamanlı). Parola AYARLIYKEN zorunlu (yanlış→4009, doğrulanmamış
+> Request/legacy `{cmd}`→4007); parola YOKken toleranslı davranış bit-aynı. Parola
+> SettingsDialog'dan (`rj_set_ws_password`). control.html obs-auth'a yükseltildi.
+> **Faz 1 auth "yok" niteliği artık geçersiz** — auth opsiyonel (OBS gibi) ve
+> uygulanmış durumda. Tarayıcı/gerçek-istemci davranış onayı kullanıcıda.
+
 ## Faz 2 — RTMP Çıkışı
 
 - [x] (Aşama 1) ITransport soyutlaması gerçek: SrtTransport + create() faktörü —

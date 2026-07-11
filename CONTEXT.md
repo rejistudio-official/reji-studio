@@ -78,7 +78,7 @@ Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I
 | I5 | `execute_copy()` submit-öncesi layout state yazımı | ✅ Düzeltildi |
 | I6 | `is_copy_ready()` shutdown ile yarışı | ✅ Düzeltildi (`alive_` atomic flag) |
 | I7 | WasapiCapture shutdown UAF | ✅ Doğrulandı — daha eski bir V-planında (D16) zaten çözülmüştü, yinelenen madde |
-| I8 | WS auth yok | ⏳ Açık |
+| I8 | WS auth yok (gerçek açık: legacy `{cmd}` yolu) | ✅ Düzeltildi (11.07, 7 commit b00116d..da843fd — oturum-düzeyi obs-websocket auth, legacy yol dahil; eski token+Origin çürütüldü). Tarayıcı davranış onayı kullanıcıda |
 | I9 | `CoUninitialize()` koşulsuz | ⏳ Açık |
 | I10 | SEH filtreleri AV/stack overflow yutuyor | ⏳ Açık |
 | I11 | Çift action-queue consumer race | ✅ Düzeltildi (11.07, I33 serisi — iki-kuyruk mimarisi: aktüatör + ayrı UI event kuyruğu) |
@@ -144,14 +144,14 @@ AMD Vulkan keyed-mutex copy_optimizer zinciri
 
 ## 5. Şu An Nerede Kaldık — Sıradaki Somut Adımlar
 
-Hiçbir acil/bloke eden iş yok. **I33+I11 (CoPilot onay kapısı) 11.07'de tamamlandı** (bkz. bölüm 2 tablosu + `SESSION_NOTES.md` 11 Temmuz). Aşağıdakiler, öncelik sırasına göre makul sonraki adımlar — hangisiyle devam edileceği kullanıcı tercihine bağlı:
+Hiçbir acil/bloke eden iş yok. **I33+I11 (CoPilot onay kapısı) ve I8 (WS auth) 11.07'de tamamlandı** (bkz. bölüm 2 tablosu + `SESSION_NOTES.md` 11 Temmuz). Aşağıdakiler, öncelik sırasına göre makul sonraki adımlar — hangisiyle devam edileceği kullanıcı tercihine bağlı:
 
-1. **I8 (WS auth)** — gerçek güvenlik açığı, Faz 1'in `ws_server.rs`'iyle aynı dosya (koordine et).
-2. **I9, I10, I14** — Sprint 2'nin kalan düşük-orta öncelikli maddeleri.
-3. **Sprint 3-4 (I15-I18, I21-I26, + I34 inert checkbox)** — performans/mimari tutarlılık/temizlik, hiç dokunulmadı, çoğu düşük efor.
-4. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — ROADMAP'teki bir sonraki büyük faz, hiç başlanmadı. (Sonrasında Faz 4 — NDI, Faz 5 — Zig global state tam çözümü.)
+1. **I9, I10, I14** — Sprint 2'nin kalan düşük-orta öncelikli maddeleri.
+2. **Sprint 3-4 (I15-I18, I21-I26, + I34 inert checkbox)** — performans/mimari tutarlılık/temizlik, hiç dokunulmadı, çoğu düşük efor.
+3. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — ROADMAP'teki bir sonraki büyük faz, hiç başlanmadı. (Sonrasında Faz 4 — NDI, Faz 5 — Zig global state tam çözümü.)
 
 **Kullanıcının elinde bekleyen (Claude Code otonom yapamıyor):**
+- **WS auth tarayıcı doğrulaması (I8'i tam kapatır)** — control.html parolalı (prompt→bağlan / yanlış→4009 hata+retry) ve parolasız akış; opsiyonel: obs-websocket-js/simpleobsws ile parolalı bağlantı
 - **CoPilot onay/reddet GUI doğrulaması (I33'ü tam kapatır)** — CoPilot'ta gerçek eşik aşımı → pending görünür → onayla (uygulanır) / reddet (uygulanmaz + 120s bastırılır) / timeout (geçersizleşir, cooldown yok)
 - Twitch/YouTube gerçek ingest testi (Faz 2'yi tam kapatır)
 - Manual healing mode GUI doğrulaması (I19/I20'yi tam kapatır)

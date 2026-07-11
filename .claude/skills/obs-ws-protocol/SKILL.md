@@ -38,8 +38,11 @@ mevcut legacy (control.html) istemcileri kırmadan.
   `requestStatus: {result: bool, code: int, comment?}`
 - Event `d`: `eventType`, `eventIntent`, `eventData`
 - Handshake sonrası her mesaj Identify'daki `rpcVersion`'a (1) tabidir.
-- Auth: Hello'da `authentication` alanı varsa istemci challenge çözer.
-  Reji Studio şimdilik auth'suz — eklerken spec'in SHA256(base64) akışını kullan.
+- Auth (V8/I8, IMPLEMENTE): Parola AYARLIYKEN Hello'da `authentication`
+  {challenge, salt}; istemci `base64(sha256(base64(sha256(pw+salt))+challenge))`
+  hesaplayıp Identify'da gönderir. `obs_protocol::{compute_auth, verify_auth,
+  gen_salt_challenge}` (saf, sabit-zamanlı). Parola YOKken auth kapalı (bugünkü
+  toleranslı davranış). Detay: aşağıdaki "Auth (I8)" bölümü.
 
 Detay gerekirse resmi spec: obsproject/obs-websocket → docs/generated/protocol.md
 (değişiklikte web'den güncel halini doğrula).
@@ -136,6 +139,28 @@ Aşama 7 (msgpack serileştirme) ✅ — `obswebsocket.msgpack` alt-protokolü t
     test edilmedi (yok) — kütüphane seviyesinde doğrulandı.
   - Bağımlılık: `rmp-serde = "1"` (workspace). Testler: ws suite 19 → 23 (5 yeni msgpack/json-guard
     testi; Aşama 6'nın geçici "msgpack seçilmez" testi kaldırıldı — davranış bilinçli tersine döndü).
+
+Auth (V8/I8) ✅ — obs-websocket v5 kimlik doğrulaması (11.07, 7 commit):
+  - **Oturum-düzeyi, tek bayrak:** `Session { identified, authenticated, auth }`.
+    Parola AYARLIYKEN doğrulanmamış oturumdan Identify DIŞI HER mesaj (obs Request
+    VE legacy `{cmd}`) → **4007**; yanlış/eksik Identify authentication → **4009**.
+    Parola YOKken `authenticated` vacuously true → bugünkü davranış BİT-AYNI.
+  - **Kripto:** `obs_protocol::{compute_auth, verify_auth (subtle sabit-zamanlı),
+    gen_salt_challenge (getrandom)}`; `hello_with_auth`. Deps: sha2/base64/getrandom/subtle.
+  - **Kritik bulgu (Faz 0):** I8 açığı legacy `{cmd}` yolundaydı (obs handshake'ini
+    baypas ediyordu); tek bayrak kuralı onu da kapatır. Origin kontrolü çürütüldü
+    (saldırgan sekme = control.html, aynı origin). control.html obs-auth'a
+    minimal yükseltildi (crypto.subtle, localhost secure context).
+  - **Parola kaynağı:** `rj_set_ws_password` FFI + SettingsDialog + startup senkronu
+    (I19 deseni). Boş = kapalı. Her bağlantıda taze okunur (çalışırken değişim →
+    yalnız yeni bağlantılar). Parola LOGLANMAZ.
+  - **close_with(code, reason):** obs close-code altyapısı (Message::Close, WireMode
+    bağımsız). `obs_protocol::close_code::{NOT_IDENTIFIED=4007, AUTHENTICATION_FAILED=4009}`.
+  - **Spec sapmaları:** ikinci Identify → yoksay+log (4008 değil); parola ayarlıyken
+    de soft-timeout yalnız log. **Kapsam dışı:** rate-limit/brute-force, TLS/wss.
+  - Testler: `test_close_with_sends_obs_close_codes` (lib) + auth çekirdeği (obs_protocol)
+    + 7 handshake/4007/4009 entegrasyon (ws_obs_protocol_test). Client-side auth
+    testte BAĞIMSIZ hesaplanır (sha2/base64 dev-dep).
 
 Sonraki aşamaları TASK dosyası/CONTEXT.md'den doğrula; bu skill'i her aşama
 tamamlandığında güncelle (tamamlanan requestType'ların listesini buraya ekle).
