@@ -12,6 +12,7 @@
   #btn-stop  { background: #CC3333; color: white; }
   #btn-cut   { background: #CC3333; color: white; }
   #btn-fade  { background: #3355CC; color: white; }
+  #btn-retry { background: #775500; color: white; }
   #status { margin-top: 16px; padding: 12px; background: #333; border-radius: 8px; font-size: 0.9em; }
   .connected { color: #4CAF50; }
   .disconnected { color: #f44336; }
@@ -26,26 +27,82 @@
 <br><br>
 <button id="btn-cut">CUT</button>
 <button id="btn-fade">FADE</button>
+<button id="btn-retry" style="display:none;">🔑 Parolayla Yeniden Bağlan</button>
 <div id="status">Bekleniyor...</div>
 <script>
+  // V8/I8: obs-websocket auth desteği. Parola AYARLIYSA sunucu Hello'da
+  // authentication (challenge+salt) gönderir; bu istemci minimal obs handshake'i
+  // (Identify + authentication) yapıp SONRA bugünkü legacy {cmd} protokolüyle
+  // devam eder. Parola yoksa doğrudan legacy — bugünkü davranış birebir korunur.
   const host = location.hostname;
   const port = location.port || 7070;  // sayfa gerçek porttan servis edilir
-  const ws = new WebSocket(`ws://${host}:${port}/ws`);
   const conn = document.getElementById('conn');
   const status = document.getElementById('status');
+  const btnRetry = document.getElementById('btn-retry');
 
-  ws.onopen = () => {
-    conn.textContent = '● Bağlı';
-    conn.className = 'connected';
-  };
-  ws.onclose = () => {
-    conn.textContent = '● Bağlantı yok';
-    conn.className = 'disconnected';
-  };
-  ws.onmessage = (e) => {
-    try {
-      const m = JSON.parse(e.data);
-      if (m.fps !== undefined) {
+  let ws = null;
+  let ready = false;   // komut gönderilebilir mi (auth tamam ya da gerekmiyor)
+
+  // SHA-256 → base64. crypto.subtle YALNIZ güvenli bağlamda (https/localhost)
+  // çalışır; Reji WS sunucusu 127.0.0.1'e bind olduğundan control.html localhost'tan
+  // servis edilir → sorun yok. (İleride 0.0.0.0 + düz http'ye açılırsa saf-JS
+  // sha256 gerekir — bkz. FABLE5_BUG_PLAN_V8 I8.)
+  async function sha256Base64(str) {
+    const data = new TextEncoder().encode(str);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    let bin = '';
+    for (const b of new Uint8Array(hash)) bin += String.fromCharCode(b);
+    return btoa(bin);
+  }
+  async function computeAuth(password, salt, challenge) {
+    const secret = await sha256Base64(password + salt);
+    return await sha256Base64(secret + challenge);
+  }
+
+  async function onHello(d) {
+    if (d && d.authentication) {
+      // Parola gerekli — kullanıcıdan iste, Identify + authentication gönder.
+      const pw = prompt('Reji Studio WebSocket parolası:') || '';
+      try {
+        const auth = await computeAuth(pw, d.authentication.salt, d.authentication.challenge);
+        ws.send(JSON.stringify({ op: 1, d: { rpcVersion: 1, authentication: auth } }));
+        status.textContent = 'Kimlik doğrulanıyor...';
+      } catch (err) {
+        status.textContent = '❌ Tarayıcı SHA-256 (crypto.subtle) kullanılamıyor — yalnız localhost (güvenli bağlam) desteklenir.';
+      }
+    } else {
+      // Parola yok → bugünkü davranış: doğrudan hazır (legacy {cmd}).
+      ready = true;
+      status.textContent = 'Hazır.';
+    }
+  }
+
+  function connect() {
+    ready = false;
+    btnRetry.style.display = 'none';
+    ws = new WebSocket(`ws://${host}:${port}/ws`);
+
+    ws.onopen = () => { conn.textContent = '● Bağlı'; conn.className = 'connected'; };
+    ws.onclose = (e) => {
+      conn.textContent = '● Bağlantı yok';
+      conn.className = 'disconnected';
+      ready = false;
+      // SESSİZ RECONNECT YOK — özellikle 4009'da sonsuz parola-prompt döngüsünü önle.
+      if (e.code === 4009) {
+        status.textContent = '❌ Parola yanlış. Tekrar denemek için butona basın.';
+        btnRetry.style.display = 'block';
+      } else if (e.code === 4007) {
+        status.textContent = '❌ Kimlik doğrulanmadı.';
+        btnRetry.style.display = 'block';
+      }
+    };
+    ws.onmessage = (e) => {
+      let m;
+      try { m = JSON.parse(e.data); } catch { status.textContent = e.data; return; }
+      if (m.op === 0) { onHello(m.d); return; }          // Hello
+      if (m.op === 2) { ready = true; status.textContent = 'Hazır (doğrulandı).'; return; }  // Identified
+      if (m.op !== undefined) return;                    // diğer obs mesajları yok sayılır
+      if (m.fps !== undefined) {                         // legacy metrik eventi (bugünkü)
         status.innerHTML = `
           📡 ${m.fps.toFixed(1)} fps |
           📶 ${m.kbps} kbps |
@@ -54,17 +111,21 @@
           🎮 GPU: ${m.gpu}%
         `;
       }
-    } catch {
-      status.textContent = e.data;
-    }
-  };
+    };
+  }
 
-  function send(cmd) { ws.send(JSON.stringify({cmd})); }
+  function send(cmd) {
+    if (!ready) { status.textContent = '⏳ Henüz hazır değil (kimlik doğrulama bekleniyor).'; return; }
+    ws.send(JSON.stringify({ cmd }));
+  }
 
+  btnRetry.onclick = () => connect();
   document.getElementById('btn-start').onclick = () => send('stream_start');
   document.getElementById('btn-stop').onclick  = () => send('stream_stop');
   document.getElementById('btn-cut').onclick   = () => send('scene_cut');
   document.getElementById('btn-fade').onclick  = () => send('scene_fade');
+
+  connect();
 </script>
 </body>
 </html>
