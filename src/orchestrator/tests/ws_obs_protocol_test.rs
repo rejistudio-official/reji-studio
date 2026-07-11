@@ -949,3 +949,57 @@ async fn auth_eksik_authentication_4009() {
     send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
     assert_eq!(next_close_code(&mut ws).await, Some(4009), "eksik authentication → 4009");
 }
+
+// ===== V8/I8: doğrulanmamış istek reddi (commit 4 — 4007) =====
+
+#[tokio::test]
+async fn auth_dogrulanmamis_request_4007() {
+    // Parola ayarlı, Identify YOK → obs Request → 4007.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    *state.password.write().unwrap() = Some("s3cret".to_string());
+    let port = free_port();
+    spawn_server(port, state);
+    let mut ws = connect(port).await;
+
+    let _hello = next_json(&mut ws).await;
+    send_request(&mut ws, "GetVersion", "x").await;
+    assert_eq!(next_close_code(&mut ws).await, Some(4007), "doğrulanmamış Request → 4007");
+}
+
+#[tokio::test]
+async fn auth_dogrulanmamis_legacy_cmd_4007_ve_yurutulmez() {
+    // I8'in GERÇEK açığı: parola ayarlı, Identify YOK → {cmd:stream_stop} → 4007
+    // VE komut yürütülmez (legacy baypas kapandı).
+    let (state, mut cmd_rx, _evt_tx) = make_state();
+    *state.password.write().unwrap() = Some("s3cret".to_string());
+    let port = free_port();
+    spawn_server(port, state);
+    let mut ws = connect(port).await;
+
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"cmd": "stream_stop"})).await;
+    assert_eq!(next_close_code(&mut ws).await, Some(4007), "doğrulanmamış legacy cmd → 4007");
+    assert!(cmd_rx.try_recv().is_err(), "reddedilen legacy cmd cmd_tx'e gitmemeli (yürütülmedi)");
+}
+
+#[tokio::test]
+async fn auth_dogrulanmis_sonra_request_calisir() {
+    // Doğru parola ile identified olduktan SONRA Request normal çalışır.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    *state.password.write().unwrap() = Some("s3cret".to_string());
+    let port = free_port();
+    spawn_server(port, state);
+    let mut ws = connect(port).await;
+
+    let hello = next_json(&mut ws).await;
+    let salt = hello["d"]["authentication"]["salt"].as_str().unwrap();
+    let challenge = hello["d"]["authentication"]["challenge"].as_str().unwrap();
+    let auth = client_auth("s3cret", salt, challenge);
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1, "authentication": auth}})).await;
+    assert_eq!(next_json(&mut ws).await["op"], 2, "identified");
+
+    send_request(&mut ws, "GetVersion", "ok").await;
+    let resp = next_json(&mut ws).await;
+    assert_eq!(resp["op"], 7);
+    assert_eq!(resp["d"]["requestStatus"]["code"], 100, "doğrulanmış oturumda Request çalışır");
+}

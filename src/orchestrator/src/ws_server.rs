@@ -401,9 +401,9 @@ fn handle_legacy_cmd(text: &str, state: &WsState) {
 /// açılıştaki parolaya göre doğrulanır.
 struct Session {
     identified: bool,
-    // commit 4'te okunacak (doğrulanmamış oturumdan Request/{cmd} → 4007). Şimdilik
-    // yalnız Identify başarısında yazılıyor.
-    #[allow(dead_code)]
+    /// Parola gereği karşılandı mı. Parola YOKken vacuously true (gating kapalı).
+    /// Parola ayarlıyken yalnız geçerli Identify+auth sonrası true; false iken
+    /// Identify DIŞI her mesaj 4007 ile reddedilir (aşağıdaki guard).
     authenticated: bool,
     auth: Option<PendingAuth>,
 }
@@ -426,6 +426,17 @@ async fn process_client_msg(
     state: &WsState,
     raw_text: Option<&str>,
 ) -> bool {
+    // V8/I8: Parola ayarlıyken (authenticated=false) doğrulanmamış oturumdan
+    // Identify DIŞI HER mesaj (obs Request VE legacy `{cmd}` VE diğer obs op'ları)
+    // 4007 ile reddedilir — I8'in asıl açığı legacy `{cmd}` yoluydu ve o da bu tek
+    // oturum-bayrağı kuralıyla kapanır. Parolasızken authenticated vacuously true →
+    // bu dal HİÇ girilmez, bugünkü davranış birebir korunur.
+    if !session.authenticated && !matches!(msg, ClientMsg::Identify { .. }) {
+        // Saldırı görünürlüğü (parola/içerik loglanmaz — yalnız ret gerçeği).
+        eprintln!("[WS] WARN: doğrulanmamış oturumdan Identify-dışı mesaj → 4007 ile reddedildi");
+        close_with(socket, obs_protocol::close_code::NOT_IDENTIFIED, "Not identified").await;
+        return false;
+    }
     match msg {
         ClientMsg::Identify { rpc, authentication } => {
             if session.identified {

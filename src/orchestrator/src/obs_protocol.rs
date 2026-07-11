@@ -35,8 +35,6 @@ pub(crate) mod op {
 /// için gereken alt küme. `pub(crate)`: iç protokol değerleri, FFI ABI'si değil.
 pub(crate) mod close_code {
     /// Doğrulanmamış oturumdan Identify dışı mesaj (Request veya legacy `{cmd}`).
-    /// Üretimde commit 4'te kullanılacak (4007 gate); şimdilik yalnız close-code testinde.
-    #[allow(dead_code)]
     pub(crate) const NOT_IDENTIFIED: u16 = 4007;
     /// Identify'daki `authentication` yanlış veya (parola gerekliyken) eksik.
     pub(crate) const AUTHENTICATION_FAILED: u16 = 4009;
