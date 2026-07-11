@@ -46,8 +46,8 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I6  | Opus        | is_copy_ready() shutdown ile ayni anda cagrilirsa olu device uzerinde vkWaitSemaphores **[DÜZELTILDI 10.07: alive_ atomic flag eklendi — SEH sadece AV yakalar, stale-ama-gecerli-gorunen handle sessiz UB kalirdi; flag handle'dan bagimsiz erken cikis]** | copy_optimizer.cpp | Kritik | Sprint 1 |
 | I7  | Fable       | WasapiCapture shutdown — callback UAF penceresi (Unregister sirasi yanlis) **[DOĞRULANDI 10.07: D16 (V3 Sprint 3) ile ZATEN ÇÖZÜLMÜŞ — yinelenen madde, kod degismedi. clear_owner-once stratejisi Unregister-once'tan FARKLI ama gecerli: tum callback'ler owner_'i atomic yukleyip null ise erken donuyor, Unregister'in bloklayici olmasina bagimli degil]** | wasapi_capture.cpp | Kritik | Sprint 1 |
 | I8  | Fable+Opus  | WS sunucusu auth'suz — drive-by stream kill saldiri vektoru **[DÜZELTILDI 11.07 — 7 commit b00116d..da843fd. Faz 0 keşfi: gerçek açık legacy `{cmd}` yolunda (obs handshake'ini baypas ediyor), control.html bir obs istemcisi DEĞİL. Eski "token+Origin" çözümü ÇÜRÜTÜLDÜ (Origin saldırgan sekme ile control.html'i ayırt edemez). Yerine oturum-düzeyi obs-websocket auth (challenge/salt/SHA256), legacy yol dahil tek bayrakla gate'li. Detay: aşağıdaki I8 bölümü + SESSION_NOTES 11.07]** | ws_server.rs, obs_protocol.rs, ffi.rs, settings_dialog.*, control.html | Yuksek | Sprint 2 |
-| I9  | Fable+Opus  | CoUninitialize() RPC_E_CHANGED_MODE'da kosulsuz cagriliyor (2 yerde) | command_router.cpp | Yuksek | Sprint 2 |
-| I10 | Fable+Opus  | SEH filtreleri EXCEPTION_ACCESS_VIOLATION/stack overflow yutuyor | command_router.cpp, wasapi_capture.cpp, +4 dosya | Yuksek | Sprint 2 |
+| I9  | Fable+Opus  | CoUninitialize() RPC_E_CHANGED_MODE'da kosulsuz cagriliyor **[DÜZELTILDI 11.07 — Faz 0: plan "2 yer" dedi ama ÜRETIMDE TEK konum (command_router); pipeline/srt/wasapi zaten guard'liydi. SUCCEEDED(hr) guard'i eklendi, RAII gerekmedi. commit cdb9dcb]** | command_router.cpp | Yuksek | Sprint 2 |
+| I10 | Fable+Opus  | SEH filtreleri EXCEPTION_ACCESS_VIOLATION/stack overflow yutuyor **[DÜZELTILDI 11.07 — 4 commit (9658f51 pass-through / 9cb35fe gorunurluk / 9d4fb22 eskalasyon valfi / 36036b9 test). Paylasimli seh_filter.{h,cpp}. Plan step-3 'CONTINUE_SEARCH' ÇÜRÜTÜLDÜ (self-healing oncusuyle celisir) → log+swallow+AV eskalasyon valfi. Detay: asagidaki I10 bolumu]** | command_router.cpp, wasapi_capture.cpp, +4 dosya | Yuksek | Sprint 2 |
 | I11 | Opus        | Cift consumer race — C++ action thread (100ms poll) + UI'nin kendi 200ms poll'u ayni kuyruğu yariyor **[DÜZELTILDI 11.07 — I33 serisinde iki-kuyruk mimarisiyle: aktüatör kuyruğu (rj_action_dequeue) + AYRI UI event kuyruğu (rj_action_event_dequeue). İki tüketici artık farklı kuyruklar; yarış yapısal olarak yok. commit af42cdb (mimari) + b20608f (UI yönlendirme)]** | command_router.cpp, main_window.cpp | Yuksek | Sprint 2 |
 | I12 | Fable       | MainWindow yikim sirasi — GL widget paintGL yaparken copy_optimizer_.shutdown() cagrilabiliyor **[DÜZELTILDI 10.07: ~MainWindow'da stopFrameThread sonrasi, shutdown oncesi preview_widget_->setCopyOptimizer(nullptr)+setBridge(nullptr) eklendi — paintGL GUI thread'inde, referans koparildiktan sonra torn-down optimizer'a cagri yok. run.log sever→Shutdown-complete sirasi dogrulandi]** | main_window.cpp | Yuksek | Sprint 2 |
 | I13 | Opus        | GL render tamamlanmamis Vulkan blit sonucunu orneklyebiliyor — ilk kare sira hatasi **[DOĞRULANDI 10.07: ZATEN GATE'LI — current_pool_idx_=last_used_slot() bir onceki submit'in slot'unu gosterir (execute_copy yeni slot'a yazar), render'dan once o slot'un GL sync semaphore'unda glWaitSemaphoreEXT ile GPU-tarafi bekleme (preview_widget.cpp:584-590). Kod degismedi]** | preview_widget.cpp | Yuksek | Sprint 2 |
@@ -707,6 +707,18 @@ olduğundan reddedildi — yerine standart obs-websocket auth kullanıldı (yuka
 
 ### I9 — CoUninitialize() RPC_E_CHANGED_MODE'da Kosulsuz Cagriliyor
 
+> **DÜZELTILDI 11.07 (commit cdb9dcb).** Faz 0 keşfi planın "2 yerde"
+> varsayımını düzeltti: `CoInitializeEx`/`CoUninitialize`'in 5 üretim çifti
+> var, ama YALNIZ command_router.cpp::action_thread_main() guard'sızdı.
+> pipeline.cpp (com_owned atomic), srt_output.cpp (ComGuard RAII),
+> wasapi_capture.cpp (2 yer, com_initialized_/t_co_ok) ZATEN doğru pattern'i
+> uyguluyordu. Düzeltme: `const bool com_ok = SUCCEEDED(hr); ... if (com_ok)
+> CoUninitialize();` — RPC_E_CHANGED_MODE FAILED olduğundan doğru şekilde
+> atlanır. Tek konum → RAII tipi gerekmedi (nokta-düzeltme). tools/dxgi_test.cpp
+> (tek-atımlık araç, hiç uninit yok = I9'un TERSİ deseni, süreç çıkışında OS
+> geri alır) bilinçli olarak dokunulmadı. Kod incelemesiyle doğrulandı (COM
+> ref-count OS-state gerektirir, birim test pratik değil); reji_app derlendi.
+
 **Kaynak:** Fable 5 (6.2) + Opus 4.8 (6.2) — ayni fonksiyon, ayni satir,
 bagimsiz bulundu.
 
@@ -733,6 +745,46 @@ if (com_ok) CoUninitialize();
 ---
 
 ### I10 — SEH Filtreleri Kritik Istisnalari Yutuyor
+
+> **DÜZELTILDI 11.07 (4 commit: 9658f51 / 9cb35fe / 9d4fb22 / 36036b9).**
+> Paylaşımlı `src/pipeline/seh_filter.{h,cpp}` — 21 leaf sitesi (Grup A: ciplak
+> EXECUTE_HANDLER; Grup B: wasapi/srt kopya filtreler) tek `rj::seh_filter`'a
+> taşındı.
+>
+> **PLAN SAPMASI (aşağıdaki "Cozum" step-3 ÇÜRÜTÜLDÜ — I2/I3/I8 deseni,
+> sessizce atlanmadı):** Plan, EXCEPTION_ACCESS_VIOLATION'ı da CONTINUE_SEARCH
+> ile yukarı iletmeyi (çökme) öneriyordu. Faz 0 bulgusu bunun projenin TÜM
+> tasarım öncülüyle (self-healing: sürücü/FFI hıçkırığında akışı düşürmeden
+> kurtarma) doğrudan çeliştiğini gösterdi. Bu SEH leaf'lerinin hepsi
+> sürücü/FFI sınırında; tek-seferlik bir AV çoğunlukla dış (sürücü) kaynaklı
+> geçici hatadır. Kullanıcı onayıyla plan burada geçersiz kılındı. Yerine
+> **3 katmanlı çözüm:**
+> 1. **Pass-through (I10-a):** STACK_OVERFLOW/BREAKPOINT/SINGLE_STEP artık
+>    yutulmaz (CONTINUE_SEARCH) — Grup A'da eksikti (stack overflow guard-page
+>    restore edilmeden yutuluyordu). Grup B zaten böyleydi, DRY için birleşti.
+> 2. **Görünürlük (I10-b):** Her yakalanan (yutulan) istisna ERROR seviyesinde
+>    SENKRON loglanır (site+code+adres). I10'un asıl şikayeti "teşhis
+>    imkânsızlığı" böyle çözülür — AV hâlâ yutulur ama artık görünür.
+> 3. **Eskalasyon valfi (I10-c):** Aynı sitede 60 sn içinde ≥3 AV = geçici
+>    değil, gerçek bozulma olasılığı → yutmayı bırak, FATAL log + `__fastfail`.
+>    Site-başı sayaç kilitsiz/tahsissiz (sabit atomik dizi + GetTickCount64) —
+>    bir AV filtresinde kilit/heap tehlikeli olduğundan bilinçli tercih.
+>
+> **Eskalasyon hedefi olarak recovery_coordinator/rj_connection_lost KULLANILMADI:**
+> ilki capture/encode referansı ister ve cihaz-kaybı (temiz HRESULT) semantiği
+> taşır; ikincisi reconnect tetikler (bellek bozulmasını iyileştirmez, fault→
+> reconnect→fault döngüsü riski). `__fastfail` OS-standart fail-fast primitifi,
+> yeni mekanizma değil.
+>
+> **Test:** seh_is_passthrough + seh_register_av saf karar mantığı header-only
+> gtest ile (sentetik now_ms) doğrulandı — 7/7 PASS. Gerçek AV/SO tetikleme
+> (CI'ı çökertir) kasıtlı atlandı. PipelineCharacterization PASS = davranış
+> korundu. Regresyon: bilinen 2 kırık dışında yeni kırık yok.
+>
+> **Davranış değişikliği (kullanıcıya görünür):** (a) tek AV artık loglanır
+> (önce sessizdi), akış düşmez; (b) same-site 60s'de 3 AV → deterministik
+> sonlanma (önce sessiz-bozuk-devam); (c) SO/BP/SS artık WER'e çöker (önce
+> Grup A'da yutuluyordu).
 
 **Kaynak:** Fable 5 (6.1) + Opus 4.8 (6.1) — Fable genel SEH leaves'e
 odaklanmis (command_router, output_subsystem, metrics_subsystem,

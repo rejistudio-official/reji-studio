@@ -1781,3 +1781,63 @@ aynı origin). Eski "token+Origin" tanımı reddedildi. Faz 0/1 onaydan geçti.
 - İkinci Identify → yoksay+log (4008 değil); parola ayarlıyken de 5s soft-timeout
   yalnız log. Kapsam dışı: rate-limit/brute-force (V8'e yeni madde), TLS/wss.
 - Açık: bind 0.0.0.0'a açılırsa control.html'e saf-JS sha256 gerekir (yorumda uyarı).
+
+## Oturum: 11 Temmuz 2026 — V8/I9 + I10 (COM yaşam döngüsü + SEH filtreleri)
+
+### Özet
+İki Windows-özel hata/kaynak yönetimi maddesi. **Faz 0 iki bulguyla kapsamı
+düzeltti:** (1) I9 planı "2 yer" dedi ama ÜRETIMDE TEK guard'sız konum var
+(command_router); pipeline/srt/wasapi zaten doğru pattern'deydi. (2) I10 planının
+step-3'ü (AV'yi CONTINUE_SEARCH ile çökert) projenin self-healing öncülüyle
+çelişti → kullanıcı onayıyla plan geçersiz kılındı (I2/I3/I8 deseni).
+
+### I9 (commit cdb9dcb)
+`command_router.cpp::action_thread_main()` CoUninitialize'i koşulsuz çağırıyordu;
+RPC_E_CHANGED_MODE'da apartment ref-count'u dengesizleşirdi. `const bool com_ok =
+SUCCEEDED(hr); if (com_ok) CoUninitialize();`. Tek konum → RAII gerekmedi.
+tools/dxgi_test.cpp (I9'un TERSİ deseni, süreç çıkışı geri alır) dokunulmadı.
+
+### I10 (4 commit — kullanıcı onaylı 3 katman)
+- `9658f51` **I10-a pass-through:** paylaşımlı `seh_filter.{h,cpp}`; 21 leaf
+  (Grup A çıplak EXECUTE_HANDLER + Grup B wasapi/srt kopya filtreler) tek
+  `rj::seh_filter`'a. SO/BP/SS artık CONTINUE_SEARCH (Grup A'da eksikti —
+  stack overflow guard-page restore edilmeden yutuluyordu). AV davranışı bu
+  commit'te değişmez.
+- `9cb35fe` **I10-b görünürlük:** yutulan her istisna ERROR seviyesinde SENKRON
+  loglanır (site+code+adres). copy_optimizer'ın ad-hoc SEH log'u da buna taşındı.
+- `9d4fb22` **I10-c eskalasyon valfi:** same-site 60s'de ≥3 AV → FATAL log +
+  `__fastfail`. Sayaç kilitsiz/tahsissiz (sabit atomik dizi + GetTickCount64) —
+  AV filtresinde kilit(deadlock)/heap(bozulma) tehlikeli olduğundan bilinçli.
+- `36036b9` **test:** seh_is_passthrough + seh_register_av saf mantık, header-only
+  gtest (sentetik now_ms) — 7/7 PASS, gerçek fault tetiklenmedi.
+
+### Kararlar (kullanıcı onaylı)
+- **Eskalasyon = tüm sitelerde __fastfail (Seçenek A).** Seçenek B (network/audio'da
+  önce rj_connection_lost) reddedildi: eşik zaten "geçici değil, bozulma" kararını
+  verdikten sonra reconnect denemek fault→reconnect→fault döngüsünü yeniden açar.
+- **Valf tüm leaf sitelerine uniform** (Grup A + B); pass-through zaten doğru olan
+  yerde tekrar yazılmadı.
+- **recovery_coordinator/rj_connection_lost eskalasyon hedefi DEĞİL:** ilki
+  capture/encode ref ister + cihaz-kaybı (temiz HRESULT) semantiği; ikincisi
+  reconnect tetikler (bozulmayı iyileştirmez). `__fastfail` OS-standart primitif.
+- **__fastfail öncesi log SENKRON** (fflush + OutputDebugStringA) — unwind yok,
+  satır çağrı anında gitmeli.
+
+### Doğrulama
+- reji_pipeline + reji_app derlendi/linklendi (her commit).
+- ctest: PipelineCharacterization PASS (baseline = davranış korundu),
+  OutputSubsystem/PipelineIntegration/GpuResourcePitch/**SehFilter** PASS.
+  **Bilinen 2 kırık** (FrameProfilerTest, ShaderCacheTest — FNV hash/profiler,
+  SEH/COM ile alakasız) dışında yeni kırık yok.
+- I9 kod incelemesiyle doğrulandı (COM ref-count OS-state ister, birim test
+  pratik değil).
+
+### Kullanıcıya görünen davranış değişiklikleri
+- Tek AV artık ERROR loglanır (önce sessizdi); akış düşmez (self-healing korunur).
+- Same-site 60s'de 3 AV → deterministik sonlanma (__fastfail) — önce sessiz-bozuk-devam.
+- SO/BP/SS artık WER'e çöker (önce Grup A'da yutuluyordu).
+
+### KULLANICIDA / atlanmış (gerekçeli)
+- Kasıtlı AV/stack-overflow tetikleyen entegrasyon testi atlandı (CI'ı çökertir);
+  riskli mantık saf seam testiyle kapsandı.
+- Eskalasyon __fastfail'in canlı süreçte gözlemi manuel doğrulanmadı (blocker değil).

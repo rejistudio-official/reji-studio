@@ -79,8 +79,8 @@ Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I
 | I6 | `is_copy_ready()` shutdown ile yarışı | ✅ Düzeltildi (`alive_` atomic flag) |
 | I7 | WasapiCapture shutdown UAF | ✅ Doğrulandı — daha eski bir V-planında (D16) zaten çözülmüştü, yinelenen madde |
 | I8 | WS auth yok (gerçek açık: legacy `{cmd}` yolu) | ✅ Düzeltildi (11.07, 7 commit b00116d..da843fd — oturum-düzeyi obs-websocket auth, legacy yol dahil; eski token+Origin çürütüldü). Tarayıcı davranış onayı kullanıcıda |
-| I9 | `CoUninitialize()` koşulsuz | ⏳ Açık |
-| I10 | SEH filtreleri AV/stack overflow yutuyor | ⏳ Açık |
+| I9 | `CoUninitialize()` koşulsuz | ✅ Düzeltildi (11.07, cdb9dcb — üretimde tek konum command_router; SUCCEEDED guard) |
+| I10 | SEH filtreleri AV/stack overflow yutuyor | ✅ Düzeltildi (11.07, 4 commit — paylaşımlı seh_filter.{h,cpp}: SO/BP/SS pass-through + AV görünürlük + eskalasyon valfi/__fastfail. Plan step-3 CONTINUE_SEARCH çürütüldü) |
 | I11 | Çift action-queue consumer race | ✅ Düzeltildi (11.07, I33 serisi — iki-kuyruk mimarisi: aktüatör + ayrı UI event kuyruğu) |
 | I12 | MainWindow yıkım sırası | ✅ Düzeltildi (referans koparma) |
 | I13 | İlk kare sıralaması | ✅ Doğrulandı — zaten doğru gate'li |

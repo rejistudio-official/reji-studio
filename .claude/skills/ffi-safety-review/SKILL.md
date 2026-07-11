@@ -46,6 +46,26 @@ CLAUDE.md'deki "DOKUNMA" uyarısı mutlak yasak değil; **bu prosedür dışınd
    garantidir; `noexcept` ihlali ise kesin `std::terminate`'e gider ve her
    implementörü exception'ı kendi içinde hata koduna çevirmeye zorlar (bkz.
    FABLE5_BUG_PLAN_V8.md I27).
+8. **SEH leaf'leri paylaşımlı `rj::seh_filter` kullanır (yerel kopya yasak).**
+   FFI/sürücü sınırındaki her `__try/__except` leaf'i `src/pipeline/include/
+   seh_filter.h` üzerinden gider (bkz. FABLE5_BUG_PLAN_V8.md I10). Sözleşme:
+   - **Pass-through:** `EXCEPTION_STACK_OVERFLOW`/`BREAKPOINT`/`SINGLE_STEP`
+     ASLA yutulmaz (`CONTINUE_SEARCH`) — stack overflow'da guard-page restore
+     edilmez, yutmak sonraki overflow'u kurtarılamaz AV yapar.
+   - **AV politikası (bilinçli plan sapması):** `EXCEPTION_ACCESS_VIOLATION`
+     yutulur (self-healing: sürücü hıçkırığında akış düşmesin) AMA (a) her AV
+     ERROR seviyesinde SENKRON loglanır (`seh_report`), (b) aynı sitede 60s'de
+     ≥3 AV → `__fastfail`. Plan'ın "AV'yi CONTINUE_SEARCH'e ekle" önerisi
+     self-healing öncülüyle çeliştiği için çürütüldü.
+   - **AV filtresinde kilit/heap YASAK.** Filter bir AV'den sonra olası bozuk
+     durumda çalışır; sayaç kilitsiz/tahsissiz sabit atomik dizidir
+     (RwLock/HashMap DEĞİL). Eskalasyon hedefi olarak recovery_coordinator/
+     rj_connection_lost kullanma (reconnect bozulmayı iyileştirmez; döngü riski).
+   - **Yeni leaf eklerken:** `SehSite` enum'una kimlik ekle, `site_name`
+     tablosunu senkron tut (static_assert yakalar), deseni kopyala:
+     `SehCapture cap{}; __try{...} __except(rj::seh_filter(GetExceptionInformation(),
+     rj::SehSite::X, &cap)){...} if(cap.fired) rj::seh_report(cap, rj::SehSite::X);`
+     — `seh_report` çağrısı `__try` DIŞINDA (C++ serbest).
 
 ## Yeni FFI fonksiyonu/tipi ekleme prosedürü
 
