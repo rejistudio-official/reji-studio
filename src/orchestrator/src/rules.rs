@@ -175,6 +175,11 @@ pub struct RuleEngine {
     last_file_mtime: Arc<Mutex<Option<std::time::SystemTime>>>,
     hysteresis_ms: Arc<Mutex<u64>>,
     last_trigger: Arc<Mutex<HashMap<String, Instant>>>,
+    /// V8/I33b: Kullanıcı bir aksiyonu CoPilot'ta reddettiğinde, üretici kuralın
+    /// ID'si → cooldown bitiş anı. Bu süre dolana dek kural yeniden tetiklenmez
+    /// (aksi halde ~1s tick'te yeniden üretilip kullanıcıyı spamler). Hysteresis
+    /// ile aynı mekanizma ailesindendir, ayrı harita ile izlenir.
+    cooldown_until: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl RuleEngine {
@@ -189,6 +194,7 @@ impl RuleEngine {
             last_file_mtime: Arc::new(Mutex::new(None)),
             hysteresis_ms: Arc::new(Mutex::new(0)),
             last_trigger: Arc::new(Mutex::new(HashMap::new())),
+            cooldown_until: Arc::new(Mutex::new(HashMap::new())),
         };
 
         engine.hot_reload()?;
@@ -274,6 +280,19 @@ impl RuleEngine {
                 continue;
             }
 
+            // V8/I33b: reject cooldown — kullanıcı bu kuralın aksiyonunu CoPilot'ta
+            // reddettiyse, süre dolana dek kuralı atla (hysteresis'ten bağımsız,
+            // genelde daha uzun pencere).
+            {
+                let cooldown = self.cooldown_until.lock().unwrap();
+                if let Some(&until) = cooldown.get(&rule.id) {
+                    if now < until {
+                        debug!(rule_id = %rule.id, "reject cooldown suppressed rule");
+                        continue;
+                    }
+                }
+            }
+
             // Hysteresis: aynı kural hysteresis_ms geçmeden tekrar tetiklenemez
             if hysteresis_ms > 0 {
                 if let Some(&last) = last_trigger.get(&rule.id) {
@@ -294,6 +313,18 @@ impl RuleEngine {
 
         let actions = resolve_conflicts(actions);
         Ok(actions)
+    }
+
+    /// V8/I33b: `rule_id`'li kurala `duration` boyunca cooldown uygular — bu süre
+    /// dolana dek `evaluate()` o kuralı tetiklemez. CoPilot'ta reddedilen
+    /// aksiyonun kuralı için `rj_action_reject`'ten çağrılır (aksi halde ~1s
+    /// tick'te yeniden üretilip kullanıcıyı spamler).
+    pub fn apply_cooldown(&self, rule_id: &str, duration: Duration) {
+        let until = Instant::now() + duration;
+        self.cooldown_until
+            .lock()
+            .unwrap()
+            .insert(rule_id.to_string(), until);
     }
 
     fn create_action(
@@ -416,6 +447,7 @@ impl RuleEngine {
             last_file_mtime: Arc::new(Mutex::new(None)),
             hysteresis_ms: Arc::new(Mutex::new(hysteresis_ms)),
             last_trigger: Arc::new(Mutex::new(HashMap::new())),
+            cooldown_until: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -473,6 +505,7 @@ mod tests {
             last_file_mtime: Arc::new(Mutex::new(None)),
             hysteresis_ms: Arc::new(Mutex::new(0)),
             last_trigger: Arc::new(Mutex::new(HashMap::new())),
+            cooldown_until: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let mut params = HashMap::new();
@@ -495,5 +528,36 @@ mod tests {
         assert_eq!(action.action_type, ActionType::BitrateReduce);
         assert_eq!(action.param1, 500);
         assert!(action.is_critical);
+    }
+
+    #[test]
+    fn test_reject_cooldown_suppresses_rule() {
+        // V8/I33b: apply_cooldown sonrası kural, cooldown süresince evaluate'te atlanır.
+        let mut params = HashMap::new();
+        params.insert("step_kbps".to_string(), serde_json::json!(500));
+        let rule = Rule {
+            id: "cd_rule".to_string(),
+            description: String::new(),
+            condition: "frame_drop_pct > 10".to_string(),
+            action: "bitrate_reduce".to_string(),
+            params,
+            modes: vec!["auto-pilot".to_string()],
+        };
+        // hysteresis 0 → tek bastırıcı cooldown olsun.
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut m = RuleMetrics::default();
+        m.frame_drop_pct = 12;
+
+        assert_eq!(
+            engine.evaluate(&m, "auto-pilot").unwrap().len(),
+            1,
+            "ilk değerlendirme aksiyon üretmeli"
+        );
+        engine.apply_cooldown("cd_rule", Duration::from_secs(60));
+        assert_eq!(
+            engine.evaluate(&m, "auto-pilot").unwrap().len(),
+            0,
+            "cooldown süresince kural bastırılmalı"
+        );
     }
 }

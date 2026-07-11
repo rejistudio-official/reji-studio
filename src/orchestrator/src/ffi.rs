@@ -142,7 +142,6 @@ impl RjActionEvent {
 /// yalnız bildirimdir (kaybolursa TTL/re-üretim telafi eder).
 struct PendingEntry {
     action: RjAction,
-    #[allow(dead_code)] // commit 5: reject cooldown'ında RuleEngine'e geçilecek
     rule_id: String,
     created: Instant,
 }
@@ -152,6 +151,13 @@ struct PendingEntry {
 /// tick koşul hâlâ varsa zaten yeniden üretir). Şimdilik sabit — kullanıcı
 /// gözlemine göre ayarlanabilir; konfigürasyon yüzeyine YAGNI gereği çıkarılmadı.
 const PENDING_TTL: Duration = Duration::from_secs(30);
+
+/// V8/I33b: Reddedilen aksiyonun kuralına uygulanan cooldown süresi. Bu süre
+/// boyunca kural yeniden tetiklenmez — aksi halde ~1s tick'te yeniden üretilip
+/// kullanıcıyı spamler. Hysteresis'ten (tipik <5s) belirgin uzun, healing'i
+/// büsbütün öldürmeyecek kadar kısa. Sabit — kullanıcı gözlemine göre
+/// ayarlanabilir; config yüzeyine YAGNI gereği çıkarılmadı.
+const REJECT_COOLDOWN: Duration = Duration::from_secs(120);
 
 struct FfiState {
     metric_ring:       Arc<ArrayQueue<MetricSample>>,
@@ -827,8 +833,14 @@ pub extern "C" fn rj_action_reject(action_id: u32) -> i32 {
         };
         let removed = state.pending_actions.lock().unwrap().remove(&action_id);
         match removed {
-            Some(_entry) => {
-                // commit 5: RuleEngine cooldown(_entry.rule_id, REJECT_COOLDOWN) burada.
+            Some(entry) => {
+                // V8/I33b: reddedilen aksiyonun kuralına cooldown uygula — bir
+                // sonraki tick yeniden üretilip kullanıcıyı spamlemesin.
+                if let Ok(guard) = state.rule_engine.lock() {
+                    if let Some(engine) = guard.as_ref() {
+                        engine.apply_cooldown(&entry.rule_id, REJECT_COOLDOWN);
+                    }
+                }
                 1
             }
             None => 0,
