@@ -1085,17 +1085,16 @@ pub extern "C" fn rj_push_scene_names(names: *const *const c_char, count: u32) {
             if ptr.is_null() {
                 continue;
             }
-            // SAFETY: ptr geçerli, NUL-sonlu C string (C++ QByteArray::constData).
-            let s = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
-            // char-sınırında güvenli kes: ham byte slice UTF-8 ortasında panik yapabilir.
-            let s = if s.len() > MAX_NAME_LEN {
-                let mut end = MAX_NAME_LEN;
-                while end > 0 && !s.is_char_boundary(end) {
-                    end -= 1;
-                }
-                s[..end].to_string()
-            } else {
-                s
+            // J1/I24: `CStr::from_ptr` NUL'a kadar SINIRSIZ tarar → bozuk/NUL'suz
+            // C++ girdisinde OOB read. `cstr_bounded` en fazla MAX_NAME_LEN byte
+            // tarar; NUL bulamazsa None döner (güvenli reddet). Eski kod önce
+            // sınırsız tarayıp sonucu kırpıyordu — kırpma taramayı sınırlamıyordu.
+            // from_utf8_lossy kullanıldığından char-sınırı paniği riski de yok.
+            // SAFETY: ptr geçerli C string bölgesinin başına işaret ediyor (C++
+            // QByteArray::constData); tarama MAX_NAME_LEN ile sınırlı.
+            let s = match unsafe { cstr_bounded(ptr, MAX_NAME_LEN) } {
+                Some(s) => s,
+                None => continue, // NUL 256 byte içinde yok → güvenli atla
             };
             result.push(s);
         }
@@ -1562,5 +1561,29 @@ mod tests {
         rj_start_monitor();
         rj_push_scene_names(std::ptr::null(), 0);
         rj_push_scene_names(std::ptr::null(), 5); // count > 0 ama null ptr → yine güvenli
+    }
+
+    #[test]
+    fn test_push_scene_names_bounds_scan_and_skips_unterminated() {
+        // J1/I24: geçerli NUL-sonlu isim saklanır; NUL'u MAX_NAME_LEN (256) byte
+        // içinde olmayan bozuk isim SINIRSIZ taranmadan güvenle atlanır.
+        rj_start_monitor();
+        let state = FFI_STATE.get().expect("FFI_STATE init");
+
+        let good = std::ffi::CString::new("Sahne A").unwrap();
+        // 300 byte, NUL yok → cstr_bounded 256'da None döner → atlanır (OOB read yok:
+        // tampon 300 byte, tarama 256 ile sınırlı).
+        let no_nul = vec![b'x'; 300];
+        let ptrs: [*const c_char; 2] =
+            [good.as_ptr(), no_nul.as_ptr() as *const c_char];
+
+        rj_push_scene_names(ptrs.as_ptr(), 2);
+
+        let guard = state._ws_state.scene_names.lock().unwrap();
+        assert_eq!(
+            *guard,
+            vec!["Sahne A".to_string()],
+            "geçerli isim saklanmalı, NUL'suz (>256 byte) isim güvenle atlanmalı"
+        );
     }
 }
