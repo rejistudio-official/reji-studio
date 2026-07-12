@@ -10,7 +10,7 @@ export fn rj_ffi_version() u32 {
     return 0x0001_0000; // v1.0.0 — ffi_bridge.h RJ_FFI_VERSION ile eşleşmeli
 }
 
-export fn rj_metrics_poll(out: ?*anyopaque) i32 {
-    _ = out;
-    return 0; // stub — Rust implementasyonu override eder
-}
+// V8/I14: rj_metrics_poll stub'ı kaldırıldı. Gerçek implementasyon artık
+// Rust orchestrator'da (src/orchestrator/src/ffi.rs) — MetricState'ten pull.
+// Burada bir stub bırakmak, aynı sembolü iki statik kütüphanede tanımlayıp
+// linkte duplicate-symbol (LNK2005) üretirdi.
