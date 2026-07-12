@@ -1,3 +1,38 @@
+## Oturum: 12 Temmuz 2026 — V8 Sprint 3-4 Grup B (Girdi/Ortam Sertleştirme)
+
+Faz 0 ön-triyajı (Grup A oturumunda) onaylıydı; bu oturumda Faz 1 yaklaşımı 3 karar
+noktasıyla onaya sunuldu → üçü de önerilen seçenek onaylandı. **Grup B tamamlandı**
+(I21 + I24):
+
+- **I21 — Hardcoded `C:\reji-studio\` yolları (3 dosya) + kontrolsüz `freopen`:**
+  Üç konum da LOG dosyası (run.log, ws_debug.log ×2) → taşınacak veri yok, migration
+  gerekmedi. Yeni `orchestrator/src/paths.rs` (`log_dir()`/`log_path()`, `LOCALAPPDATA`
+  env + best-effort `create_dir_all`). `ws_server::log_to_file` bunu kullanır (pub(crate));
+  `ffi.rs` inline kopyası `log_to_file` çağrısına indirgendi (DRY). C++ `main.cpp`:
+  `resolve_run_log_path()` (`GetEnvironmentVariableA`+`CreateDirectoryA`, Rust ile
+  tutarlı, ekstra link yok) + `freopen` dönüşü kontrol ediliyor (nullptr → sessiz devam +
+  `OutputDebugStringA` uyarı; log alt sistemi henüz yok → sert-fail yok). Karar: hedef
+  `%LOCALAPPDATA%\reji-studio\`, migration yok, freopen sessiz-devam.
+- **I24 — `CStr::from_ptr` sınırsız okuma (OOB risk):** Teknik kök: `from_ptr` NUL'a
+  kadar SINIRSIZ tarar → sonucu kırpmak taramayı sınırlamaz. `ffi.rs`'e `cstr_bounded(ptr,
+  max)` (strnlen semantiği, byte-byte ≤max, NUL yoksa `None`/panik yok). Kullanım:
+  `rj_connection_lost` (reason 4096), `rj_reload_rules` (path 32K, aşırı uzun→reload=0),
+  tutarlılık için `rj_set_ws_password` (parola 4096). **Dizin-kısıtı EKLENMEDİ:**
+  find-references → `rj_reload_rules`'ın üretimde çağrısı YOK, kısıt spekülatif olurdu
+  (talimat kararı I24-b, gerekçe raporlandı). `rj_push_scene_names` zaten kırpıyordu
+  (kapsam dışı).
+
+**Doğrulama:** Rust lib 67 PASS (59 → +8: 6 `cstr_bounded` + 2 `paths`); release
+orchestrator derlendi (yeni uyarı yok — `constants` uyarısı test-only, önceden var);
+reji_app derlendi+linklendi; ctest 6/8 (PipelineCharacterization + SehFilterTest dahil),
+yalnız bilinen 2 kırık (FrameProfiler/ShaderCache). C4996 (`freopen` deprecation) önceden
+vardı. Hepsi kod incelemesi + build/test ile doğrulandı; `cstr_bounded` sınırları sentetik
+girdiyle test edildi (gerçek sınırsız buffer riskli → yapılmadı). GUI runtime davranış
+(log dosyasının yeni konumda oluşması) kullanıcı onayında.
+
+**Sırada:** Grup D (I15 metrics_push hot-path alloc→drainer + I18 wasapi katman ihlali).
+I23 (b) → ayrı GPU-interop talimatı.
+
 ## Oturum: 12 Temmuz 2026 — V8 Sprint 3-4 Grup A (Trivial Temizlik)
 
 Faz 0 ön-triyaj (11 madde I15-I18/I21-I26/I34): 9× (a), I23 → (b) ayrı talimat,

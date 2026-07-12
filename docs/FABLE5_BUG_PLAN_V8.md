@@ -58,10 +58,10 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I18 | Opus        | wasapi_capture.cpp FFI'yi dogrudan cagiriyor — subsystem/orchestrator katmanini atliyor | wasapi_capture.cpp | Orta | Sprint 3 |
 | I19 | Fable       | HEALING_MODE semantigi 4 katmanda (ffi.rs/healing.rs/ffi_bridge.h/UI) birbirinden farkli | healing.rs, ffi_bridge.h | Orta | Sprint 3 |
 | I20 | Fable       | evaluate_adaptive() constructor-frozen self.mode okuyor, atomic'i degil — Assist modu hep AutoPilot gibi davraniyor | healing.rs | Orta | Sprint 3 |
-| I21 | Fable+Opus  | Hardcoded C:\reji-studio\ yollari (3 dosyada) + freopen(stderr) kontrolsuz | ffi.rs, ws_server.rs, main.cpp | Dusuk | Sprint 4 |
+| I21 | Fable+Opus  | Hardcoded C:\reji-studio\ yollari (3 dosyada) + freopen(stderr) kontrolsuz **[DÜZELTILDI]** | ffi.rs, ws_server.rs, main.cpp | Dusuk | Sprint 4 |
 | I22 | Fable+Opus  | ABI yorum satirlari bayat (56B/+51 vs gercek 64B/+55) | ffi_auto.h, ffi_bridge.h | Dusuk | Sprint 4 |
 | I23 | Fable+Opus  | Bridge/optimizer slot sayaclari birbirinden bagimsiz — drift riski | external_memory_bridge.cpp, copy_optimizer.cpp | Dusuk | Sprint 4 |
-| I24 | Opus        | rj_reload_rules/rj_connection_lost CStr::from_ptr sinirsiz — OOB read riski | ffi.rs | Dusuk | Sprint 4 |
+| I24 | Opus        | rj_reload_rules/rj_connection_lost CStr::from_ptr sinirsiz — OOB read riski **[DÜZELTILDI]** | ffi.rs | Dusuk | Sprint 4 |
 | I25 | Fable       | zig_win32_compat.c stack guard fallback sabit deger (tahmin edilebilir canary) | zig_win32_compat.c | Dusuk | Sprint 4 |
 | I26 | Opus        | add(u64,u64) demo fonksiyonu + it_works testi production crate'te birakilmis | lib.rs | Dusuk | Sprint 4 |
 | I27 | Fable+Opus  | ITransport::send/shutdown SEH virtual-call riski — noexcept ile saglamlastirilmali (yapisal garanti, elle test degil) **[DÜZELTILDI]** | i_transport.h, srt_transport.cpp, rtmp_transport.cpp | Dusuk | Sprint 4 |
@@ -1164,6 +1164,17 @@ bolgesi, ayni test kapsamı).
 
 ### I21 — Hardcoded C:\reji-studio\ Yollari + Kontrolsuz freopen
 
+**[✅ ÇÖZÜLDÜ — 12.07, Grup B]** 3 hardcoded log yolu `%LOCALAPPDATA%\reji-studio\`
+altına taşındı. Rust: yeni `paths.rs` modülü (`log_dir()`/`log_path()`,
+`LOCALAPPDATA` env var + best-effort `create_dir_all`); `ws_server::log_to_file`
+bunu kullanır (pub(crate)), `ffi.rs`'teki inline kopya `log_to_file` çağrısına
+indirgendi (DRY). C++: `main.cpp` `resolve_run_log_path()` (`GetEnvironmentVariableA`
++ `CreateDirectoryA`, Rust ile tutarlı, ekstra link yok) + `freopen` dönüşü artık
+kontrol ediliyor (nullptr → sessiz devam + `OutputDebugStringA` uyarı; log alt
+sistemi henüz yok, sert-fail yok). Log dosyaları olduğundan eski yoldan migration
+gerekmedi. 2 birim test (paths). Kullanıcıya görünen tek değişiklik: loglar artık
+kullanıcı-yerel dizinde.
+
 **Kaynak:** Fable 5 (5.1) + Opus 4.8 (5.1, 6.6) — cift dogrulanmis.
 
 **Sorun:** `ffi.rs`, `ws_server.rs::log_to_file`, `main.cpp`'te
@@ -1209,11 +1220,21 @@ kullansin.
 
 ### I24 — rj_reload_rules/rj_connection_lost Sinirsiz CStr Okuma
 
+**[✅ ÇÖZÜLDÜ — 12.07, Grup B]** `ffi.rs`'e `cstr_bounded(ptr, max_len)` yardımcısı
+eklendi: `CStr::from_ptr`'ın NUL'a kadar SINIRSIZ taramasının aksine en fazla
+`max_len` byte tarar (strnlen semantiği), NUL bulunamazsa `None` (güvenli reddet,
+panik yok). `rj_connection_lost` (reason, `MAX_FFI_STR_LEN=4096`), `rj_reload_rules`
+(path, `MAX_FFI_PATH_LEN=32K`, aşırı uzun→reload=0) ve tutarlılık için
+`rj_set_ws_password` (parola, 4096) bunu kullanır. **Dizin-kısıtı EKLENMEDİ:**
+find-references ile `rj_reload_rules`'ın üretimde C++ çağrısı OLMADIĞI doğrulandı
+(yalnız doküman/faz referansları, "manuel/gelecek file-watcher") → sabit-dizin
+kısıtı spekülatif olur ve ileride farklı rules dosyası seçimini engellerdi
+(talimat: "varsayımı doğrulamadan kısıtlama ekleme"). 6 birim test (null/normal/
+boş/sınır-aşımı/tam-sınır/geçersiz-UTF8). NOT: `rj_push_scene_names` zaten
+sonuç-kırpma yapıyordu (kapsam dışı, dokunulmadı).
+
 **Kaynak:** Opus 4.8 (6.3) — tek kaynak, dusuk risk (bugun trusted caller)
 ama gelecekte WS'e baglanirsa yukselir.
-
-**Cozum:** Sabit izin verilen yol altina sinirla (`~/.reji/rules.json`),
-caller-supplied path'i yok say; uzunluk sinirli varyant ekle.
 
 ---
 
