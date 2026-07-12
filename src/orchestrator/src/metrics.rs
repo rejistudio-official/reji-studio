@@ -67,6 +67,7 @@ pub struct MetricState {
     pub fps_actual:         AtomicU32,  // f32 * 100 olarak saklanır
     pub cpu_percent:        AtomicU32,  // f32 * 100 olarak saklanır
     pub frame_drops:        AtomicU64,  // toplam kare kaybı
+    pub frame_drop_pct:     AtomicU32,  // V8/I14: anlık kare-kayıp yüzdesi [0,100] (kümülatif DEĞİL)
 }
 
 impl MetricState {
@@ -77,6 +78,7 @@ impl MetricState {
             fps_actual:         AtomicU32::new(0),
             cpu_percent:        AtomicU32::new(0),
             frame_drops:        AtomicU64::new(0),
+            frame_drop_pct:     AtomicU32::new(0),
         })
     }
 
@@ -91,6 +93,8 @@ impl MetricState {
             // else: önceki değeri koru
             self.cpu_percent.store((sample.cpu_percent * 100.0) as u32, Ordering::Relaxed);
             self.frame_drops.fetch_add(sample.frame_drops as u64, Ordering::Relaxed);
+            // V8/I14: frame_drop_pct anlık (kümülatif değil) → store, min(100) ile sınırla.
+            self.frame_drop_pct.store(sample.frame_drop_pct.min(100), Ordering::Relaxed);
         } else if sample.source_id == 1 {
             self.audio_bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
         }
@@ -120,6 +124,37 @@ impl MetricState {
     pub fn frame_drops(&self) -> u64 {
         self.frame_drops.load(Ordering::Relaxed)
     }
+
+    /// Anlık kare-kayıp yüzdesi [0,100] (V8/I14)
+    pub fn frame_drop_pct(&self) -> u32 {
+        self.frame_drop_pct.load(Ordering::Relaxed)
+    }
+
+    /// V8/I14: UI pull'u (`rj_metrics_poll`) için anlık snapshot.
+    /// Push'un yazdığı AYNI atomik state'ten okunur — ikinci bir metrik toplama
+    /// yolu icat edilmez. source_id=0 (video); UI yalnız fps/bitrate/drop_pct
+    /// gösterir. MetricState'te tutulmayan alanlar (gpu/temp/network/mem) 0'dır.
+    /// Canary alanları geçerli set edilir (C++ tarafı doğrulayabilsin).
+    pub fn snapshot(&self) -> MetricSample {
+        MetricSample {
+            magic_head:       MetricSample::MAGIC,
+            timestamp_us:     0,
+            bitrate_kbps:     self.bitrate(),
+            fps_actual:       self.fps(),
+            cpu_percent:      self.cpu(),
+            frame_drops:      self.frame_drops().min(u32::MAX as u64) as u32,
+            frame_drop_pct:   self.frame_drop_pct(),
+            gpu_temp_c:       0,
+            cpu_temp_c:       0,
+            memory_usage_pct: 0,
+            cpu_load_pct:     self.cpu() as u32,
+            gpu_load_pct:     0,
+            network_rtt_ms:   0,
+            network_loss_pct: 0,
+            source_id:        0,
+            magic_tail:       MetricSample::MAGIC,
+        }
+    }
 }
 
 impl Default for MetricState {
@@ -130,6 +165,7 @@ impl Default for MetricState {
             fps_actual:         AtomicU32::new(0),
             cpu_percent:        AtomicU32::new(0),
             frame_drops:        AtomicU64::new(0),
+            frame_drop_pct:     AtomicU32::new(0),
         }
     }
 }
@@ -221,6 +257,66 @@ mod tests {
         sample.fps_actual = 240.0;
         state.update(&sample);
         assert!((state.fps() - 240.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_frame_drop_pct_stored_and_clamped() {
+        // V8/I14: frame_drop_pct anlık değer — store edilir (kümülatif değil), [0,100] sınırlanır.
+        let state = MetricState::new();
+        assert_eq!(state.frame_drop_pct(), 0);
+
+        let mut sample = valid_sample();
+        sample.frame_drop_pct = 12;
+        state.update(&sample);
+        assert_eq!(state.frame_drop_pct(), 12);
+
+        // Yeni sample eski değeri EZER (kümülatif toplamaz).
+        sample.frame_drop_pct = 5;
+        state.update(&sample);
+        assert_eq!(state.frame_drop_pct(), 5);
+
+        // Sınır dışı → 100'e clamp.
+        sample.frame_drop_pct = 250;
+        state.update(&sample);
+        assert_eq!(state.frame_drop_pct(), 100);
+
+        // Audio sample (source_id=1) video drop_pct'yi DEĞİŞTİRMEZ.
+        let mut audio = valid_sample();
+        audio.source_id = 1;
+        audio.frame_drop_pct = 99;
+        state.update(&audio);
+        assert_eq!(state.frame_drop_pct(), 100);
+    }
+
+    #[test]
+    fn test_snapshot_reflects_pushed_state() {
+        // V8/I14: snapshot(), update()'in yazdığı AYNI state'i yansıtmalı (pull==push kaynağı).
+        let state = MetricState::new();
+        let mut sample = valid_sample();
+        sample.bitrate_kbps = 6000;
+        sample.fps_actual   = 59.94;
+        sample.cpu_percent  = 41.5;
+        sample.frame_drop_pct = 7;
+        state.update(&sample);
+
+        let snap = state.snapshot();
+        assert!(snap.is_valid(), "snapshot canary geçerli olmalı");
+        assert_eq!(snap.source_id, 0, "snapshot video örneği (source_id=0) olmalı");
+        assert_eq!(snap.bitrate_kbps, 6000);
+        assert!((snap.fps_actual - 59.94).abs() < 0.01);
+        assert!((snap.cpu_percent - 41.5).abs() < 0.01);
+        assert_eq!(snap.frame_drop_pct, 7);
+    }
+
+    #[test]
+    fn test_snapshot_empty_state_is_valid_zeros() {
+        // Hiç push yokken snapshot geçerli-ama-sıfır olmalı (poll erken UI için güvenli).
+        let state = MetricState::new();
+        let snap = state.snapshot();
+        assert!(snap.is_valid());
+        assert_eq!(snap.bitrate_kbps, 0);
+        assert_eq!(snap.frame_drop_pct, 0);
+        assert!((snap.fps_actual - 0.0).abs() < 0.01);
     }
 
     #[test]
