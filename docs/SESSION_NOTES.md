@@ -1,3 +1,120 @@
+## Oturum: 12 Temmuz 2026 — V9 Sprint 1 (J1-J4)
+
+### J3 — Cross-adapter `transfer()` senkronsuz yol → fail-closed ✅ (5f9d3ed)
+
+**Sınıf:** V9'un ilk maddesi; statik-tarama kökenli plan, ilk kez doğrulanıyor.
+
+**Faz 0 (üç doğrulama, hepsi V9'u teyit etti):**
+1. `GpuResourceManager::transfer()` üç dallı — `use_cpu_fallback_` (CPU staging,
+   I2/I3 yolu) / `same_adapter_` (düz CopyResource) / cross-adapter fall-through.
+   Cross-adapter dalı I2/I3 CPU-fallback yolundan **gerçekten farklı üçüncü yol**
+   (`shared_tex_display_` + senkronsuz CopyResource+Flush → `encode_tex_`).
+2. Dal mevcut dual-GPU HW'de **ölü**: `create_cross_adapter_shared()` E_INVALIDARG
+   (AMD/NVIDIA cross-vendor NT-handle desteklenmiyor) → `init()` `use_cpu_fallback_=true`
+   → `transfer()` ilk daldan döner. Tek çağıran `capture_dxgi.cpp:366`, null'ı ele alıyor.
+   **Aktif bug değil, latent tehlike** (paylaşımın desteklendiği topolojide senkronsuz
+   → yarış/bozuk kare).
+3. Kod yorumu senkron eksikliğini itiraf ediyor ("SENKRONİZASYON İÇERMİYOR").
+
+**Karar (kullanıcı onaylı):** Silme yerine **fail-closed** (`return nullptr`). Gerekçe:
+`ROADMAP.md:309` E7 (cross-adapter NVENC, keyed mutex + fence) gelecek planı var →
+scaffold (`create_cross_adapter_shared`/`shared_tex_display_`) korunur, senkronsuz
+kopya yerine null döner. WARNING log korundu.
+
+**Doğrulama:** reji_app Release derlendi+linklendi (yeni uyarı yok). ctest 7/9 PASS —
+PipelineCharacterization (davranış korundu) + GpuResourcePitchTest PASS, bilinen 2 kırık
+(FrameProfiler/ShaderCache) alakasız. Değişiklik yalın: kod incelemesi + build/test
+yeterli, runtime davranış ölçümü gerekmedi (dal zaten ölü). **Push: 5f9d3ed → origin.**
+
+### J1 — `rj_push_scene_names` sınırsız `CStr::from_ptr` → cstr_bounded ✅ (7dc6c5a)
+
+**Sınıf:** V8 kör noktası (I24). Statik-tarama planı, ilk doğrulama.
+
+**Faz 0:**
+1. `ffi.rs:1089` `CStr::from_ptr(ptr).to_string_lossy()` — NUL'a kadar SINIRSIZ tarar;
+   sonuç `MAX_NAME_LEN=256`'ya *sonradan* kırpılıyordu → kırpma taramayı sınırlamaz →
+   bozuk/NUL'suz C++ girdisinde OOB read.
+2. **Bayat değil:** git blame → satır 3a93110'da (Faz1 Aşama 4) geldi, I24 (sonraki)
+   dokunmadı. I24'te `rj_push_scene_names` "zaten kırpıyor" gerekçesiyle kapsam dışı
+   bırakılmıştı — ama o kırpma sonradan olduğundan taramayı bağlamıyordu. Tam V8 kör
+   noktası.
+3. `cstr_bounded` (I24, ffi.rs:46) strnlen semantiği: ≤max_len byte tarar, NUL yoksa
+   None. Char-sınırı paniği yok (from_utf8_lossy).
+
+**Düzeltme (kullanıcı onaylı):** `cstr_bounded(ptr, MAX_NAME_LEN)` + None→`continue`.
+Manuel char-sınırı kırpma bloğu kaldırıldı. **Davranış farkı (dürüst):** NUL'u 256 byte
+ötesinde olan isim eskiden kırpılıp saklanırdı, artık reddedilip atlanır — I24'ün diğer
+siteleriyle tutarlı, 256B sahne adı meşru değil.
+
+**Doğrulama:** yeni test `test_push_scene_names_bounds_scan_and_skips_unterminated`
+(geçerli isim saklanır, NUL'suz 300B tampon atlanır). Rust lib 68 test PASS (67→68).
+Release build temiz. FFI imzası değişmedi → C++ relink gerekmedi. **Push: 7dc6c5a → origin.**
+
+### J4 — `get_frame_images` static slot → per-instance `pool_index_` ✅ (f23103a)
+
+**Sınıf:** I23'ün bilinçli ertelediği karar, üç bağımsız kaynak yeniden gündeme getirdi.
+
+**Faz 0:**
+1. `external_memory_bridge.cpp:41` `static uint32_t slot` — I23 bunu bilinçli korudu
+   (yalnız out_slot ile expose etti). Static olma durumu değişmemişti.
+2. find-references: **tek** ExternalMemoryBridge örneği (gpu_interop_subsystem.cpp:16,
+   unique_ptr) + **tek çağıran thread** (pipeline.cpp:626 capture/render döngüsü).
+3. **Aktif bug DEĞİL** — tek instance/thread ile static sorunsuz çalışıyor. Risk =
+   2. örnek/thread eklenirse process-global paylaşım (latent fragility, kod kokusu).
+4. Bonus: `pool_index_` member (h:132, "Round-robin index") **ölü/kullanılmıyordu** —
+   tam bu amaç için adlandırılmış temiz hedef.
+
+**Düzeltme (kullanıcı onaylı, I23 kararı tersine):** `static slot` → `pool_index_`
+member. Per-instance sayaç; tek-instance davranışı birebir aynı (0'dan başlar, aynı
+next_pool_slot). I23'ün kararı yanlış değildi — o zaman kapsamı doğru sınırladı; üç
+kaynağın yakınsaması yeniden değerlendirmeyi haklı çıkardı.
+
+**Doğrulama:** reji_app derlendi+linklendi (yeni uyarı yok). ctest SlotRingTest +
+PipelineCharacterization PASS, bilinen 2 kırık alakasız. Kod incelemesi + build/test;
+slot mantığı değişmediğinden runtime davranış ölçümü gerekmedi. **Push: f23103a → origin.**
+
+### J2 — SRT output'a I18 FFI-sink deseni ✅ (65aeb13)
+
+**Sınıf:** V8 takibi (I18). Opus 5.5 — **1/3, en zayıf konsensüs**, aktif bug değil.
+
+**Faz 0:**
+1. I18 deseni: sink typedef (ConnectionLostCallback/MetricsCallback) → init enjeksiyonu
+   (non-null) → AudioSubsystem passthrough (::rj_* çağırır). (wasapi_capture.h, audio_subsystem.cpp)
+2. SRT hâlâ doğrudan: rj_start_monitor (288), rj_connection_lost (302), rj_metrics_push (425).
+3. Sahiplik: Pipeline → OutputSubsystem → ITransport::create → SrtTransport → SrtOutput → Impl.
+   AudioSubsystem karşılığı = **OutputSubsystem**, ama soyut ITransport ile konuşuyor (FFI 3 katman altta).
+4. rj_connection_lost self-healing/recovery zincirine bağlı (recovery_coordinator eş-üretici)
+   → **davranış birebir korunmalı**.
+
+**Kritik değerlendirme (dürüst):** Bulgu meşru (SRT app-FFI'ya bağlı, I18 kokusu) AMA aktif
+bug yok, 1/3 konsensüs. Mimari uyum ÇÖZÜLDÜ: ITransport::Config zaten SRT-özel alanlar
+(latency_ms/bandwidth_kbps) taşıyor "RTMP yok sayar" deseniyle → sink eklemek yeni kirlilik değil.
+
+**Düzeltme (kullanıcı onaylı, kapsam: iki event sink):** on_connection_lost + on_metrics
+ITransport::Config'e; OutputSubsystem passthrough enjekte eder; SrtTransport → SrtOutput::Config
+→ Impl sink çağırır. SRT init non-null ister. **rj_start_monitor doğrudan bırakıldı** (lifecycle
+bootstrap, event değil). RtmpTransport/stub etkilenmez.
+
+**Doğrulama:** reji_app derlendi+linklendi (yeni uyarı yok). ctest OutputSubsystemTest +
+PipelineCharacterization PASS, bilinen 2 kırık alakasız. Davranışsal eşdeğerlik I18'deki gibi
+**kod incelemesiyle** — passthrough sadece ::rj_* çağırır (byte-birebir, tek fark fn-pointer
+indirection); ağ/cihaz-kaybı runtime simülasyonu YAPILMADI (SRT bağlantısı gerektirir), dürüstçe
+not. **Push onay bekliyor.**
+
+---
+
+## V9 Sprint 1 KAPANIŞ (J1-J4)
+
+Dört madde de kapandı. **J3** (fail-closed, 3/3 critical, aktif olmayan-latent) + **J1**
+(cstr_bounded, V8 kör noktası I24, gerçek OOB açığı) + **J4** (per-instance pool_index_, 3/3,
+latent fragility) + **J2** (I18 FFI-sink mirror, 1/3, aktif bug değil). Faz 0 disiplini V9'un
+statik-tarama kökenini doğruladı: hiçbir madde hayalet çıkmadı (V8'deki I29/I31 gibi), ama J3/J4
+"aktif bug değil"/latent, J1 gerçek açık, J2 tutarlılık refaktörü olarak dürüstçe sınıflandırıldı.
+Push: J1/J3/J4 origin'de; J2 onay bekliyor. Docs: FABLE5_BUG_PLAN_V9.md güncellendi, talimat
+docs/talimatlar/'a arşivlenecek.
+
+---
+
 ## Oturum: 12 Temmuz 2026 — I23 execute_copy Slot Senkronu (V8'in SON açık maddesi)
 
 **Sınıf:** (c) yeniden çerçeveleme. Ayrı tur (TALIMAT_I23). Kapandığında V8 planı
