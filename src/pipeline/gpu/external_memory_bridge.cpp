@@ -38,13 +38,18 @@ VkImage ExternalMemoryBridge::get_pooled_image(uint32_t frame_idx) {
 bool ExternalMemoryBridge::get_frame_images(
     ID3D11Texture2D* tex,
     VkImage* staging, VkImage* target, uint32_t* out_slot) {
-    static uint32_t slot = 0;
-    bool ok = ext_bridge_get_frame_images(tex, slot, staging, target);
+    // J4: round-robin slot artık fonksiyon-yerel static değil, per-instance
+    // pool_index_ member'ı. I23 static'i bilinçli korumuştu (kapsamı şişirmemek);
+    // üç bağımsız inceleme aynı noktayı işaret edince yeniden değerlendirildi.
+    // Tek instance/tek çağıran thread olduğundan davranış birebir aynı (0'dan
+    // başlar, aynı next_pool_slot ilerlemesi), ama process-global paylaşım
+    // kırılganlığı ortadan kalkar (ikinci bir bridge örneği kendi sayacını tutar).
+    bool ok = ext_bridge_get_frame_images(tex, pool_index_, staging, target);
     if (ok) {
         // I23: bu frame'i üreten slot'u raporla — çağıran (cache→widget→execute_copy)
         // aynı index'i kullanarak bridge image kimliğiyle hizalanır.
-        if (out_slot) *out_slot = slot;
-        slot = next_pool_slot(slot);
+        if (out_slot) *out_slot = pool_index_;
+        pool_index_ = next_pool_slot(pool_index_);
     }
     return ok;
 }
