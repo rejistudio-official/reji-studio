@@ -154,6 +154,14 @@ yüklemesi bu PBO yolunu kullanır.
   Statik yıkım sırasına güvenme (H20 dersi).
 - Keyed mutex D3D11 **texture**'ı korur; Vulkan tarafında beklenen şeyin
   aynı fiziksel kaynak olduğunu import zincirinden doğrula.
+- **Tek-kaynak slot indexleme (I23 dersi):** Aynı round-robin pool'u paylaşan
+  bileşenler (bridge image pool + optimizer command-buffer/layout tracking +
+  widget GL-interop texture) için slot index'i **tek bir yerde üret, taşı** —
+  her bileşen kendi sayacını sürmesin. Bağımsız sayaçlar mod-N eşit olsalar bile
+  off-by-one + farklı ilerleme koşullarıyla kalıcı drift'e kayar; sonuç fiziksel
+  image ile GL texture/layout tracking'in yanlış eşleşmesi (bayat kare, yanlış
+  `oldLayout` barrier → VUID). Kaynak: `slot_ring.h::next_pool_slot`, bridge slot'u
+  `execute_copy`'ye parametre. (Bu kod WGC'de inert — DXGI-fallback zorlanırsa geçerli.)
 
 ## RecoveryCoordinator / self-healing etkileşimi
 

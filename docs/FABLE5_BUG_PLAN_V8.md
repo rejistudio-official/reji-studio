@@ -60,7 +60,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I20 | Fable       | evaluate_adaptive() constructor-frozen self.mode okuyor, atomic'i degil — Assist modu hep AutoPilot gibi davraniyor | healing.rs | Orta | Sprint 3 |
 | I21 | Fable+Opus  | Hardcoded C:\reji-studio\ yollari (3 dosyada) + freopen(stderr) kontrolsuz **[DÜZELTILDI]** | ffi.rs, ws_server.rs, main.cpp | Dusuk | Sprint 4 |
 | I22 | Fable+Opus  | ABI yorum satirlari bayat (56B/+51 vs gercek 64B/+55) | ffi_auto.h, ffi_bridge.h | Dusuk | Sprint 4 |
-| I23 | Fable+Opus  | Bridge/optimizer slot sayaclari birbirinden bagimsiz — drift riski | external_memory_bridge.cpp, copy_optimizer.cpp | Dusuk | Sprint 4 |
+| I23 | Fable+Opus  | ✅ ÇÖZÜLDÜ (12.07, ayri tur) — bridge/optimizer/widget UC bagimsiz slot sayaci => off-by-one + kalici drift. Bridge slot'u TEK dogruluk kaynagi yapildi (execute_copy'ye parametre; frame_counter_/last_used_slot_/next_slot emekliye). Yol inert (WGC aktif) => runtime CALISMADI; statik analiz + SlotRing seam testi + kod incelemesi. | external_memory_bridge.cpp, copy_optimizer.cpp, preview_widget.cpp | Dusuk | Sprint 4 |
 | I24 | Opus        | rj_reload_rules/rj_connection_lost CStr::from_ptr sinirsiz — OOB read riski **[DÜZELTILDI]** | ffi.rs | Dusuk | Sprint 4 |
 | I25 | Fable       | zig_win32_compat.c stack guard fallback sabit deger (tahmin edilebilir canary) | zig_win32_compat.c | Dusuk | Sprint 4 |
 | I26 | Opus        | add(u64,u64) demo fonksiyonu + it_works testi production crate'te birakilmis | lib.rs | Dusuk | Sprint 4 |
@@ -1244,13 +1244,50 @@ Uzun vadede el yazisi offset yorumlarini tamamen kaldirip sadece
 
 ### I23 — Bridge/Optimizer Slot Sayaclari Bagimsiz
 
+**[✅ ÇÖZÜLDÜ — 12.07, ayri tur (TALIMAT_I23)]** Sinif: **(c) yeniden cerceveleme**
+(mekanizma vardi ama yanlis uygulanmisti).
+
+**Faz 0 tanisi:** DXGI-fallback GL-interop preview yolunda UC bagimsiz round-robin
+slot sayaci vardi: (1) `ExternalMemoryBridge::get_frame_images` static slot —
+`execute_copy`'ye giden staging+target VkImage ciftini secer; (2) `GpuCopyOptimizer::
+frame_counter_` — command buffer + per-slot layout/gl-signal; (3) widget `pool_idx =
+last_used_slot()` — bridge'e ait GL target handle/gl_sync_sem + interop texture indexi.
+#1 ile #2 arasinda hicbir baglayici yok: **off-by-one** (widget optimizer'in ONCEKI
+slot'unu okur, bridge GUNCEL slot'un target'ini uretir) + **kalici drift** (iki sayac
+farkli kosullarda — capture vs submit basarisi — ilerler; biri atlarsa faz farki
+kalicilasir). Sonuc: bir slot'un GL-interop texture'i yanlis bridge target bellegine
+baglanabilir + optimizer'in per-slot layout tracking'i yanlis fiziksel image'i takip
+edip yanlis `oldLayout` barrier kurabilir (VUID/corruption). F8/G2/I13'un
+`last_used_slot`/`next_slot` mekanizmasi bunu COZMUYORDU (widget fence/gl-signal'ini
+optimizer command-buffer slot'una senkronluyordu; ikisini de bridge image slot'una
+hic baglamiyordu — F8'in bridge kaynaklarini optimizer slot'uyla indexlemesi tam da
+sorunun kendisiydi).
+
+**Cozum (uygulandi):** Bridge slot'u **TEK dogruluk kaynagi**. Slot bridge'te uretilir,
+`get_frame_images` out-param'iyla raporlanir, `GpuInteropSubsystem` cache → `Pipeline`
+→ `PreviewWidget::submitD3D11Frame` (pending_slot) → paintGL → `execute_copy(slot)`
+boyunca tasinir. `execute_copy` artik slot'u parametre alir; command buffer, per-slot
+layout tracking, GL-signal ve keyed-mutex hepsi bu tek index'le anahtarlanir. Optimizer'in
+bagimsiz `frame_counter_` sayaci **tamamen kaldirildi**; emekliye ayrilinca oluleseren
+`last_used_slot_`/`last_used_slot()`/`next_slot()` de kaldirildi. Yeni `slot_ring.h`
+(`next_pool_slot`) tek round-robin kaynagi, GPU'suz test edilebilir.
+
+**Kapsam disi (siserilmedi):** Cross-vendor (AMD+NVIDIA) `E_INVALIDARG` zero-copy
+sinirlamasi (I2, endustri capinda bilinen, kapali konu) — I23 yalniz fallback kodunun
+**ic slot tutarliligini** hedefler. I32 (invalidate_pool ucluu-free) ile cakisma yok
+(farkli fonksiyonlar).
+
+**Test/durustluk:** Yol WGC aktifken **inert** (`capture_sub_.dxgi()`=null =>
+`get_frame_images` hic cagrilmaz => `submitD3D11Frame` hic atesler => `execute_copy`
+hic kosar). Bu yuzden **gercek GPU'da hic calistirilmadi**; dogrulama = statik analiz +
+`SlotRingTest` izole seam testi (round-robin determinizmi + raporlanan==tuketilen slot
+degismezi; asil bug bilesenler-arasi oldugu icin tek-bilesen testin degeri mutevazi,
+durustce isaretlendi) + kod incelemesi + regresyon (PipelineCharacterization PASS =
+davranis korundu). **Kullaniciya gorunur davranis degisikligi YOK** (WGC aktif oldugu
+surece). Bu, V8 planinin (I2/I3/I29/I31 curutmeleri haric) **son acik maddesiydi**.
+
 **Kaynak:** Fable 5 (3.6) + Opus 4.8 (3.3) — ayni kok nedene farkli
 acilardan isaret ediyor.
-
-**Cozum:** Tek dogruluk kaynagi: bridge'in staging/target slot index'ini
-`execute_copy`'ye parametre olarak gecir, fiilen kullanilan slot'u geri
-dondur; widget GL texture secimi ve semaphore wait icin bu donus degerini
-kullansin.
 
 ---
 

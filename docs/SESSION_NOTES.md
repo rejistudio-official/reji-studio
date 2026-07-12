@@ -1,3 +1,43 @@
+## Oturum: 12 Temmuz 2026 — I23 execute_copy Slot Senkronu (V8'in SON açık maddesi)
+
+**Sınıf:** (c) yeniden çerçeveleme. Ayrı tur (TALIMAT_I23). Kapandığında V8 planı
+(I2/I3/I29/I31 çürütmeleri hariç) tamamen kapandı.
+
+**Faz 0 tanısı:** DXGI-fallback GL-interop preview yolunda **ÜÇ bağımsız round-robin
+slot sayacı**: (1) `ExternalMemoryBridge::get_frame_images` static slot (execute_copy'ye
+giden image çifti); (2) `GpuCopyOptimizer::frame_counter_` (command buffer + per-slot
+layout/gl-signal); (3) widget `pool_idx = last_used_slot()` (bridge GL handle/sem + interop
+texture indexi). #1↔#2 bağlayıcı yok → **off-by-one** (widget önceki optimizer slot'unu okur,
+bridge güncel slot target'ı üretir) + **kalıcı drift** (capture vs submit başarısında ayrı
+ilerler). Sonuç: GL-interop texture yanlış bridge target belleğine bağlanabilir + per-slot
+layout tracking yanlış fiziksel image'i takip edip yanlış `oldLayout` barrier kurabilir
+(VUID/corruption). F8/G2/I13 `last_used_slot`/`next_slot` bunu **çözmüyordu** (widget'ı optimizer
+command-buffer slot'una senkronluyordu, bridge image slot'una hiç değil).
+
+**Çözüm (2 commit):** Bridge slot'u **TEK doğruluk kaynağı**: `slot_ring.h::next_pool_slot`
+→ bridge out-param → GpuInteropSubsystem cache (`last_slot_`) → Pipeline → `submitD3D11Frame
+(pending_slot)` → paintGL → `execute_copy(slot)`. `execute_copy` slot'u parametre alır (command
+buffer + layout + gl-signal + keyed-mutex hepsi bu index); `slot>=POOL_SIZE` savunmacı guard.
+`frame_counter_` **tamamen kaldırıldı**; ölüleşen `last_used_slot_`/`last_used_slot()`/
+`next_slot()` de kaldırıldı. paintGL fence-wait `gl_draw_fences_[pool_idx]` (eski next_slot()
+yerine). C1 = davranış-koruyan plumbing + seam test; C2 = flip.
+
+**Kararlar (kullanıcı onaylı):** frame_counter_ emekliye (koru+senkronla reddedildi);
+SlotRingTest eklendi (değeri mütevazı kabulüyle).
+
+**Doğrulama / dürüstlük:** reji_app Release derlendi+linklendi (her commit), yeni uyarı yok.
+ctest: PipelineCharacterization PASS (davranış korundu) + SlotRingTest PASS, diğer tümü PASS;
+**bilinen 2 kırık** (FrameProfiler/ShaderCache, alakasız). **Yol WGC aktifken inert**
+(`capture_sub_.dxgi()`=null → execute_copy hiç koşmaz) → **gerçek GPU'da çalıştırılmadı**;
+doğrulama = statik analiz + izole seam testi + kod incelemesi. Asıl bug bileşenler-arası
+olduğu için tek-bileşen seam testinin değeri mütevazı (dürüstçe not). **Kullanıcıya görünür
+davranış değişikliği YOK** (WGC aktif olduğu sürece).
+
+**Kapsam dışı:** Cross-vendor `E_INVALIDARG` zero-copy sınırlaması (I2, kapalı konu) dokunulmadı;
+I32 (invalidate_pool üçlü-free) ile çakışma yok (farklı fonksiyonlar).
+
+---
+
 ## Oturum: 12 Temmuz 2026 — V8 Sprint 3-4 Grup D (Hot-Path Metrics + Wasapi Katman İhlali)
 
 Grup D, Sprint 3-4'ün **en riskli** grubu — hedef "davranış hiç değişmemeli"
