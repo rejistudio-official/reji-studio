@@ -11,7 +11,6 @@ set(PIPELINE_SOURCES
     frame_profiler.cpp
     metrics_collector.cpp
     copy_optimizer.cpp
-    frame_pacing.cpp
     gpu_query_timing.cpp
 )
 

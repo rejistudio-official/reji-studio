@@ -139,8 +139,8 @@ yüklemesi bu PBO yolunu kullanır.
 5. **Frame içi görsel analiz gerekiyorsa RenderDoc** ile capture al;
    keyed mutex/semaphore sorunlarında Nsight Graphics daha iyi görür.
 6. **Düzeltme kuralı:** Senkronizasyon düzeltmeleri davranış değiştirir —
-   önce karakterizasyon/timing testi (`tests/test_gpu_query_timing.cpp`,
-   `test_frame_pacing.cpp`) yeşilken başla, düzeltme sonrası tekrar koş.
+   önce karakterizasyon/timing testi (`tests/test_gpu_query_timing.cpp`)
+   yeşilken başla, düzeltme sonrası tekrar koş.
 
 ## Proje ilkeleri (bulgu geçmişinden damıtılmış — ihlal etme)
 

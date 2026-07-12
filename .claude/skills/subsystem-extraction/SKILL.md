@@ -58,7 +58,7 @@ just run                                    # 30s stabilite: crash yok,
 ```
 
 **Aşama 6 — Birim testi:** Alt sistemin kendi test dosyası
-`tests/test_<ad>.cpp` (test_frame_pacing.cpp desenini izle) + tests/CMakeLists.txt kaydı.
+`tests/test_<ad>.cpp` (test_gpu_resource_pitch.cpp desenini izle) + tests/CMakeLists.txt kaydı.
 
 **Aşama 7 — Commit:** Format repodaki Stage commit'leriyle aynı:
 ```

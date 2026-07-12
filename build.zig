@@ -80,7 +80,6 @@ pub fn build(b: *std.Build) void {
             "frame_profiler.cpp",
             "metrics_collector.cpp",
             "copy_optimizer.cpp",
-            "frame_pacing.cpp",
             "gpu_query_timing.cpp",
             // WIN32 block
             "capture/capture_dxgi.cpp",
