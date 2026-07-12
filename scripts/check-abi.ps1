@@ -99,8 +99,8 @@ $cppOutput = & $exeFile
 $cppOutput | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
 
 # Cikti satirlarini ayristir:
-#   sizeof(RjMetricSample) = 56 bytes
-#   magic_tail offset: 52
+#   sizeof(RjMetricSample) = 64 bytes
+#   magic_tail offset: 56
 $cppSizes   = @{}
 $cppOffsets = @{}
 foreach ($line in $cppOutput) {
@@ -138,12 +138,12 @@ Write-OK "Rust testleri gecti"
 Write-Info "ABI degerleri karsilastiriliyor..."
 
 $checks = @(
-    @{ Type = "RjMetricSample"; Expected = 56 },
+    @{ Type = "RjMetricSample"; Expected = 64 },
     @{ Type = "RjAction";       Expected = 20 },
     @{ Type = "RjCommand";      Expected = 24 }
 )
 $offsetChecks = @(
-    @{ Field = "magic_tail"; Expected = 52 }
+    @{ Field = "magic_tail"; Expected = 56 }
 )
 
 $allOk = $true

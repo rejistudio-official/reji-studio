@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use crate::constants;
 
-/// Anlık metrik snapshot — C++ RjMetricSample ile birebir ABI uyumlu (#[repr(C)], 60 byte)
+/// Anlık metrik snapshot — C++ RjMetricSample ile birebir ABI uyumlu (#[repr(C)], 64 byte)
 ///
 /// C++ layout (ffi_bridge.h):
 ///   +0   magic_head:       u32
