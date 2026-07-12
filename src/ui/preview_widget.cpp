@@ -367,6 +367,7 @@ void PreviewWidget::paintGL() {
     VkImage  staging_vk     = VK_NULL_HANDLE;
     VkImage  target_vk      = VK_NULL_HANDLE;
     uint32_t w = 0, h = 0;
+    uint32_t bridge_slot    = 0;  // I23: bu image çiftini üreten bridge pool slot'u
     bool       have_cpu_frame = false;
     int        cpu_fw = 0, cpu_fh = 0;
     QByteArray cpu_fdata;
@@ -407,6 +408,7 @@ void PreviewWidget::paintGL() {
             target_vk      = d_->pending_target_vk;
             w              = d_->pending_width;
             h              = d_->pending_height;
+            bridge_slot    = d_->pending_slot;  // I23: bridge slot'unu kilit altında al
             have_new_frame = true;
             d_->frame_dirty = false;
             d_->has_pending_copy = false;  // Clear any old pending, submit new
@@ -475,8 +477,10 @@ void PreviewWidget::paintGL() {
         VkSemaphore sem   = VK_NULL_HANDLE;
         uint64_t    value = 0;
         VkImage result_target_image = VK_NULL_HANDLE;
-        // F8: execute_copy'nin kullandığı slot ile senkronize et — widget kendi sayacı yerine
-        uint32_t pool_idx = copy_optimizer_->last_used_slot();
+        // I23: bridge slot'u TEK doğruluk kaynağı — bu image çiftini üreten slot.
+        //      GL-interop indexlemesi, execute_copy ve fence-wait aynı slot'u kullanır
+        //      (eski last_used_slot()/next_slot() paralel-sayaç drift'i elendi).
+        uint32_t pool_idx = bridge_slot;
         current_pool_idx_ = pool_idx;
         VkSemaphore gl_sync_sem = bridge_
             ? bridge_->get_gl_sync_semaphore(pool_idx)
@@ -485,13 +489,13 @@ void PreviewWidget::paintGL() {
         VkDeviceMemory staging_mem = bridge_
             ? bridge_->get_shared_texture_memory()
             : VK_NULL_HANDLE;
-        // D5/G2: execute_copy'nin kullanacağı next_slot'un fence'ini bekle (pool_idx değil)
-        uint32_t next = copy_optimizer_->next_slot();
-        if (gl_draw_fences_[next] && pfn_ClientWaitSync_) {
-            pfn_ClientWaitSync_(gl_draw_fences_[next],
+        // D5: execute_copy'nin kullanacağı slot'un (= pool_idx) fence'ini bekle —
+        //     GL bu slot'u okumayı bitirmeden Vulkan üzerine yazmasın.
+        if (gl_draw_fences_[pool_idx] && pfn_ClientWaitSync_) {
+            pfn_ClientWaitSync_(gl_draw_fences_[pool_idx],
                                 GL_SYNC_FLUSH_COMMANDS_BIT, 1'000'000);
         }
-        bool ok = copy_optimizer_->execute_copy(staging_vk, target_vk, w, h,
+        bool ok = copy_optimizer_->execute_copy(staging_vk, target_vk, w, h, pool_idx,
                                            &sem, &value, &result_target_image,
                                            gl_sync_sem, staging_mem);
         if (!ok) {

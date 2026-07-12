@@ -132,19 +132,27 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      VkImage vulkan_target,
                                      uint32_t width,
                                      uint32_t height,
+                                     uint32_t slot,
                                      VkSemaphore* out_timeline_semaphore,
                                      uint64_t* out_timeline_value,
                                      VkImage* out_target_image,
                                      VkSemaphore gl_sync_sem,
                                      VkDeviceMemory d3d11_staging_memory) {
 #ifdef RJ_DEBUG_VERBOSE
-    fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu\n",
-            (void*)device_, (void*)command_buffers_[frame_counter_.load(std::memory_order_relaxed) % POOL_SIZE], (void*)queue_,
-            (void*)timeline_semaphore_, (unsigned long long)timeline_counter_);
+    fprintf(stderr, "[GpuCopyOptimizer] execute_copy: device=%p cmd_buf=%p queue=%p sem=%p counter=%llu slot=%u\n",
+            (void*)device_, (void*)command_buffers_[slot % POOL_SIZE], (void*)queue_,
+            (void*)timeline_semaphore_, (unsigned long long)timeline_counter_, slot);
 #endif
 
     if (!device_ || !command_buffers_[0] || !queue_) {
         fprintf(stderr, "[GpuCopyOptimizer] ABORT: null handle\n");
+        return false;
+    }
+
+    // I23: slot bridge'ten gelir (0..POOL_SIZE-1). Savunmacı sınır kontrolü —
+    // geçersiz slot per-slot dizilerinde (command_buffers_/layout/gl_signal) OOB olurdu.
+    if (slot >= POOL_SIZE) {
+        fprintf(stderr, "[GpuCopyOptimizer] Invalid slot %u (>= %u)\n", slot, POOL_SIZE);
         return false;
     }
 
@@ -163,9 +171,9 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
             return false;
         }
 
-        // D2/D3: Compute round-robin slot once — shared by layout tracking, GL semaphore, keyed mutex.
-        // frame_counter_ incremented after use (at submit time).
-        const uint32_t slot = frame_counter_.load(std::memory_order_relaxed) % POOL_SIZE;
+        // I23: slot bridge'ten parametre gelir (tek doğruluk kaynağı) — layout tracking,
+        //      GL semaphore, keyed mutex ve command buffer aynı index'i paylaşır. Optimizer
+        //      artık kendi round-robin sayacını (frame_counter_) sürmüyor.
 
         // Wait for previous submit to complete before reusing the command buffer.
         // signal_value_for_submit_ holds the timeline value from the last submit.
@@ -389,8 +397,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         if (will_signal_gl) {
             slot_gl_signaled_[slot].store(true, std::memory_order_release);
         }
-        last_used_slot_.store(slot, std::memory_order_release);
-        frame_counter_.fetch_add(1, std::memory_order_relaxed);
+        // I23: last_used_slot_/frame_counter_ kaldırıldı — slot dışarıdan yönetiliyor.
 
         // Return outputs
         *out_timeline_semaphore = timeline_semaphore_;
@@ -467,7 +474,7 @@ void GpuCopyOptimizer::shutdown() {
             vkDestroySemaphore(device_, timeline_semaphore_, nullptr);
             timeline_semaphore_ = VK_NULL_HANDLE;
         }
-        frame_counter_.store(0, std::memory_order_relaxed);
+        // I23: frame_counter_ kaldırıldı (slot artık dışarıdan yönetiliyor).
         if (command_buffers_[0] != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
             vkFreeCommandBuffers(device_, command_pool_, 3, command_buffers_);
             for (auto& cb : command_buffers_) cb = VK_NULL_HANDLE;

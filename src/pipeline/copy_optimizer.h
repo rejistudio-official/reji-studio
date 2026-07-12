@@ -37,10 +37,14 @@ public:
     // Execute GPU-side copy: D3D11 external memory → Vulkan target image
     // Submits compute shader to queue, returns timeline semaphore for async wait
     // Returns false if submission failed
+    // I23: slot — bridge'in bu image çiftini ürettiği pool slot'u (TEK doğruluk
+    //      kaynağı). Command buffer, per-slot layout tracking ve GL-signal bu
+    //      index'le anahtarlanır → bridge image kimliğiyle birebir hizalı (drift yok).
     bool execute_copy(VkImage d3d11_staging_vk,    // D3D11 texture imported as VkImage
                       VkImage vulkan_target,        // Target Vulkan image (OpenGL interop)
                       uint32_t width,
                       uint32_t height,
+                      uint32_t slot,                // I23: bridge pool slot (0..POOL_SIZE-1)
                       VkSemaphore* out_timeline_semaphore,  // Caller polls this
                       uint64_t* out_timeline_value,         // Value to check
                       VkImage* out_target_image,            // Target image output
@@ -60,11 +64,9 @@ public:
         return slot < rj::constants::kGpuPoolSize && slot_gl_signaled_[slot].load(std::memory_order_acquire);
     }
 
-    // F8: execute_copy'nin başarıyla kullandığı son slot
-    uint32_t last_used_slot() const { return last_used_slot_.load(std::memory_order_acquire); }
-
-    // G2: execute_copy'nin kullanacağı bir sonraki slot (fence wait için)
-    uint32_t next_slot() const { return (last_used_slot_.load(std::memory_order_relaxed) + 1) % rj::constants::kGpuPoolSize; }
+    // I23: F8/G2'nin last_used_slot()/next_slot() getter'ları kaldırıldı. Slot artık
+    // dışarıdan (bridge) execute_copy'ye parametre olarak gelir; optimizer'ın slot'u
+    // tahmin/rapor etmesi gerekmez (drift kaynağı olan paralel sayaç elendi).
 
     // Shutdown and cleanup
     void shutdown();
@@ -80,7 +82,8 @@ private:
     VkSemaphore timeline_semaphore_ = VK_NULL_HANDLE;
     uint64_t timeline_counter_ = 0;
 
-    std::atomic<uint32_t> frame_counter_{0};
+    // I23: frame_counter_ (bağımsız slot sürücüsü) emekliye ayrıldı — slot artık
+    // bridge'ten parametre gelir. timeline_counter_ ayrı ve korunur (semaphore değeri).
 
     // D2: Per-slot layout tracking — staging always UNDEFINED (D3D11 externally written each frame)
     static constexpr uint32_t POOL_SIZE = rj::constants::kGpuPoolSize;
@@ -109,8 +112,6 @@ private:
     // Both resolved via vkGetDeviceProcAddr rather than called directly.
     PFN_vkGetSemaphoreCounterValueKHR pfn_get_semaphore_counter_value_ = nullptr;
     PFN_vkWaitSemaphores              pfn_wait_semaphores_             = nullptr;
-
-    std::atomic<uint32_t> last_used_slot_{0};
 
     // V8/I6: Lifecycle guard. shutdown() sets this false BEFORE tearing down
     // device_/pfn_wait_semaphores_. is_copy_ready() checks it first as a cheap,
