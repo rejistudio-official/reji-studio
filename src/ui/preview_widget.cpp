@@ -64,6 +64,7 @@ public:
     VkImage  pending_target_vk  = VK_NULL_HANDLE;
     uint32_t pending_width      = 0;
     uint32_t pending_height     = 0;
+    uint32_t pending_slot       = 0;  // I23: bridge pool slot'u (tek doğruluk kaynağı)
     bool     frame_dirty        = false;
 
     // CPU fallback path (WGC staging)
@@ -149,7 +150,8 @@ RenderPath PreviewWidget::renderPath() const {
 
 bool PreviewWidget::submitD3D11Frame(VkImage d3d11_staging_vk,
                                      VkImage vulkan_target,
-                                     uint32_t width, uint32_t height) {
+                                     uint32_t width, uint32_t height,
+                                     uint32_t pool_slot) {
     if (d3d11_staging_vk == VK_NULL_HANDLE ||
         vulkan_target == VK_NULL_HANDLE ||
         width == 0 || height == 0) {
@@ -160,6 +162,7 @@ bool PreviewWidget::submitD3D11Frame(VkImage d3d11_staging_vk,
     d_->pending_target_vk  = vulkan_target;
     d_->pending_width      = width;
     d_->pending_height     = height;
+    d_->pending_slot       = pool_slot;  // I23: bridge slot'unu paintGL'e taşı
     d_->frame_dirty        = true;
     QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
     return true;

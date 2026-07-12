@@ -167,3 +167,21 @@ target_link_libraries(test_seh_filter
 )
 
 add_test(NAME SehFilterTest COMMAND test_seh_filter)
+
+# ── V8/I23: GPU pool round-robin slot ring saf seam testi ──
+# slot_ring.h header-only (yalnız reji_constants.h'e bağlı, GPU/Vulkan yok) —
+# reji_pipeline/Rust link gerekmez, sadece gtest. Round-robin determinizmi +
+# "raporlanan slot == tüketilen slot" değişmezini doğrular.
+add_executable(test_slot_ring
+    test_slot_ring.cpp
+)
+
+target_include_directories(test_slot_ring PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/gpu
+)
+
+target_link_libraries(test_slot_ring
+    gtest gtest_main
+)
+
+add_test(NAME SlotRingTest COMMAND test_slot_ring)

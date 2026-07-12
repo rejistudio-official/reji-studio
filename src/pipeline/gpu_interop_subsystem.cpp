@@ -39,9 +39,10 @@ void GpuInteropSubsystem::set_device(VkDevice device, VkPhysicalDevice phys) {
 }
 
 bool GpuInteropSubsystem::get_frame_images(ID3D11Texture2D* shared_tex,
-                                           VkImage* out_staging, VkImage* out_target) {
+                                           VkImage* out_staging, VkImage* out_target,
+                                           uint32_t* out_slot) {
     if (!ext_bridge_) return false;
-    bool ok = ext_bridge_->get_frame_images(shared_tex, out_staging, out_target);
+    bool ok = ext_bridge_->get_frame_images(shared_tex, out_staging, out_target, out_slot);
 #ifdef RJ_DEBUG_VERBOSE
     fprintf(stderr, "[Pipeline] get_frame_images: staging=%p target=%p\n",
             *out_staging, *out_target);
@@ -50,14 +51,19 @@ bool GpuInteropSubsystem::get_frame_images(ID3D11Texture2D* shared_tex,
     return ok;
 }
 
-void GpuInteropSubsystem::cache_last_images(VkImage staging, VkImage target) {
+void GpuInteropSubsystem::cache_last_images(VkImage staging, VkImage target, uint32_t slot) {
+    // I23: slot'u image'lerden ÖNCE yaz — get_last_frame_images image non-null
+    // gördüğünde slot da görünür olsun (release zinciri last_target_vk_ store'unda kapanır).
+    last_slot_.store(slot, std::memory_order_relaxed);
     last_staging_vk_.store(staging, std::memory_order_release);
     last_target_vk_.store(target, std::memory_order_release);
 }
 
-bool GpuInteropSubsystem::get_last_frame_images(VkImage* out_staging, VkImage* out_target) {
+bool GpuInteropSubsystem::get_last_frame_images(VkImage* out_staging, VkImage* out_target,
+                                                uint32_t* out_slot) {
     *out_staging = last_staging_vk_.load(std::memory_order_acquire);
     *out_target  = last_target_vk_.load(std::memory_order_acquire);
+    if (out_slot) *out_slot = last_slot_.load(std::memory_order_relaxed);
     return *out_staging != nullptr && *out_target != nullptr;
 }
 

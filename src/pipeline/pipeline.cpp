@@ -622,9 +622,10 @@ bool Pipeline::run_frame() {
                 if (s.gpu_sub_.raw() && dxgi && dxgi->shared_texture()) {
                     VkImage staging_vk = nullptr;
                     VkImage target_vk = nullptr;
+                    uint32_t slot = 0;  // I23: bridge'in kullandığı pool slot'u
                     s.gpu_sub_.get_frame_images(dxgi->shared_texture(),
-                                                &staging_vk, &target_vk);
-                    s.gpu_sub_.cache_last_images(staging_vk, target_vk);
+                                                &staging_vk, &target_vk, &slot);
+                    s.gpu_sub_.cache_last_images(staging_vk, target_vk, slot);
                 }
 
                 s.d3d11_frame_cb(static_cast<void*>(tex),
@@ -736,10 +737,12 @@ bool Pipeline::shutdown() {
     return ok;
 }
 
-bool Pipeline::get_last_frame_images(VkImage* out_staging, VkImage* out_target) {
+bool Pipeline::get_last_frame_images(VkImage* out_staging, VkImage* out_target,
+                                     uint32_t* out_slot) {
     if (!impl_ || !out_staging || !out_target) return false;
     // v0.5.1: Return cached frame images from last run_frame() (GpuInteropSubsystem).
-    return impl_->gpu_sub_.get_last_frame_images(out_staging, out_target);
+    // I23: out_slot da taşınır (bridge pool slot'u).
+    return impl_->gpu_sub_.get_last_frame_images(out_staging, out_target, out_slot);
 }
 
 bool Pipeline::get_last_metric_sample(RjMetricSample* out) const {

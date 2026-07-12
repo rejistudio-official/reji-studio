@@ -68,10 +68,14 @@ class ExternalMemoryBridge {
   // Task 6: Zero-copy frame acquisition with cached handle reuse
   // Returns staging and target VkImages for GPU-side operations
   // Hot-path optimized: no heap allocation, no blocking calls
+  // I23: out_slot != null ise bu frame'i üreten round-robin pool slot'u yazılır.
+  // Çağıran zincir (cache→widget→execute_copy) bu index'i tek doğruluk kaynağı
+  // olarak kullanır; bridge image kimliğiyle optimizer/GL indexlemesi hizalanır.
   bool get_frame_images(
     ID3D11Texture2D* tex,
     VkImage* out_staging,
-    VkImage* out_target
+    VkImage* out_target,
+    uint32_t* out_slot = nullptr
   );
 
   // B5/C7: GL/Vulkan semaphore sync — POOL_SIZE-slot binary semaphore pool (prevents re-signal)

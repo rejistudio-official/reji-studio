@@ -150,9 +150,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 // v0.5.1: Get cached frame images from ExternalMemoryBridge
                 VkImage staging_vk = VK_NULL_HANDLE;
                 VkImage target_vk = VK_NULL_HANDLE;
-                bool got = pipeline_->get_last_frame_images(&staging_vk, &target_vk);
+                uint32_t pool_slot = 0;  // I23: bridge pool slot'u (tek doğruluk kaynağı)
+                bool got = pipeline_->get_last_frame_images(&staging_vk, &target_vk, &pool_slot);
                 if (got) {
-                    preview_widget_->submitD3D11Frame(staging_vk, target_vk, width, height);
+                    preview_widget_->submitD3D11Frame(staging_vk, target_vk, width, height, pool_slot);
                 }
                 (void)staging_texture;
             }

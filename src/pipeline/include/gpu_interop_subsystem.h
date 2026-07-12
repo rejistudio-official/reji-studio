@@ -44,15 +44,20 @@ public:
     void set_device(VkDevice device, VkPhysicalDevice phys);
 
     // run_frame D3D11 zero-copy: shared_tex için staging/target VkImage al.
+    // I23: out_slot != null ise bu image'leri üreten pool slot'u yazılır.
     // ext_bridge_ yoksa false (out_* dokunulmaz).
     bool get_frame_images(ID3D11Texture2D* shared_tex,
-                          VkImage* out_staging, VkImage* out_target);
+                          VkImage* out_staging, VkImage* out_target,
+                          uint32_t* out_slot = nullptr);
 
     // get_last_frame_images getter'ı için cache (frame thread yazar).
-    void cache_last_images(VkImage staging, VkImage target);
+    // I23: slot da cache'lenir → getter aynı slot'u GL thread'e taşır.
+    void cache_last_images(VkImage staging, VkImage target, uint32_t slot);
 
     // GL thread okur (Pipeline::get_last_frame_images). Dönüş: her iki image de non-null.
-    bool get_last_frame_images(VkImage* out_staging, VkImage* out_target);
+    // I23: out_slot != null ise cache'lenen pool slot'u yazılır.
+    bool get_last_frame_images(VkImage* out_staging, VkImage* out_target,
+                               uint32_t* out_slot = nullptr);
 
     // Pipeline::get_external_memory_bridge + orkestratör guard'ları (keyed-mutex,
     // run_frame zero-copy) için ham pointer. Null = bridge yok.
@@ -66,6 +71,7 @@ private:
     std::unique_ptr<rj::pipeline::gpu::ExternalMemoryBridge> ext_bridge_;
     std::atomic<VkImage> last_staging_vk_{nullptr};
     std::atomic<VkImage> last_target_vk_{nullptr};
+    std::atomic<uint32_t> last_slot_{0};  // I23: cache'lenen frame'in pool slot'u
 };
 
 } // namespace rj

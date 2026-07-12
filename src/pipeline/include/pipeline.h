@@ -115,7 +115,9 @@ public:
 
     /// v0.5.1: Get last frame images (staging VkImage + target VkImage).
     /// Called from run_frame thread; returns false if images unavailable.
-    bool get_last_frame_images(VkImage* out_staging, VkImage* out_target);
+    /// I23: out_slot != null ise bu image'leri üreten pool slot'u yazılır.
+    bool get_last_frame_images(VkImage* out_staging, VkImage* out_target,
+                               uint32_t* out_slot = nullptr);
 
     /// Aşama-0 test seam: son run_frame() tarafından üretilen metrik örneğini döndürür.
     /// Karakterizasyon harness'i için gözlem noktası: rj_metrics_poll (V8/I14) artık

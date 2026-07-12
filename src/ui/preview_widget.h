@@ -60,9 +60,13 @@ public:
     // Stores the handles under a mutex and schedules a paintGL tick.
     // Thread-safe: may be called from the pipeline thread.
     // Returns true if the frame was queued, false on invalid args.
+    // I23: pool_slot — bridge'in bu image çiftini ürettiği round-robin slot.
+    // paintGL bu slot'u execute_copy'ye + GL-interop indexlemesine tek kaynak
+    // olarak taşır (optimizer'ın ayrı sayacı yerine).
     bool submitD3D11Frame(VkImage d3d11_staging_vk,
                           VkImage vulkan_target,
-                          uint32_t width, uint32_t height);
+                          uint32_t width, uint32_t height,
+                          uint32_t pool_slot);
 
     // Set the GpuCopyOptimizer (borrowed, lifecycle managed externally).
     // Must be called before submitD3D11Frame().

@@ -1,4 +1,5 @@
 #include "external_memory_bridge.h"
+#include "slot_ring.h"  // I23: next_pool_slot (tek round-robin kaynağı)
 
 namespace rj::pipeline::gpu {
 
@@ -36,10 +37,15 @@ VkImage ExternalMemoryBridge::get_pooled_image(uint32_t frame_idx) {
 
 bool ExternalMemoryBridge::get_frame_images(
     ID3D11Texture2D* tex,
-    VkImage* staging, VkImage* target) {
+    VkImage* staging, VkImage* target, uint32_t* out_slot) {
     static uint32_t slot = 0;
     bool ok = ext_bridge_get_frame_images(tex, slot, staging, target);
-    if (ok) slot = (slot + 1) % 3;
+    if (ok) {
+        // I23: bu frame'i üreten slot'u raporla — çağıran (cache→widget→execute_copy)
+        // aynı index'i kullanarak bridge image kimliğiyle hizalanır.
+        if (out_slot) *out_slot = slot;
+        slot = next_pool_slot(slot);
+    }
     return ok;
 }
 
