@@ -145,14 +145,18 @@ void CommandRouter::action_thread_main() {
     }
 
     while (action_processor_running_.load(std::memory_order_acquire)) {
+        // J5: her uyanışta kuyruğu TAMAMEN boşalt (while), tek aksiyon değil (if).
+        // Eskiden Sleep(100) koşulsuzdu → kuyrukta N aksiyon varsa iterasyon başına
+        // 1 tanesi tüketilir, hepsini boşaltmak N×100ms sürerdi (burst durumunda
+        // healing aktüatörü gecikirdi). Kuyruk lock-free ArrayQueue (I33 aktüatör),
+        // dequeue non-blocking → boşalınca false döner.
         RjAction action{};
-        // Poll rj_action_dequeue (FFI call) — non-blocking, returns false if queue empty
-        if (rj_action_dequeue(&action)) {
+        while (rj_action_dequeue(&action)) {
             if (on_action_) on_action_(action);
         }
-        // Prevent busy-wait: yield briefly if queue is empty
-        Sleep(100);  // 100ms poll — V8/I1 sonrası RuleEngine aksiyonları buradan akıyor;
-                     // kural değerlendirmesi ~1s periyotta olduğundan 100ms gecikme kabul edilebilir
+        // Prevent busy-wait: kuyruk boşken kısa bekle. Tek aksiyon için ≤100ms
+        // gecikme kalır ama kural değerlendirmesi ~1s periyotta olduğundan kabul edilebilir.
+        Sleep(100);
     }
     dbglog("[Pipeline] action processor stopped");
 
