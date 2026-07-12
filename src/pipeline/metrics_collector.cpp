@@ -145,8 +145,11 @@ uint32_t MetricsCollector::query_gpu_load_pct() {
                                 PDH_FMT_DOUBLE, &buf_bytes, &count, nullptr);
   if (buf_bytes == 0 || count == 0) return 0;
 
-  std::vector<BYTE> buf(buf_bytes);
-  auto* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_A*>(buf.data());
+  // V8/I16: buffer'ı yeniden kullan — yalnız gerekli boyut büyüdüğünde resize
+  // et (aksi halde her 1Hz poll'de heap alloc). std::vector operator new ile
+  // max_align_t hizalı bellek verir → PDH struct cast'i güvenli (eski davranış).
+  if (gpu_pdh_buf_.size() < buf_bytes) gpu_pdh_buf_.resize(buf_bytes);
+  auto* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_A*>(gpu_pdh_buf_.data());
   PDH_STATUS st = PdhGetFormattedCounterArrayA(
       static_cast<HCOUNTER>(pdh_gpu_ctr_),
       PDH_FMT_DOUBLE, &buf_bytes, &count, items);

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 namespace rj {
 
@@ -85,6 +86,10 @@ private:
   void* pdh_query_   = nullptr;   // HQUERY
   void* pdh_cpu_ctr_ = nullptr;   // HCOUNTER  \\Processor(_Total)\\% Processor Time
   void* pdh_gpu_ctr_ = nullptr;   // HCOUNTER  \\GPU Engine(*engtype_3D)\\Utilization Percentage
+
+  // V8/I16: PdhGetFormattedCounterArray çıktı buffer'ı — üye olarak tutulur,
+  // yalnız büyüdükçe resize edilir (1Hz poll'de her seferinde alloc yapılmaz).
+  std::vector<unsigned char> gpu_pdh_buf_;
 
   // Polling throttle
   std::chrono::steady_clock::time_point last_poll_time_;
