@@ -496,6 +496,39 @@ pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
     });
 }
 
+/// V8/I14: UI'ın anlık metrik çekmesi (pull) için — push'un beslediği AYNI
+/// `MetricState` snapshot'ını `out`'a yazar. Bloklamaz (atomik okuma), WMI
+/// tetiklemez (AGENTS.md hot-path kuralı). `rj_metrics_push`/drainer ile
+/// yarışmaz: geçici `metric_ring`'ten değil, agregeli `MetricState`'ten okur.
+///
+/// # Safety
+/// `out`, geçerli tek `RjMetricSample` (== `MetricSample`) için yazılabilir
+/// bellek göstermeli. Null güvenli (0 döner).
+///
+/// # Return
+/// 1 → `out` dolduruldu (snapshot yazıldı). 0 → yazılmadı (null `out` veya
+/// FFI_STATE henüz init değil). C++ tarafı 0'da UI güncellemesini atlar.
+#[no_mangle]
+pub extern "C" fn rj_metrics_poll(out: *mut MetricSample) -> i32 {
+    catch_unwind(AssertUnwindSafe(move || {
+        if out.is_null() {
+            return 0;
+        }
+        let Some(state) = FFI_STATE.get() else {
+            return 0;
+        };
+        let sample = state._metric_state.snapshot();
+        // SAFETY: caller `out`'un geçerli/yazılabilir RjMetricSample* olduğunu
+        // garanti eder; layout MetricSample ile birebir (#[repr(C)], 64 byte).
+        unsafe { *out = sample; }
+        1
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_metrics_poll caught panic");
+        0
+    })
+}
+
 /// Rust komut kuyruğunu boşaltır; en fazla `max` adet RjCommand yazar.
 ///
 /// # Safety
@@ -1133,6 +1166,42 @@ mod tests {
         // SECURITY: max = 64 (limit) should be allowed
         let n = rj_command_drain(cmds.as_mut_ptr(), 64);
         assert!(n >= 0 && n <= 64, "max = 64 should succeed");
+    }
+
+    #[test]
+    fn test_metrics_poll_null_returns_zero() {
+        // V8/I14: null out → 0 (yazma yok), çökme yok.
+        assert_eq!(rj_metrics_poll(std::ptr::null_mut()), 0);
+    }
+
+    #[test]
+    fn test_metrics_poll_after_start_fills_valid_sample() {
+        // V8/I14: FFI_STATE init sonrası poll 1 döner ve GEÇERLI (canary) snapshot yazar.
+        rj_start_monitor();
+        let mut sample = MetricSample {
+            magic_head: 0, timestamp_us: 0, bitrate_kbps: 0, fps_actual: 0.0,
+            cpu_percent: 0.0, frame_drops: 0, frame_drop_pct: 0, gpu_temp_c: 0,
+            cpu_temp_c: 0, memory_usage_pct: 0, cpu_load_pct: 0, gpu_load_pct: 0,
+            network_rtt_ms: 0, network_loss_pct: 0, source_id: 0, magic_tail: 0,
+        };
+        let rc = rj_metrics_poll(&mut sample as *mut _);
+        assert_eq!(rc, 1, "init sonrası poll 1 dönmeli");
+        assert!(sample.is_valid(), "yazılan snapshot canary'si geçerli olmalı");
+        assert_eq!(sample.source_id, 0, "snapshot video örneği olmalı");
+    }
+
+    #[test]
+    fn test_panic_safety_rj_metrics_poll() {
+        // SECURITY: rj_metrics_poll C++'a panic unwind etmemeli (catch_unwind).
+        rj_start_monitor();
+        assert_eq!(rj_metrics_poll(std::ptr::null_mut()), 0);
+        let mut s = MetricSample {
+            magic_head: 0, timestamp_us: 0, bitrate_kbps: 0, fps_actual: 0.0,
+            cpu_percent: 0.0, frame_drops: 0, frame_drop_pct: 0, gpu_temp_c: 0,
+            cpu_temp_c: 0, memory_usage_pct: 0, cpu_load_pct: 0, gpu_load_pct: 0,
+            network_rtt_ms: 0, network_loss_pct: 0, source_id: 0, magic_tail: 0,
+        };
+        let _ = rj_metrics_poll(&mut s as *mut _); // tekrar çağrı güvenli
     }
 
     #[test]
