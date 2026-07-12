@@ -28,6 +28,37 @@ use crate::rules::RuleEngine;
 use crate::ws_server::{self, WsState};
 
 
+/// I24: FFI'dan gelen C string okumaları için üst sınırlar (strnlen semantiği).
+/// `CStr::from_ptr` NUL'a kadar SINIRSIZ tarar; bu sabitler `cstr_bounded` ile
+/// birlikte bozuk/NUL'suz girdide OOB read'i sınırlar.
+const MAX_FFI_PATH_LEN: usize = 32 * 1024; // Windows uzun-path (\\?\) tavanı
+const MAX_FFI_STR_LEN: usize = 4096;       // reason / parola gibi kısa alanlar
+
+/// I24: Sınırlı uzunlukta C string okuma. `CStr::from_ptr` NUL'a kadar SINIRSIZ
+/// tarar → bozuk/NUL'suz pointer OOB read'e yol açabilir. Bu yardımcı en fazla
+/// `max_len` byte tarar: NUL bulunursa lossy-UTF8 `String` döner; `max_len`
+/// içinde NUL yoksa `None` (güvenli reddet, panik yok). `ptr` null → `None`.
+///
+/// # Safety
+/// Çağıran `ptr`'ın ya null ya da bir C string bölgesinin başına işaret ettiğini
+/// garanti etmeli. Tarama `max_len` ile sınırlı olduğundan NUL'suz bir string
+/// bile en fazla `max_len` byte okutur (sınırsız tarama yok).
+unsafe fn cstr_bounded(ptr: *const c_char, max_len: usize) -> Option<String> {
+    if ptr.is_null() {
+        return None;
+    }
+    let bytes = ptr as *const u8;
+    let mut len = 0usize;
+    while len < max_len {
+        if *bytes.add(len) == 0 {
+            let slice = std::slice::from_raw_parts(bytes, len);
+            return Some(String::from_utf8_lossy(slice).into_owned());
+        }
+        len += 1;
+    }
+    None // max_len içinde NUL bulunamadı → güvenli reddet
+}
+
 /// Rust tarafı RjCommand — `ffi_bridge.h`'daki RjCommand ile #[repr(C)] eşleşmeli.
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -405,14 +436,9 @@ fn rj_start_monitor_impl() {
             password: Arc::new(std::sync::RwLock::new(None)),
         });
         {
-            // Spawn öncesi log
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true).append(true)
-                .open("C:\\reji-studio\\ws_debug.log")
-            {
-                use std::io::Write;
-                let _ = writeln!(f, "[FFI] rj_start_monitor_impl: spawning WS server task");
-            }
+            // Spawn öncesi log — I21: hardcoded path yerine ws_server::log_to_file
+            // (taşınabilir %LOCALAPPDATA%\reji-studio\ws_debug.log, DRY).
+            ws_server::log_to_file("[FFI] rj_start_monitor_impl: spawning WS server task");
             let ws_state_clone = ws_state.clone();
             runtime.spawn(async move {
                 ws_server::serve(vec![7070, 7071, 7072, 7073], "127.0.0.1", ws_state_clone).await;
@@ -579,14 +605,10 @@ pub extern "C" fn rj_command_drain(out: *mut RjCommand, max: i32) -> i32 {
 #[no_mangle]
 pub extern "C" fn rj_connection_lost(reason: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(move || {
-        let msg = if reason.is_null() {
-            "<null>".to_owned()
-        } else {
-            // to_string_lossy replaces invalid UTF-8 bytes with U+FFFD — safe for untrusted C strings
-            unsafe { CStr::from_ptr(reason) }
-                .to_string_lossy()
-                .into_owned()
-        };
+        // I24: sınırlı okuma — NUL'suz/aşırı uzun reason OOB read yerine güvenli
+        // reddedilir. UTF-8 geçersiz baytlar U+FFFD'ye map'lenir (lossy).
+        let msg = unsafe { cstr_bounded(reason, MAX_FFI_STR_LEN) }
+            .unwrap_or_else(|| "<null-veya-gecersiz>".to_owned());
         warn!(target: "rj_srt", "connection_lost reason={}", msg);
         let Some(state) = FFI_STATE.get() else {
             eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_connection_lost ignored");
@@ -939,13 +961,11 @@ pub extern "C" fn rj_set_ws_password(password: *const c_char) -> bool {
             eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_set_ws_password ignored");
             return false;
         };
-        // null → None (auth kapalı). CStr trusted C++ Settings'ten; boş → None.
-        let pw: Option<String> = if password.is_null() {
-            None
-        } else {
-            let s = unsafe { CStr::from_ptr(password) }.to_string_lossy().into_owned();
-            if s.is_empty() { None } else { Some(s) }
-        };
+        // null/boş → None (auth kapalı). I24: sınırlı okuma; aşırı uzun
+        // (>MAX_FFI_STR_LEN) veya NUL'suz girdi de None döner (auth kapalı kalır,
+        // panik yok). Parola trusted C++ Settings'ten gelir; bu bir savunma katmanı.
+        let pw: Option<String> = unsafe { cstr_bounded(password, MAX_FFI_STR_LEN) }
+            .filter(|s| !s.is_empty());
         match state._ws_state.password.write() {
             Ok(mut guard) => {
                 *guard = pw;   // parola değeri LOGLANMAZ (yalnız set gerçeği)
@@ -989,9 +1009,17 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
                 PathBuf::from("rules.json")
             }
         } else {
-            // SAFETY: C++ geçerli UTF-8 string geçirmeli
-            let cstr = unsafe { CStr::from_ptr(path) };
-            PathBuf::from(cstr.to_string_lossy().as_ref())
+            // I24: sınırlı okuma — aşırı uzun (>MAX_FFI_PATH_LEN) veya NUL'suz
+            // path OOB read yerine güvenli reddedilir (reload başarısız = 0).
+            // Dizin-kısıtı EKLENMEDİ: rj_reload_rules'ın üretimde C++ çağrısı yok,
+            // kısıt spekülatif olurdu (bkz. TALIMAT_SPRINT3_GRUPB I24-b kararı).
+            match unsafe { cstr_bounded(path, MAX_FFI_PATH_LEN) } {
+                Some(s) => PathBuf::from(s),
+                None => {
+                    warn!("rj_reload_rules: geçersiz/aşırı uzun path (>{}B) — reddedildi", MAX_FFI_PATH_LEN);
+                    return 0;
+                }
+            }
         };
 
         match RuleEngine::new(&path_str) {
@@ -1097,6 +1125,49 @@ mod tests {
     #[test]
     fn test_push_null_does_not_crash() {
         rj_metrics_push(std::ptr::null());
+    }
+
+    // --- I24: cstr_bounded sınırlı okuma ---
+
+    #[test]
+    fn cstr_bounded_null_returns_none() {
+        assert_eq!(unsafe { cstr_bounded(std::ptr::null(), 256) }, None);
+    }
+
+    #[test]
+    fn cstr_bounded_reads_normal_nul_terminated() {
+        let c = std::ffi::CString::new("rules.json").unwrap();
+        let s = unsafe { cstr_bounded(c.as_ptr(), MAX_FFI_PATH_LEN) };
+        assert_eq!(s.as_deref(), Some("rules.json"));
+    }
+
+    #[test]
+    fn cstr_bounded_empty_string_is_some_empty() {
+        let c = std::ffi::CString::new("").unwrap();
+        assert_eq!(unsafe { cstr_bounded(c.as_ptr(), 16) }.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn cstr_bounded_rejects_when_nul_beyond_limit() {
+        // 100 baytlık string, sınır 10 → NUL sınır içinde yok → None (güvenli reddet).
+        let long = std::ffi::CString::new("a".repeat(100)).unwrap();
+        assert_eq!(unsafe { cstr_bounded(long.as_ptr(), 10) }, None);
+    }
+
+    #[test]
+    fn cstr_bounded_accepts_exactly_at_limit() {
+        // 5 bayt + NUL; sınır tam olarak NUL'un okunmasına izin verecek kadar (>=5).
+        let c = std::ffi::CString::new("abcde").unwrap();
+        assert_eq!(unsafe { cstr_bounded(c.as_ptr(), 5) }, None); // 5 içinde NUL[idx5] okunmaz
+        assert_eq!(unsafe { cstr_bounded(c.as_ptr(), 6) }.as_deref(), Some("abcde"));
+    }
+
+    #[test]
+    fn cstr_bounded_invalid_utf8_is_lossy() {
+        // 0xFF geçersiz UTF-8 → U+FFFD; panik yok.
+        let bytes = [0xFFu8, b'a', 0x00];
+        let s = unsafe { cstr_bounded(bytes.as_ptr() as *const c_char, 16) };
+        assert_eq!(s.as_deref(), Some("\u{FFFD}a"));
     }
 
     #[test]
