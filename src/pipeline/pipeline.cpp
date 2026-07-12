@@ -209,7 +209,9 @@ struct Pipeline::Impl {
     std::atomic<uint32_t> frame_drops{0};
 
     // Aşama-0 test seam: son run_frame() metrik örneği (get_last_metric_sample).
-    // Yalnızca frame thread yazar/okur; rj_metrics_poll stub olduğu için gerekli.
+    // Yalnızca frame thread yazar/okur. rj_metrics_poll (V8/I14) artık implemente
+    // ama agregeli MetricState'ten pull eder; bu seam deterministik per-frame değeri
+    // karakterizasyon için ayrı tutar.
     RjMetricSample last_sample_{};
 
     // apply_frame_cmd: SPSC ring'ten tüketilen komutu Encode'a uygular.

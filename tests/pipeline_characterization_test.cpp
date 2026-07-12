@@ -9,9 +9,10 @@
 // değişti mi" kontrol edilir.
 //
 // Gözlem noktası: Pipeline::get_last_metric_sample() (Aşama-0 test seam).
-// rj_metrics_poll() güvenilir değildir (üç ayrı yerde tanımlı stub; Zig/C
-// sürümleri out'u yok sayıp 0 döndürür — docs/reviews'da belgeli), bu yüzden
-// FFI round-trip yerine doğrudan pipeline'dan okunur.
+// rj_metrics_poll() V8/I14'te Rust'ta implemente edildi (MetricState pull), ama
+// agregeli state'i async drainer üzerinden yansıttığından karakterizasyon için
+// deterministik değildir; bu yüzden FFI round-trip yerine per-frame değer
+// doğrudan pipeline'dan (frame-thread-yerel seam) okunur.
 //
 // ORTAM NOTU: Anlamlı (sıfırdan farklı) veri yalnızca gerçek DXGI capture +
 // ekran olan dev makinesinde üretilir. GPU/ekran olmayan headless CI'da init()

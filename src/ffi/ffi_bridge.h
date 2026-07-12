@@ -19,7 +19,8 @@ extern "C" {
 #endif
 
 /* ── RjMetricSample: canonical C++ alias for MetricSample ──────────────── */
-/* Layout identical (56 bytes); field 'source_id' (0=video, 1=audio) is at offset +51 */
+/* Layout identical (64 bytes); field 'source_id' (0=video, 1=audio) is at    */
+/* offset +55, magic_tail at +56 (bkz. ffi_auto.h / metrics.rs).              */
 typedef MetricSample RjMetricSample;
 
 /* ── Bridge-specific constants ──────────────────────────────────────────── */

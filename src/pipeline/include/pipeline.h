@@ -118,7 +118,9 @@ public:
     bool get_last_frame_images(VkImage* out_staging, VkImage* out_target);
 
     /// Aşama-0 test seam: son run_frame() tarafından üretilen metrik örneğini döndürür.
-    /// Karakterizasyon harness'i için gözlem noktası (rj_metrics_poll stub olduğundan).
+    /// Karakterizasyon harness'i için gözlem noktası: rj_metrics_poll (V8/I14) artık
+    /// Rust'ta implemente ama agregeli MetricState'ten pull eder ve async drainer'a
+    /// bağlıdır; bu seam ise frame-thread-yerel, deterministik ve tam per-frame değer verir.
     /// Frame-thread'den çağrılmalı (run_frame ile aynı thread). Additive, salt-okunur.
     /// Returns false if no sample has been produced yet.
     bool get_last_metric_sample(RjMetricSample* out) const;
