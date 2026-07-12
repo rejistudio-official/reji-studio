@@ -294,19 +294,17 @@ ID3D11Texture2D* GpuResourceManager::transfer(ID3D11Texture2D* src) {
     // desteklenmiyor; create_cross_adapter_shared() her zaman başarısız olur →
     // init() (satır ~254-257) her zaman use_cpu_fallback_=true yapar, transfer()
     // yukarıdaki use_cpu_fallback_ dalından asla çıkamaz).
-    // Buraya ulaşılıyorsa (örn. farklı donanım/sürücü), AŞAĞIDAKI KOD SENKRONİZASYON
-    // İÇERMİYOR — encode_gpu_ okumaya başlamadan önce display_gpu_ yazmasının bittiği
-    // garanti edilmiyor (eski keyed-mutex/copy_fence_ denemesi V8/I30'da ölü kod
-    // olarak kaldırıldı, yerine bir şey konmadı). Bu dala fiilen giriliyorsa, önce
-    // gerçek bir senkronizasyon mekanizması (fence/keyed-mutex) eklenmeden GÜVENLİ
-    // DEĞİLDİR.
-    fprintf(stderr, "[GpuRM] WARNING: cross-adapter path reached — see V8/I30 comment, sync missing\n");
-    auto* ctx = display_gpu_->d3d_context();
-    ctx->CopyResource(shared_tex_display_.Get(), src);
-    ctx->Flush();
-    // wait_display_gpu_idle() kaldırıldı (dead code) — bu satır artık
-    // SENKRONİZASYONSUZ. Yukarıdaki uyarı log'u budur.
-    return encode_tex_.Get();
+    // V9/J3 FAIL-CLOSED: Buraya ulaşılıyorsa (örn. paylaşımın desteklendiği farklı
+    // donanım/sürücü), senkronsuz bir CopyResource GÜVENLİ DEĞİL — encode_gpu_
+    // okumaya başlamadan önce display_gpu_ yazmasının bittiği garanti edilmiyor
+    // (eski keyed-mutex/copy_fence_ denemesi V8/I30'da ölü kod olarak kaldırıldı,
+    // yerine bir şey konmadı). Cross-adapter NVENC (ROADMAP E7) gerçek bir
+    // senkronizasyon mekanizması (keyed mutex + fence) tamamlanana dek etkin
+    // DEĞİLDİR; bu yol o zamana kadar veri döndürmez. Senkronsuz kopya yapıp
+    // bozuk/yarış-koşullu bir kare döndürmektense fail-closed (nullptr) dönüyoruz —
+    // çağıran (capture_dxgi.cpp) null'ı zaten zarifçe ele alıyor.
+    fprintf(stderr, "[GpuRM] WARNING: cross-adapter path reached — sync missing (V8/I30, ROADMAP E7), failing closed\n");
+    return nullptr;
 }
 
 void GpuResourceManager::shutdown() {
