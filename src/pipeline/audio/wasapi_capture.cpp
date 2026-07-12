@@ -87,17 +87,23 @@ WasapiCapture::~WasapiCapture() { (void)shutdown(); }
 // ============================================================================
 // init
 // ============================================================================
-bool WasapiCapture::init(const Config& cfg, AudioFrameCallback fn, void* ud) {
+bool WasapiCapture::init(const Config& cfg, AudioFrameCallback fn, void* ud,
+                         ConnectionLostCallback on_conn_lost, MetricsCallback on_metrics) {
     if (initialized_.load(std::memory_order_acquire)) return false;
     if (!fn)                                          return false;
+    // V8/I18: FFI sink'leri zorunlu — non-null garantisi, çağrı noktaları
+    // koşulsuz çağırabilsin (eski doğrudan ::rj_* çağrılarıyla birebir eşdeğer).
+    if (!on_conn_lost || !on_metrics)                 return false;
     if (cfg.channels == 0 || cfg.channels > kMaxChannels)   return false;
     if (cfg.sample_rate < 8000 || cfg.sample_rate > 192000) return false;
     if (cfg.bit_depth != 16 && cfg.bit_depth != 32)         return false;
     if (cfg.buffer_ms == 0 || cfg.buffer_ms > 1000)         return false;
 
-    cfg_         = cfg;
-    callback_fn_ = fn;
-    callback_ud_ = ud;
+    cfg_          = cfg;
+    callback_fn_  = fn;
+    callback_ud_  = ud;
+    conn_lost_fn_ = on_conn_lost;
+    metrics_fn_   = on_metrics;
 
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (hr == RPC_E_CHANGED_MODE) {
@@ -365,7 +371,7 @@ void WasapiCapture::release_engine() {
 // ============================================================================
 void WasapiCapture::on_device_change(const char* reason) {
     device_dirty_.store(true, std::memory_order_release);
-    ::rj_connection_lost(reason);
+    conn_lost_fn_(reason, callback_ud_);  // V8/I18: doğrudan ::rj_connection_lost yerine sink
     if (wake_event_) ::SetEvent(wake_event_.get());
 }
 
@@ -399,7 +405,7 @@ bool WasapiCapture::capture_loop() {
                                 &fl, &dev_pos, &qpc_100ns);
             if (FAILED(hr)) {
                 if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
-                    ::rj_connection_lost("audio-device-invalidated");
+                    conn_lost_fn_("audio-device-invalidated", callback_ud_);  // V8/I18: sink
                 return false;
             }
 
@@ -564,7 +570,7 @@ void WasapiCapture::publish_metrics(int64_t now) {
     s.cpu_percent  = compute_cpu_percent();
     s.frame_drops  = frame_drops_.exchange(0, std::memory_order_relaxed);
     s.source_id    = 1;  // audio
-    ::rj_metrics_push(&s);
+    metrics_fn_(&s, callback_ud_);  // V8/I18: doğrudan ::rj_metrics_push yerine sink
 }
 
 } // namespace reji::pipeline::audio

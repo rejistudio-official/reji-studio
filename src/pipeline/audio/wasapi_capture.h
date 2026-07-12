@@ -80,6 +80,14 @@ public:
         void*        user_data
     );
 
+    // V8/I18: Katman ihlali giderme — düşük seviyeli capture kodu FFI'yi
+    // (rj_connection_lost / rj_metrics_push) DOĞRUDAN çağırmaz; bu ham
+    // fonksiyon-pointer'lar üzerinden üst katmana (AudioSubsystem) yönlendirir.
+    // AudioFrameCallback ile aynı sözleşme: blocking, allocation-free,
+    // exception-free. Gerçek FFI çağrısı orchestrator-yüzlü katmanda yapılır.
+    typedef void (*ConnectionLostCallback)(const char* reason, void* user_data);
+    typedef void (*MetricsCallback)(const RjMetricSample* sample, void* user_data);
+
     WasapiCapture();
     ~WasapiCapture();
     WasapiCapture(const WasapiCapture&)            = delete;
@@ -90,8 +98,11 @@ public:
     /// başlatır. Yakalama henüz aktif değildir (start() çağrılmalı).
     /// @param fn    Ses karesi callback'i — null geçilemez.
     /// @param ud    Callback'e iletilecek kullanıcı verisi (null kabul edilir).
+    /// @param on_conn_lost  V8/I18: bağlantı-kaybı FFI yönlendirmesi — null geçilemez.
+    /// @param on_metrics    V8/I18: metrik-push FFI yönlendirmesi — null geçilemez.
     /// @return true: hazır; false: hata.
-    bool init(const Config& cfg, AudioFrameCallback fn, void* ud = nullptr);
+    bool init(const Config& cfg, AudioFrameCallback fn, void* ud,
+              ConnectionLostCallback on_conn_lost, MetricsCallback on_metrics);
 
     /// Yakalama oturumunu açar (Audio Engine init + IAudioClient::Start).
     /// Exclusive mode başarısızsa otomatik shared mode fallback yapılır.
@@ -166,8 +177,11 @@ private:
 
     // ---- runtime config / format ----
     Config             cfg_{};
-    AudioFrameCallback callback_fn_{nullptr};
-    void*              callback_ud_{nullptr};
+    AudioFrameCallback     callback_fn_{nullptr};
+    void*                  callback_ud_{nullptr};
+    // V8/I18: FFI yönlendirme sink'leri — init'te non-null zorunlu (fail-fast).
+    ConnectionLostCallback conn_lost_fn_{nullptr};
+    MetricsCallback        metrics_fn_{nullptr};
     std::atomic<uint32_t> actual_sample_rate_{0};
     std::atomic<uint32_t> actual_channels_{0};
     std::atomic<uint32_t> actual_bits_{0};

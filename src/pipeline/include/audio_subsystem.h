@@ -26,6 +26,13 @@ public:
     static void on_audio(const float*, uint32_t, uint32_t, uint32_t,
                          int64_t, void*) noexcept;
 
+    // V8/I18: WasapiCapture'ın FFI'yi doğrudan çağırmasını engelleyen ince
+    // passthrough'lar. Orchestrator-yüzlü bu katman gerçek ::rj_* çağrısını
+    // yapar; capture katmanı yalnız sink'e delege eder. Argümanlar birebir
+    // forward edilir — davranışsal eşdeğerlik (aynı arg/sıra/koşul) korunur.
+    static void on_connection_lost(const char* reason, void* ud) noexcept;
+    static void on_metrics(const RjMetricSample* sample, void* ud) noexcept;
+
     // WasapiCapture oluşturur + init eder. Başarısızlıkta audio_ reset, false döner.
     bool init(const Config& cfg, Callback cb);
 
