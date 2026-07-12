@@ -1006,6 +1006,9 @@ altyapisina bakilmali).
 
 ### I16 — query_gpu_load_pct Hot-Path Alloc
 
+**[✅ ÇÖZÜLDÜ — 12.07, Grup A]** `gpu_pdh_buf_` üye eklendi; `metrics_collector.cpp`
+yalnız büyüdükçe resize ediyor (1Hz poll'de per-çağrı alloc yok).
+
 **Kaynak:** Fable 5 (2.2) + Opus 4.8 (4.5) — identik bulgu.
 
 **Sorun:** `std::vector<BYTE> buf(buf_bytes)` her 1Hz pollde yeniden
@@ -1018,6 +1021,13 @@ alloc ediliyor.
 ---
 
 ### I17 — Iki Rakip Frame-Pacing Implementasyonu
+
+**[✅ KAPANDI (c) — 12.07, Grup A]** Öncül kısmen ÇÜRÜK: `DxgiFramePacing` sınıfı
+üretimde HİÇ instantiate edilmemişti (member yok, `poll_frame_stats` hiç çağrılmıyor)
+→ "iki pacing eş zamanlı çalışıyor" doğru değil. Tek otorite `FramePacer::pace()`
+(pipeline.cpp:685). Ölü `frame_pacing.{h,cpp}` + orphan test + CMake/build.zig
+kayıtları kaldırıldı. (FramePacer::pace()'in DXGI-acquire'a karşı gereksizliği
+yalnız ölü DXGI capture yolunda geçerliydi — WGC aktif; runtime ölçüm gerektirmez.)
 
 **Kaynak:** Opus 4.8 (5.3) — tek kaynak, onemli mimari bulgu.
 
@@ -1145,6 +1155,10 @@ bolgesi, ayni test kapsamı).
 > kategoriye — bitrate/resolution/fps — bağlandı, source dahil edilmedi). Öneri:
 > kaldır ya da gerçek source-switch aksiyonu gelene kadar gizle. Düşük öncelik,
 > davranışsal etki yok.
+>
+> **[✅ ÇÖZÜLDÜ — 12.07, Grup A]** Kaldırıldı: `settings_dialog.{cpp,h}`'ten
+> checkbox + `isSourceAuto()` getter (tüketicisi yoktu); ffi.rs/main_window.cpp
+> yorumları güncellendi.
 
 ---
 
@@ -1166,6 +1180,10 @@ pattern'i tekrar kullan). `freopen` donus degerini kontrol et.
 ---
 
 ### I22 — Bayat ABI Yorum Satirlari
+
+**[✅ ÇÖZÜLDÜ — 12.07, Grup A]** `ffi_bridge.h` I14'te düzelmişti; kalan:
+`metrics.rs`/`ffi_auto.h` doc "60 byte"→64, `check-abi.ps1` beklenen 56→64/52→56
+(sizeof_check.cpp zaten doğruydu → wrapper artık kırık değil).
 
 **Kaynak:** Fable 5 (5.2) + Opus 4.8 (1.1) — identik bulgu, ayni
 rakamlar (56B/+51 vs gercek 64B/+55).
@@ -1201,6 +1219,9 @@ caller-supplied path'i yok say; uzunluk sinirli varyant ekle.
 
 ### I25 — zig_win32_compat.c Stack Guard Fallback Sabit
 
+**[✅ ÇÖZÜLDÜ — 12.07, Grup A]** `init_stack_guard`: BCrypt başarısızsa
+`__rdtsc() ^ (pid * golden_ratio) ^ &stack` fallback'i (sabit 0xDEADBEEF yerine).
+
 **Kaynak:** Fable 5 (6.7) — tek kaynak, dusuk olasilikli senaryo.
 
 **Cozum:** `BCryptGenRandom` basarisiz olursa `__rdtsc()` +
@@ -1209,6 +1230,9 @@ caller-supplied path'i yok say; uzunluk sinirli varyant ekle.
 ---
 
 ### I26 — Demo Fonksiyon Production Crate'te
+
+**[✅ ÇÖZÜLDÜ — 12.07, Grup A]** `lib.rs`'ten `add()` + `it_works` silindi
+(dış çağrısı yoktu). Rust test sayısı 60→59.
 
 **Kaynak:** Opus 4.8 (5.5) — tek kaynak, trivial temizlik.
 

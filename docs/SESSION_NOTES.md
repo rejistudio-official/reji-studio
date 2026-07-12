@@ -1,3 +1,30 @@
+## Oturum: 12 Temmuz 2026 — V8 Sprint 3-4 Grup A (Trivial Temizlik)
+
+Faz 0 ön-triyaj (11 madde I15-I18/I21-I26/I34): 9× (a), I23 → (b) ayrı talimat,
+I17 → (c) öncül çürük. Onaylı gruplama A→B→D. **Grup A tamamlandı** (6 commit
+`cd97ee8..3401437`):
+
+- **I26** — `lib.rs` demo `add()`+`it_works` silindi (dış çağrı yok). Rust 60→59 test.
+- **I34** — inert `chk_source_auto` checkbox + `isSourceAuto()` getter kaldırıldı
+  (source-switch aksiyonu yok, getter tüketicisiz). ffi.rs/main_window yorumları güncel.
+- **I25** — `zig_win32_compat.c` stack guard: BCrypt-fail'de sabit `0xDEADBEEF` yerine
+  `rdtsc ^ (pid*golden) ^ &stack` fallback.
+- **I16** — `query_gpu_load_pct` PDH buffer'ı üye (`gpu_pdh_buf_`), yalnız büyüdükçe
+  resize (1Hz alloc yok).
+- **I22** — bayat ABI: `metrics.rs`/`ffi_auto.h` doc 60→64 byte; `check-abi.ps1`
+  beklenen 56→64/52→56 (kırık wrapper düzeldi; `sizeof_check.cpp` zaten doğruydu).
+- **I17** (c kapanış) — `DxgiFramePacing` üretimde HİÇ instantiate edilmemişti (ölü);
+  "iki rakip pacing" öncülü çürük, tek otorite `FramePacer::pace()`. `frame_pacing.{h,cpp}`
+  + orphan test + CMake/build.zig kayıtları silindi; 2 skill örnek-ref repointlendi.
+
+**Doğrulama:** Rust 59+5+30 PASS; reji_app derlendi+linklendi (release orchestrator,
+CMake reconfigure ile — kaynak silindi); ctest 6/8 (PipelineCharacterization dahil),
+yalnız bilinen 2 kırık (FrameProfiler/ShaderCache). Hepsi kod incelemesi + build/test
+ile doğrulandı; runtime davranış ölçümü yapılmadı (Grup A'da gerekmedi).
+
+**Sırada:** Grup B (I21 hardcoded path/freopen + I24 CStr sınırlama), sonra Grup D
+(I15 metrics_push alloc + I18 wasapi katman ihlali). I23 (b) → ayrı GPU-interop talimatı.
+
 ## Oturum: 12 Temmuz 2026 — V8/I14 (rj_metrics_poll) + Sprint 2 Kapanışı
 
 ### Tamamlananlar
