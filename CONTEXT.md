@@ -67,7 +67,7 @@ Açık kalan: Twitch/YouTube gerçek platform ingest testi — stream key kullan
 ✅ Denendi, reddedildi. Yapısal sorularda isabetli ama davranışsal/negatif sorularda ("X yapılıyor mu") güvenilmez bulundu, grep/find-references'ın üstüne katma değeri kanıtlanmadı. Skill olarak eklenmedi.
 
 ### V8 Bug Planı (`docs/FABLE5_BUG_PLAN_V8.md`)
-Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I1-I33) öncelik sıralı düzeltme planı. **Sprint 1 ve Sprint 2 tamamen kapandı** (I14 son açık maddeydi, 12.07 kapandı):
+Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 34 maddelik (I1-I34) öncelik sıralı düzeltme planı. **Plan tamamen kapandı** (12.07) — I2/I3/I29/I31 çürütmeleri hariç tüm maddeler düzeltildi/kapandı. Sprint 3-4 (I15-I26, I34) Grup A/B/D + I23 (ayrı tur) olarak tamamlandı; **I23 son açık maddeydi**. Kanonik detay: `docs/FABLE5_BUG_PLAN_V8.md`.
 
 | Madde | Konu | Durum |
 |---|---|---|
@@ -85,10 +85,12 @@ Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I
 | I12 | MainWindow yıkım sırası | ✅ Düzeltildi (referans koparma) |
 | I13 | İlk kare sıralaması | ✅ Doğrulandı — zaten doğru gate'li |
 | I14 | `rj_metrics_poll` implemente değil | ✅ Düzeltildi (12.07 — Zig stub kaldırıldı, Rust'ta MetricState pull olarak implemente; push ile aynı kaynak. UI durum barı (fps/bitrate/drop%) artık canlı. `frame_drop_pct` MetricState'e eklendi. Sprint 1-2 KAPANDI. GUI görsel onayı kullanıcıda) |
-| I15-I18 | Sprint 3 (performans/mimari) | ⏳ Hiç dokunulmadı |
+| I15-I18 | Sprint 3 (performans/mimari) | ✅ Kapandı (12.07 — I15/I18 Grup D, I16/I17 Grup A; I17 ölü DxgiFramePacing silindi) |
 | I19 | HEALING_MODE semantiği 4 katmanda farklı | ✅ Düzeltildi (enum 4 varyanta genişletildi, + gerçek kök neden bulundu ve düzeltildi: C++ wiring boşluğu, aşağıya bakın) |
 | I20 | `evaluate_adaptive()` donmuş `self.mode` okuyor | ✅ Düzeltildi (canlı HEALING_MODE okuyor, `self.mode` alanı kaldırıldı) |
-| I21-I26 | Sprint 4 (temizlik) | ⏳ Hiç dokunulmadı |
+| I21-I26 | Sprint 4 (temizlik) | ✅ Kapandı (12.07 — Grup A: I25/I16/I22/I17/I26/I34; Grup B: I21/I24) |
+| I23 | Bridge/optimizer slot sayaçları bağımsız — drift | ✅ Kapandı (12.07, ayrı tur — bridge slotu tek doğruluk kaynağı; frame_counter_ emekliye. Yol WGC'de inert → statik analiz + SlotRing seam testi; **V8'in son maddesi**) |
+| I34 | inert chk_source_auto checkbox | ✅ Kapandı (Grup A — tüketicisiz UI öğesi kaldırıldı) |
 | I27 | ITransport SEH virtual-call riski | ✅ Düzeltildi (`noexcept` + iç try/catch) |
 | I28 | `oldLayout=UNDEFINED` validation | ✅ Kapandı — gerçek dual-GPU donanımda doğrulandı, kasıtlı tasarım |
 | I29 | Keyed mutex yanlış memory nesnesi | ✅ Çürütüldü — tek import 3 slota alias, sorun yok. Komşuda I32 bulundu |
