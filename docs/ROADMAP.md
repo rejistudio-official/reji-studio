@@ -982,6 +982,41 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
 - [ ] NdiOutputTransport (ITransport implementasyonu)
 - [ ] Test: vMix/OBS ile NDI üzerinden karşılıklı görüntü alışverişi
 
+## Mimari Not — Dağıtık Mimari Hedefi (orta-uzun vade)
+
+Projenin orta-uzun vadeli hedefi arasında dağıtık mimariye geçiş (çoklu
+makine üzerinde capture/encode/kontrol ayrımı) var. Bu not, o noktaya
+gelindiğinde hangi teknoloji kararının değerlendirileceğini kayda geçirir.
+
+**Kontrol düzlemi (komutlar, durum, metrik, sağlık sinyalleri):**
+Düğümler arası iç kontrol trafiği ihtiyacı doğduğunda **gRPC (Rust
+`tonic`)** ile mevcut WS/msgpack deseninin (`ws_server.rs`'nin obs-websocket
+dışı, iç kullanım için genişletilmiş hali) karşılaştırılması gerekiyor.
+Şu an için değerlendirme notları:
+
+- gRPC'nin kazancı: protobuf ile şema evrimi — dağıtık düğümlerde
+  versiyon uyuşmazlığı riski, in-process FFI'da (C++↔Rust) olmayan bir
+  sorun.
+- C++ tarafında `grpc` kütüphanesi ağır bir bağımlılık (protobuf codegen,
+  transitive dependency yükü) — mevcut minimal FFI felsefesiyle çelişir.
+- Zig tarafında gRPC ekosistemi olgun değil; muhtemelen C++ grpc client'ına
+  ek bir C ABI köprüsü (`ffi_bridge`/`external_memory_bridge` tarzı)
+  yazmak gerekir.
+- Alternatif: mevcut WS/msgpack + oturum-düzeyi auth (I8) + close-code
+  altyapısını iç kontrol kanalı olarak genişletmek — daha az yeni bağımlılık,
+  msgpack + Rust `serde` ile makul tip güvenliği.
+
+**Medya taşıma — kesin karar, tartışmaya kapalı:**
+Kare/ses verisi **her durumda NDI (Faz 4) ve SRT/RTMP'de (Faz 2) kalır,
+gRPC'ye taşınmaz.** gRPC streaming teknik olarak mümkün olsa da, NDI'nin
+zaten çözdüğü sorunu (codec-farkında, düşük gecikmeli, ağ/donanım optimize
+video taşıma) daha kötü yeniden icat etmek olur.
+
+**Şimdi implemente edilmiyor:** Faz 3 (ISource) henüz tek-süreç çoklu-kaynak
+aşamasında; gerçek çoklu-makine ihtiyacı yok. Bu not, ihtiyaç doğduğunda
+başlangıç noktası olması için kayda geçirilmiştir — YAGNI ilkesi gereği
+şimdiden bir prototip veya bağımlılık eklenmemiştir.
+
 ## Faz 5 — Zig Global State Tam Çözümü
 
 - [ ] external_memory_bridge.zig — state'i instance-level struct'a taşı
