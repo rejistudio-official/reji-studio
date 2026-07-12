@@ -40,6 +40,13 @@ public:
 
     bool is_active() const noexcept { return transport_ != nullptr; }
 
+    // V9/J2: I18 FFI-sink passthrough'ları (AudioSubsystem::on_connection_lost/
+    // on_metrics ile aynı rol). init() bunları cfg'ye enjekte eder; transport
+    // doğrudan ::rj_* yerine bu passthrough'ları çağırır. Yalnızca ::rj_*'a delege
+    // eder → davranış birebir korunur.
+    static void on_connection_lost(const char* reason, void* ud) noexcept;
+    static void on_metrics(const MetricSample* sample, void* ud) noexcept;
+
     // seh_shutdown_subsystems() ile uyum: SEH-leaf'e geçilecek raw pointer.
     rj::ITransport* raw() const noexcept { return transport_.get(); }
 

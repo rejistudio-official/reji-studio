@@ -225,6 +225,10 @@ struct SrtOutput::Impl {
     bool init_internal(const Config& cfg_in) noexcept {
         if (initialized.load(std::memory_order_acquire)) return false;
 
+        // V9/J2 (I18 sözleşmesi): FFI sink'leri zorunlu — OutputSubsystem daima set
+        // eder. null ise sessizce doğrudan ::rj_* çağırmak yerine init'i reddet.
+        if (!cfg_in.on_connection_lost || !cfg_in.on_metrics) return false;
+
         if (!com_guard.init_now()) return false;
         if (!SrtGlobalRegistry::instance().acquire()) return false;
 
@@ -299,7 +303,9 @@ struct SrtOutput::Impl {
         bool expected = false;
         if (notified_lost.compare_exchange_strong(expected, true,
                                                   std::memory_order_acq_rel)) {
-            rj_connection_lost(reason);
+            // V8/I18 deseni: doğrudan ::rj_connection_lost yerine sink (OutputSubsystem
+            // passthrough). init non-null garantiledi. Davranış birebir.
+            cfg.on_connection_lost(reason, cfg.sink_user_data);
         }
     }
 
@@ -422,7 +428,8 @@ struct SrtOutput::Impl {
                 m.cpu_percent  = 0.0f;
                 m.frame_drops  = 0;
                 m.magic_tail   = RJ_METRIC_MAGIC;
-                rj_metrics_push(&m);
+                // V8/I18 deseni: doğrudan ::rj_metrics_push yerine sink. Davranış birebir.
+                cfg.on_metrics(&m, cfg.sink_user_data);
 
                 this->last_metric_push_us_   = static_cast<int64_t>(ts_us);
                 this->bytes_since_last_push_ = 0;

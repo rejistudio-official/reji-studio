@@ -5,12 +5,25 @@
 #include <string>
 #include "reji_constants.h"
 
+// V9/J2: metrik sink imzası için RjMetricSample (== MetricSample) gerekir. Tam
+// tanım ffi_auto.h/ffi_bridge.h'da; burada yalnız pointer için forward-declare —
+// bu başlığı FFI/Windows başlıklarından bağımsız (Windows.h çekmez) tutar.
+struct MetricSample;
+
 namespace rj {
 
 enum class TransportProtocol : uint32_t {
     Srt  = 0,
     Rtmp = 1,   // Faz2/Aşama2.2 — düz rtmp:// (NO_CRYPTO, TLS kararı A)
 };
+
+// V9/J2: I18 FFI-sink deseni (wasapi ConnectionLostCallback/MetricsCallback ile
+// aynı sözleşme). Çıkış bileşeni doğrudan ::rj_* çağırmaz; OutputSubsystem bu
+// passthrough'ları set eder, transport onları çağırır. Böylece SRT bileşeni
+// app-FFI'dan ayrışır (test edilebilir). RtmpTransport bu alanları yok sayar —
+// latency_ms/bandwidth_kbps'in "SRT'ye özel, RTMP yok sayar" deseniyle aynı.
+using ConnectionLostSink = void (*)(const char* reason, void* user_data);
+using MetricsSink        = void (*)(const MetricSample* sample, void* user_data);
 
 class ITransport {
 public:
@@ -25,6 +38,12 @@ public:
         uint32_t    latency_ms     = rj::constants::kSrtLatencyMs;  // SRT'ye özel
         uint32_t    bandwidth_kbps = 0;   // 0 = sınırsız; SRT'ye özel, RTMP yok sayar
         bool        caller_mode    = true;
+
+        // V9/J2: FFI event sink'leri (SRT kullanır, RTMP yok sayar). OutputSubsystem
+        // daima non-null set eder; SRT init null ise başarısız olur (I18 sözleşmesi).
+        ConnectionLostSink on_connection_lost = nullptr;
+        MetricsSink        on_metrics         = nullptr;
+        void*              sink_user_data     = nullptr;
     };
 
     virtual ~ITransport() = default;

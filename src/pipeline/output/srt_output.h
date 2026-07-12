@@ -5,6 +5,9 @@
 #include <atomic>
 #include <memory>
 
+// V9/J2: metrik sink imzası için MetricSample (== RjMetricSample) forward-decl.
+struct MetricSample;
+
 namespace rj::pipeline::output {
 
 enum class RjError : int {
@@ -26,6 +29,12 @@ public:
         uint32_t latency_ms;     // SRT latency, varsayılan 200 ms
         uint32_t bandwidth_kbps; // 0 = sınırsız
         bool     caller_mode;    // true=caller, false=listener
+
+        // V9/J2: I18 FFI-sink'leri (SrtTransport, ITransport::Config'ten kopyalar).
+        // init() ikisinin de non-null olmasını ister; doğrudan ::rj_* yerine çağrılır.
+        void (*on_connection_lost)(const char* reason, void* ud) = nullptr;
+        void (*on_metrics)(const MetricSample* sample, void* ud)  = nullptr;
+        void*  sink_user_data                                    = nullptr;
     };
 
     SrtOutput();

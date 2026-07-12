@@ -12,6 +12,10 @@ bool SrtTransport::init(const Config& cfg) {
     scfg.latency_ms     = cfg.latency_ms;
     scfg.bandwidth_kbps = cfg.bandwidth_kbps;
     scfg.caller_mode    = cfg.caller_mode;
+    // V9/J2: FFI sink'lerini ITransport::Config'ten SrtOutput'a geçir (OutputSubsystem set etti).
+    scfg.on_connection_lost = cfg.on_connection_lost;
+    scfg.on_metrics         = cfg.on_metrics;
+    scfg.sink_user_data     = cfg.sink_user_data;
     return impl_.init(scfg);
 }
 

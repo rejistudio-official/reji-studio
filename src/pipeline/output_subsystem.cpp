@@ -5,6 +5,7 @@
 // (Aşama 4 saf çıkarma — baseline_metrics.txt ile doğrulanır; Faz2/Aşama1'de
 // somut SrtOutput yerine ITransport soyutlamasına geçildi, davranış korundu).
 #include "output_subsystem.h"
+#include "ffi_bridge.h"   // V9/J2: passthrough'lar ::rj_connection_lost/::rj_metrics_push çağırır
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -37,7 +38,24 @@ static int seh_srt_send(SrtSendArgs* a) noexcept {
 
 } // namespace
 
-bool OutputSubsystem::init(const Config& cfg) {
+// V9/J2: I18 passthrough'ları — çıkış bileşeninin ::rj_* FFI'ya doğrudan
+// bağımlılığını buraya (subsystem seam) taşır. AudioSubsystem::on_connection_lost/
+// on_metrics ile birebir aynı: yalnızca FFI'ya delege eder, user_data kullanılmaz.
+void OutputSubsystem::on_connection_lost(const char* reason, void*) noexcept {
+    ::rj_connection_lost(reason);
+}
+
+void OutputSubsystem::on_metrics(const MetricSample* sample, void*) noexcept {
+    ::rj_metrics_push(sample);
+}
+
+bool OutputSubsystem::init(const Config& cfg_in) {
+    // FFI sink'lerini enjekte et — SRT bunları çağırır, RTMP yok sayar.
+    Config cfg = cfg_in;
+    cfg.on_connection_lost = &OutputSubsystem::on_connection_lost;
+    cfg.on_metrics         = &OutputSubsystem::on_metrics;
+    cfg.sink_user_data     = nullptr;
+
     transport_ = rj::ITransport::create(cfg.protocol);
     if (!transport_->init(cfg)) {
         transport_.reset();
