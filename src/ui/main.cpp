@@ -6,6 +6,7 @@ extern "C" { __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <memory>
 #include "../pipeline/include/pipeline.h"
 #include "../pipeline/gpu/vulkan_initializer.h"
@@ -60,8 +61,26 @@ static int run_headless(int frames) {
 #include <QSurfaceFormat>
 #endif
 
+// I21: run.log'u hardcoded C:\reji-studio\ yerine taşınabilir
+// %LOCALAPPDATA%\reji-studio\ altına çözer. LOCALAPPDATA env var'ı kullanılır
+// (orchestrator paths.rs ile tutarlı; ekstra kütüphane linki gerekmez).
+static std::string resolve_run_log_path() {
+    char buf[MAX_PATH] = {0};
+    DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", buf, sizeof(buf));
+    std::string dir = (n > 0 && n < sizeof(buf)) ? std::string(buf) : std::string(".");
+    dir += "\\reji-studio";
+    CreateDirectoryA(dir.c_str(), nullptr); // varsa NOOP; hata (ör. zaten var) yutulur
+    return dir + "\\run.log";
+}
+
 int main(int argc, char* argv[]) {
-    freopen("C:\\reji-studio\\run.log", "w", stderr);
+    // I21: freopen dönüşü kontrol edilir. Başarısızsa (nullptr) log alt sistemi
+    // henüz kurulmadığından sessizce devam edilir (stderr konsolda kalır) +
+    // OutputDebugString ile görünür uyarı verilir. Sert-fail yok.
+    const std::string run_log_path = resolve_run_log_path();
+    if (freopen(run_log_path.c_str(), "w", stderr) == nullptr) {
+        OutputDebugStringA("[reji] UYARI: run.log acilamadi — stderr konsolda kaliyor\n");
+    }
     // --headless / --frames argümanlarını Qt başlamadan önce ayrıştır
     bool headless = false;
     int  frames   = 10;

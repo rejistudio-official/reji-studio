@@ -660,11 +660,13 @@ pub async fn serve(ports: Vec<u16>, bind_addr: &str, state: Arc<WsState>) {
     }
 }
 
-fn log_to_file(msg: &str) {
+// I21: Hardcoded path yerine taşınabilir %LOCALAPPDATA%\reji-studio\ws_debug.log.
+// pub(crate): ffi.rs de spawn logu için aynı yola yazmak üzere çağırır (DRY).
+pub(crate) fn log_to_file(msg: &str) {
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true).append(true)
-        .open("C:\\reji-studio\\ws_debug.log")
+        .open(crate::paths::log_path("ws_debug.log"))
     {
         let _ = writeln!(f, "{}", msg);
     }
