@@ -200,10 +200,11 @@ struct FfiState {
     _metric_state:     Arc<MetricState>,
     _runtime:          Runtime,
     media_tx:          broadcast::Sender<MediaEvent>,
-    ws_evt_tx:         broadcast::Sender<String>,      // Metrik eventleri → WS istemcileri
     rule_engine:       Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
     _ws_state:         Arc<WsState>,                   // WebSocket sunucu durumu
-    ws_json_buf:       Mutex<String>,                  // Tekrarlanan format! yerine reuse buffer
+    // V8/I15: ws_evt_tx + ws_json_buf kaldırıldı — JSON formatlama/broadcast
+    // hot-path'ten (rj_metrics_push) 16ms drainer task'ına taşındı. Broadcast
+    // Sender'ı artık drainer + WsState.evt_rx içinde yaşar (kanal canlı kalır).
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
@@ -303,15 +304,27 @@ fn rj_start_monitor_impl() {
         let event_bus     = EventBus::new();
         let metric_state  = MetricState::new();
 
-        // Metric drainer: 16ms periyotla ring buffer'ı boşaltıp EventBus'a iletir.
+        // V8/I15: WS metrik broadcast kanalı — drainer'a taşınan JSON/broadcast
+        // işi için drainer spawn'ından ÖNCE oluşturulur. Eskiden WsState kendi
+        // kanalını kurup FfiState.ws_evt_tx onu klonluyordu; artık TEK Sender
+        // hem drainer (üretici) hem WsState.evt_rx (tüketici abonelikleri) tarafından
+        // paylaşılır — iki ayrı kanal yok.
+        let ws_evt_tx = broadcast::channel::<String>(64).0;
+
+        // Metric drainer: 16ms periyotla ring buffer'ı boşaltıp EventBus'a iletir
+        // ve (V8/I15) WS istemcilerine metrik JSON'unu broadcast eder.
         {
             let ring       = metric_ring.clone();
             let bus_system = event_bus.system.clone();
             let bus_media  = event_bus.media.clone();
             let state      = metric_state.clone();
+            let evt_tx     = ws_evt_tx.clone();  // V8/I15: broadcast üretici ucu
             runtime.spawn(async move {
                 let mut ticker = tokio::time::interval(Duration::from_millis(16));
                 ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                // V8/I15: task-yerel reuse buffer — hot-path'teki Mutex<String>
+                // yerine (drainer tek task olduğu için kilit gerekmez).
+                let mut json_buf = String::with_capacity(128);
                 loop {
                     ticker.tick().await;
                     while let Some(sample) = ring.pop() {
@@ -320,6 +333,18 @@ fn rj_start_monitor_impl() {
                             continue;
                         }
                         state.update(&sample);
+                        // V8/I15: eskiden rj_metrics_push içinde inline yapılan JSON
+                        // formatlama + broadcast — çıktı formatı birebir korundu.
+                        {
+                            json_buf.clear();
+                            use std::fmt::Write as _;
+                            let _ = write!(json_buf,
+                                r#"{{"fps":{:.1},"kbps":{},"drop":{},"cpu":{},"gpu":{},"mem":{}}}"#,
+                                sample.fps_actual, sample.bitrate_kbps, sample.frame_drops,
+                                sample.cpu_load_pct, sample.gpu_load_pct, sample.memory_usage_pct
+                            );
+                            let _ = evt_tx.send(json_buf.clone());
+                        }
                         let _ = bus_system.send(SystemEvent::CpuUsage {
                             ratio: sample.cpu_percent / 100.0,
                         });
@@ -422,7 +447,7 @@ fn rj_start_monitor_impl() {
         // WebSocket kontrol sunucusu — 7070 öncelikli, meşgulse 7071/7072/7073'e düşer.
         let ws_state = Arc::new(WsState {
             cmd_tx: broadcast::channel(64).0,
-            evt_rx: broadcast::channel(64).0,
+            evt_rx: ws_evt_tx.clone(),  // V8/I15: drainer ile AYNI broadcast kanalı
             streaming_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             // FfiState._metric_state ile AYNI Arc — tek doğruluk kaynağı, iki instance yok.
             metric_state: metric_state.clone(),
@@ -478,10 +503,8 @@ fn rj_start_monitor_impl() {
             _metric_state: metric_state,
             _runtime: runtime,
             media_tx: event_bus.media.clone(),
-            ws_evt_tx: ws_state.evt_rx.clone(),
             rule_engine,
             _ws_state: ws_state,
-            ws_json_buf: Mutex::new(String::with_capacity(128)),
         }
     });
 }
@@ -495,8 +518,10 @@ pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
         if sample.is_null() {
             return;
         }
-        // SAFETY: C++ tarafı geçerli RjMetricSample* geçirir; layout MetricSample ile özdeş.
-        let s = unsafe { *sample };
+        // SAFETY: C++ tarafı geçerli RjMetricSample* geçirir; layout MetricSample
+        // ile özdeş. V8/I15: `read_unaligned` — hizasız pointer'da da UB'siz okuma
+        // (hizalıyken `*sample` ile bit-aynı değeri üretir, davranış değişmez).
+        let s = unsafe { core::ptr::read_unaligned(sample) };
         if !s.is_valid() {
             return;
         }
@@ -504,18 +529,10 @@ pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
             eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_metrics_push ignored");
             return;
         };
+        // V8/I15: hot-path yalnız non-blocking ring push. JSON formatlama +
+        // broadcast (eskiden burada inline: Mutex + write! + clone + send) 16ms
+        // drainer task'ına taşındı — hot-path'te heap alloc/kilit kalmadı.
         let _ = state.metric_ring.push(s);
-        {
-            let mut buf = state.ws_json_buf.lock().unwrap();
-            buf.clear();
-            use std::fmt::Write as _;
-            let _ = write!(buf,
-                r#"{{"fps":{:.1},"kbps":{},"drop":{},"cpu":{},"gpu":{},"mem":{}}}"#,
-                s.fps_actual, s.bitrate_kbps, s.frame_drops,
-                s.cpu_load_pct, s.gpu_load_pct, s.memory_usage_pct
-            );
-            let _ = state.ws_evt_tx.send(buf.clone());
-        }
     }))
     .map_err(|_| {
         eprintln!("[PANIC] rj_metrics_push caught panic");
