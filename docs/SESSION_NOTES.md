@@ -1,3 +1,28 @@
+## Oturum: 12 Temmuz 2026 — V8/I14 (rj_metrics_poll) + Sprint 2 Kapanışı
+
+### Tamamlananlar
+- **I14 — `rj_metrics_poll` implementasyonu (Sprint 2'nin son açık maddesi):**
+  - **Faz 0 teşhis:** Sorun link hatası değil — `ffi_bridge.zig`'deki stub daima `0`
+    döndürüyordu, `reji_orchestrator`'da Rust karşılığı yoktu. `MainWindow::pollMetrics`
+    çağrısı wired ama üreten uç boştu → UI durum barı (fps/bitrate/drop%) hiç güncellenmiyordu.
+  - **Kaynak kararı:** Geçici `metric_ring` 16ms'de bir arka plan drainer'ı tarafından
+    tam boşaltılıyor (healing'e besliyor) → poll oradan okusa yarışırdı. Doğru kaynak
+    agregeli `MetricState` (WS `GetStreamStatus` ile aynı otoriter state).
+  - **Fix (3 mantıksal adım):** (1) `MetricState`'e `frame_drop_pct` atomik + `snapshot()`
+    helper'ı (UI'ın okuduğu ama state'te olmayan tek alan). (2) `rj_metrics_poll` Rust'ta
+    (`ffi.rs`) — snapshot'ı `out`'a yazar, `1`/`0` döner, `catch_unwind`, WMI yok. (3) Zig
+    stub kaldırıldı (iki lib'de aynı sembol = LNK2005). Sembol artık Rust'tan çözülüyor.
+  - **Doğrulama:** 5 yeni metrics + 3 yeni ffi Rust testi PASS (toplam 60+5+30). reji_app
+    linklendi (release orchestrator). ctest 6/8 PASS — PipelineCharacterization dahil;
+    yalnız önceden bilinen 2 kırık (FrameProfiler/ShaderCache) kaldı, yeni kırık yok.
+  - **Sapmalar giderildi:** `ffi_bridge.h` yorumu 56→64 byte/+51→+55; test yorumu
+    "üç stub (Zig/C)" → tek Zig (ffi_bridge.c zaten kaldırılmış); pipeline seam yorumları
+    "stub olduğu için" → "deterministik per-frame karakterizasyon için".
+  - **GUI görsel onayı kullanıcıda** (fps/bitrate barının canlı güncellenmesi).
+  - **Sprint 1 ve Sprint 2 tamamen kapandı.**
+- **Gotcha (doğrulandı):** reji_app RELEASE orchestrator'a linkleniyor → `cargo build --release`
+  şart (debug yeterli değil); build/ NMake, vcvars64 VS18 Community; `zig build ffi` ayrı.
+
 ## Oturum: 30 Haziran 2026
 
 ### Tamamlananlar

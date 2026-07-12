@@ -71,6 +71,29 @@ void rj_metrics_push(const MetricSample *sample);
 
 ---
 
+### `rj_metrics_poll(out)` (V8/I14)
+
+```c
+__declspec(noinline) int rj_metrics_poll(RjMetricSample *out);
+```
+
+- **Yön:** Rust → C++ (pull). UI'ın anlık metrik göstergesi için (`MainWindow::pollMetrics`, Qt timer).
+- **Çağıran thread:** UI thread (frame thread DEĞİL — bkz. AGENTS.md YASAK: `run_frame`→poll→WMI).
+- **Davranış:** Agregeli `MetricState`'ten (push'un beslediği AYNI otoriter state; WS
+  `GetStreamStatus` ile aynı kaynak) bir snapshot üretip `out`'a yazar. Geçici
+  `metric_ring`'ten OKUMAZ — o drainer'a aittir, yarışmaz.
+- **Dönüş:** `1` → `out` dolduruldu. `0` → yazılmadı (`out == null` veya FFI_STATE init
+  değil). C++ tarafı `0`'da UI güncellemesini atlar (`if (rj_metrics_poll(&s) == 0) return;`).
+- **Alanlar:** `fps_actual`, `bitrate_kbps` (video), `cpu_percent`, `frame_drops` (kümülatif,
+  u32'e truncate), `frame_drop_pct`. MetricState'te tutulmayanlar (gpu/temp/network/mem) 0.
+  `source_id=0`, canary alanları geçerli set edilir.
+- **Bloklama/WMI:** Yok — yalnız atomik okuma (lock-free, non-blocking).
+- **Panic:** `catch_unwind` ile sarılı; panikte `0` döner.
+- **Not:** Implementasyon Rust'ta (`orchestrator/src/ffi.rs`); eski Zig stub (V8/I14'te)
+  kaldırıldı — aynı sembolü iki statik kütüphanede tanımlamak LNK2005 üretir.
+
+---
+
 ### `rj_command_drain(out, max)`
 
 ```c
@@ -254,14 +277,16 @@ int32_t rj_reload_rules(const char *path);
 
 ---
 
-### Bridge-specific (ffi_bridge.h — cbindgen dışı, C++ tarafında implement edilmiş)
+### Bridge-specific (ffi_bridge.h — cbindgen dışı)
 
 ```c
-int     rj_metrics_poll(RjMetricSample *out);  // pipeline.cpp — Qt timer callback'inden
-uint32_t rj_ffi_version(void);                 // RJ_FFI_VERSION = 0x00010000 döner
+int     rj_metrics_poll(RjMetricSample *out);  // Rust (ffi.rs) — MainWindow::pollMetrics, Qt timer
+uint32_t rj_ffi_version(void);                 // Zig (ffi_bridge.zig) — RJ_FFI_VERSION = 0x00010000
 ```
 
-Bu fonksiyonlar Rust'ta tanımlı değildir; C++ pipeline tarafında implement edilmiştir.
+- `rj_metrics_poll`: V8/I14'te Rust orchestrator'da implemente edildi (yukarıdaki kontrat).
+  Eskiden Zig stub'ıydı (daima 0), o kaldırıldı.
+- `rj_ffi_version`: Zig'de tanımlı (ABI sürüm sabiti).
 
 ---
 

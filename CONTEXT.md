@@ -67,7 +67,7 @@ Açık kalan: Twitch/YouTube gerçek platform ingest testi — stream key kullan
 ✅ Denendi, reddedildi. Yapısal sorularda isabetli ama davranışsal/negatif sorularda ("X yapılıyor mu") güvenilmez bulundu, grep/find-references'ın üstüne katma değeri kanıtlanmadı. Skill olarak eklenmedi.
 
 ### V8 Bug Planı (`docs/FABLE5_BUG_PLAN_V8.md`)
-Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I1-I33) öncelik sıralı düzeltme planı. Sprint 1'in neredeyse tamamı, Sprint 2'nin bir kısmı kapandı:
+Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I1-I33) öncelik sıralı düzeltme planı. **Sprint 1 ve Sprint 2 tamamen kapandı** (I14 son açık maddeydi, 12.07 kapandı):
 
 | Madde | Konu | Durum |
 |---|---|---|
@@ -84,7 +84,7 @@ Fable 5 + Opus 4.8'in bağımsız kod taramalarından türetilen, 33 maddelik (I
 | I11 | Çift action-queue consumer race | ✅ Düzeltildi (11.07, I33 serisi — iki-kuyruk mimarisi: aktüatör + ayrı UI event kuyruğu) |
 | I12 | MainWindow yıkım sırası | ✅ Düzeltildi (referans koparma) |
 | I13 | İlk kare sıralaması | ✅ Doğrulandı — zaten doğru gate'li |
-| I14 | `rj_metrics_poll` implemente değil | ⏳ Açık |
+| I14 | `rj_metrics_poll` implemente değil | ✅ Düzeltildi (12.07 — Zig stub kaldırıldı, Rust'ta MetricState pull olarak implemente; push ile aynı kaynak. UI durum barı (fps/bitrate/drop%) artık canlı. `frame_drop_pct` MetricState'e eklendi. Sprint 1-2 KAPANDI. GUI görsel onayı kullanıcıda) |
 | I15-I18 | Sprint 3 (performans/mimari) | ⏳ Hiç dokunulmadı |
 | I19 | HEALING_MODE semantiği 4 katmanda farklı | ✅ Düzeltildi (enum 4 varyanta genişletildi, + gerçek kök neden bulundu ve düzeltildi: C++ wiring boşluğu, aşağıya bakın) |
 | I20 | `evaluate_adaptive()` donmuş `self.mode` okuyor | ✅ Düzeltildi (canlı HEALING_MODE okuyor, `self.mode` alanı kaldırıldı) |
@@ -144,11 +144,10 @@ AMD Vulkan keyed-mutex copy_optimizer zinciri
 
 ## 5. Şu An Nerede Kaldık — Sıradaki Somut Adımlar
 
-Hiçbir acil/bloke eden iş yok. **I33+I11 (CoPilot onay kapısı) ve I8 (WS auth) 11.07'de tamamlandı** (bkz. bölüm 2 tablosu + `SESSION_NOTES.md` 11 Temmuz). Aşağıdakiler, öncelik sırasına göre makul sonraki adımlar — hangisiyle devam edileceği kullanıcı tercihine bağlı:
+Hiçbir acil/bloke eden iş yok. **I33+I11 (CoPilot onay kapısı) ve I8 (WS auth) 11.07'de, I9+I10+I14 12.07'de tamamlandı → Sprint 1-2 tamamen kapandı** (bkz. bölüm 2 tablosu + `SESSION_NOTES.md`). Aşağıdakiler, öncelik sırasına göre makul sonraki adımlar — hangisiyle devam edileceği kullanıcı tercihine bağlı:
 
-1. **I9, I10, I14** — Sprint 2'nin kalan düşük-orta öncelikli maddeleri.
-2. **Sprint 3-4 (I15-I18, I21-I26, + I34 inert checkbox)** — performans/mimari tutarlılık/temizlik, hiç dokunulmadı, çoğu düşük efor.
-3. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — ROADMAP'teki bir sonraki büyük faz, hiç başlanmadı. (Sonrasında Faz 4 — NDI, Faz 5 — Zig global state tam çözümü.)
+1. **Sprint 3-4 (I15-I18, I21-I26, + I34 inert checkbox)** — performans/mimari tutarlılık/temizlik, hiç dokunulmadı, çoğu düşük efor.
+2. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — ROADMAP'teki bir sonraki büyük faz, hiç başlanmadı. (Sonrasında Faz 4 — NDI, Faz 5 — Zig global state tam çözümü.)
 
 **Kullanıcının elinde bekleyen (Claude Code otonom yapamıyor):**
 - **WS auth tarayıcı doğrulaması (I8'i tam kapatır)** — control.html parolalı (prompt→bağlan / yanlış→4009 hata+retry) ve parolasız akış; opsiyonel: obs-websocket-js/simpleobsws ile parolalı bağlantı

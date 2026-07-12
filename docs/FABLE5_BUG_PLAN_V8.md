@@ -51,7 +51,7 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I11 | Opus        | Cift consumer race — C++ action thread (100ms poll) + UI'nin kendi 200ms poll'u ayni kuyruğu yariyor **[DÜZELTILDI 11.07 — I33 serisinde iki-kuyruk mimarisiyle: aktüatör kuyruğu (rj_action_dequeue) + AYRI UI event kuyruğu (rj_action_event_dequeue). İki tüketici artık farklı kuyruklar; yarış yapısal olarak yok. commit af42cdb (mimari) + b20608f (UI yönlendirme)]** | command_router.cpp, main_window.cpp | Yuksek | Sprint 2 |
 | I12 | Fable       | MainWindow yikim sirasi — GL widget paintGL yaparken copy_optimizer_.shutdown() cagrilabiliyor **[DÜZELTILDI 10.07: ~MainWindow'da stopFrameThread sonrasi, shutdown oncesi preview_widget_->setCopyOptimizer(nullptr)+setBridge(nullptr) eklendi — paintGL GUI thread'inde, referans koparildiktan sonra torn-down optimizer'a cagri yok. run.log sever→Shutdown-complete sirasi dogrulandi]** | main_window.cpp | Yuksek | Sprint 2 |
 | I13 | Opus        | GL render tamamlanmamis Vulkan blit sonucunu orneklyebiliyor — ilk kare sira hatasi **[DOĞRULANDI 10.07: ZATEN GATE'LI — current_pool_idx_=last_used_slot() bir onceki submit'in slot'unu gosterir (execute_copy yeni slot'a yazar), render'dan once o slot'un GL sync semaphore'unda glWaitSemaphoreEXT ile GPU-tarafi bekleme (preview_widget.cpp:584-590). Kod degismedi]** | preview_widget.cpp | Yuksek | Sprint 2 |
-| I14 | Fable       | rj_metrics_poll deklare edilmis ama Rust implementasyonu yok — UI metrik barı muhtemelen hic guncellenmiyor | ffi_bridge.h, main_window.cpp | Yuksek | Sprint 2 |
+| I14 | Fable       | ✅ ÇÖZÜLDÜ (12.07) — Zig stub kaldırıldı, Rust'ta MetricState pull olarak implemente; UI metrik barı canlı. `frame_drop_pct` MetricState'e eklendi. **Sprint 1-2 kapandı.** | ffi_bridge.h, main_window.cpp | Yuksek | Sprint 2 |
 | I15 | Fable+Opus  | rj_metrics_push hot-path'te mutex+heap alloc+String clone (RT ses/SRT thread) | ffi.rs | Orta | Sprint 3 |
 | I16 | Fable+Opus  | query_gpu_load_pct her 1Hz pollde vector alloc | metrics_collector.cpp | Orta | Sprint 3 |
 | I17 | Opus        | Iki rakip frame-pacing implementasyonu (FramePacer + DxgiFramePacing) cift pacing yapiyor | frame_pacer.cpp, frame_pacing.cpp | Orta | Sprint 3 |
@@ -962,6 +962,19 @@ Once hangi durumun gecerli oldugunu (link hatasi mi, stub mu) derleme
 loguyla dogrula.
 
 **Efor:** Dusuk-Orta — once teshis (build/link kontrolu), sonra fix.
+
+**✅ ÇÖZÜM (12.07):** Teşhis doğrulandı — link hatası değil, Zig stub'ı (`ffi_bridge.zig`)
+daima 0 döndürüyordu; `reji_orchestrator`'da Rust karşılığı yoktu. Fix:
+1. `MetricState`'e `frame_drop_pct` atomik alanı + `snapshot()` helper'ı eklendi
+   (UI'ın okuduğu ama state'te tutulmayan tek alan). Push'un beslediği AYNI state.
+2. `rj_metrics_poll` Rust'ta implemente edildi (`ffi.rs`) — `metric_ring`'ten (geçici,
+   drainer ile yarışır) DEĞİL, agregeli `MetricState`'ten pull eder. WS `GetStreamStatus`
+   ile aynı otoriter kaynak. Bloklamaz, WMI tetiklemez (AGENTS.md hot-path kuralı).
+3. Zig stub kaldırıldı (aksi halde iki statik kütüphanede aynı sembol → LNK2005).
+   Sembol artık Rust'tan çözülüyor; reji_app link doğrulandı.
+Testler: 5 yeni metrics + 3 yeni ffi Rust testi PASS; ctest PipelineCharacterization PASS
+(davranış korundu), yalnız önceden bilinen 2 kırık (FrameProfiler/ShaderCache) kaldı.
+Sapmalar giderildi: `ffi_bridge.h` yorumu 56→64 byte, test yorumu "üç stub" → tek Zig.
 
 ---
 
