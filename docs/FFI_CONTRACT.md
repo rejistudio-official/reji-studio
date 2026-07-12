@@ -61,10 +61,12 @@ void rj_metrics_push(const MetricSample *sample);
 
 - **Yön:** C++ → Rust
 - **Çağıran thread:** Pipeline frame thread (~60 fps sıcak yol) — `SrtOutput::send_internal()`
-- **Davranış:** `sample`'ı `metric_ring`'e yazar (non-blocking push). Başarıda WS
-  istemcilerine önceden ayrılmış `ws_json_buf` üzerinden JSON broadcast edilir.
+- **Davranış:** `sample`'ı `metric_ring`'e yazar (non-blocking, lock-free push) —
+  hot-path'te yapılan TEK iş budur. WS istemcilerine JSON broadcast'i ve `MetricState`
+  agregasyonu 16ms'lik drainer task'ında yapılır (V8/I15: alloc/format/`Mutex`
+  hot-path'ten çıkarıldı; `unsafe { *sample }` → `read_unaligned`).
 - **Null / canary hatası:** `sample == null` veya `magic_head`/`magic_tail` ≠ `0xEEFF1234`
-  ise sessizce atlanır — çağıran bilgilendirilmez.
+  ise sessizce atlanır — çağıran bilgilendirilmez, log yok (hot-path).
 - **Thread-safety:** `metric_ring` lock-free; `ws_json_buf` için `Mutex<String>` kilitlenir.
 - **Kuyruk doluysa:** Drop loglanmaz (metric_ring 256 slot; 60 fps push'ta dolması beklenmez).
 - **Panic:** `catch_unwind` ile sarılı.
@@ -375,7 +377,8 @@ C++:   typedef MetricSample RjMetricSample;  (ffi_bridge.h)
 
 **Canary doğrulama:** `MetricSample::is_valid()` hem `magic_head` hem `magic_tail`'ın
 `0xEEFF1234` (= `MetricSample_MAGIC` = `4009693748`) olduğunu kontrol eder.
-İkisi de yanlışsa `rj_metrics_push` sample'ı atar ve `warn!` logu yazar.
+İkisi de yanlışsa `rj_metrics_push` sample'ı sessizce atar (log yok — hot-path);
+drainer de ring'den okurken aynı doğrulamayı defansif olarak tekrarlar (V8/I15).
 
 ---
 

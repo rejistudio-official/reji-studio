@@ -52,10 +52,10 @@ bagimsiz konsensus, guven duzeyini artirir.
 | I12 | Fable       | MainWindow yikim sirasi — GL widget paintGL yaparken copy_optimizer_.shutdown() cagrilabiliyor **[DÜZELTILDI 10.07: ~MainWindow'da stopFrameThread sonrasi, shutdown oncesi preview_widget_->setCopyOptimizer(nullptr)+setBridge(nullptr) eklendi — paintGL GUI thread'inde, referans koparildiktan sonra torn-down optimizer'a cagri yok. run.log sever→Shutdown-complete sirasi dogrulandi]** | main_window.cpp | Yuksek | Sprint 2 |
 | I13 | Opus        | GL render tamamlanmamis Vulkan blit sonucunu orneklyebiliyor — ilk kare sira hatasi **[DOĞRULANDI 10.07: ZATEN GATE'LI — current_pool_idx_=last_used_slot() bir onceki submit'in slot'unu gosterir (execute_copy yeni slot'a yazar), render'dan once o slot'un GL sync semaphore'unda glWaitSemaphoreEXT ile GPU-tarafi bekleme (preview_widget.cpp:584-590). Kod degismedi]** | preview_widget.cpp | Yuksek | Sprint 2 |
 | I14 | Fable       | ✅ ÇÖZÜLDÜ (12.07) — Zig stub kaldırıldı, Rust'ta MetricState pull olarak implemente; UI metrik barı canlı. `frame_drop_pct` MetricState'e eklendi. **Sprint 1-2 kapandı.** | ffi_bridge.h, main_window.cpp | Yuksek | Sprint 2 |
-| I15 | Fable+Opus  | rj_metrics_push hot-path'te mutex+heap alloc+String clone (RT ses/SRT thread) | ffi.rs | Orta | Sprint 3 |
+| I15 | Fable+Opus  | ✅ ÇÖZÜLDÜ (12.07, Grup D) — JSON format+clone+broadcast+Mutex hot-path'ten 16ms drainer'a taşındı; hot-path yalnız lock-free ring.push; `read_unaligned` eklendi. Alloc/kilit sayısı 1→0 (kod incelemesi). | ffi.rs | Orta | Sprint 3 |
 | I16 | Fable+Opus  | query_gpu_load_pct her 1Hz pollde vector alloc | metrics_collector.cpp | Orta | Sprint 3 |
 | I17 | Opus        | Iki rakip frame-pacing implementasyonu (FramePacer + DxgiFramePacing) cift pacing yapiyor | frame_pacer.cpp, frame_pacing.cpp | Orta | Sprint 3 |
-| I18 | Opus        | wasapi_capture.cpp FFI'yi dogrudan cagiriyor — subsystem/orchestrator katmanini atliyor | wasapi_capture.cpp | Orta | Sprint 3 |
+| I18 | Opus        | ✅ ÇÖZÜLDÜ (12.07, Grup D) — wasapi 3 çağrı noktası (368/402/567) ConnectionLostCallback/MetricsCallback sink'lerine geçti; gerçek ::rj_* çağrısı AudioSubsystem passthrough'una taşındı (AudioFrameCallback deseni). Davranışsal eşdeğerlik kod incelemesiyle. | wasapi_capture.cpp | Orta | Sprint 3 |
 | I19 | Fable       | HEALING_MODE semantigi 4 katmanda (ffi.rs/healing.rs/ffi_bridge.h/UI) birbirinden farkli | healing.rs, ffi_bridge.h | Orta | Sprint 3 |
 | I20 | Fable       | evaluate_adaptive() constructor-frozen self.mode okuyor, atomic'i degil — Assist modu hep AutoPilot gibi davraniyor | healing.rs | Orta | Sprint 3 |
 | I21 | Fable+Opus  | Hardcoded C:\reji-studio\ yollari (3 dosyada) + freopen(stderr) kontrolsuz **[DÜZELTILDI]** | ffi.rs, ws_server.rs, main.cpp | Dusuk | Sprint 4 |
@@ -984,6 +984,23 @@ Sapmalar giderildi: `ffi_bridge.h` yorumu 56→64 byte, test yorumu "üç stub" 
 
 ### I15 — rj_metrics_push Hot-Path Alloc (RT Thread)
 
+**[✅ ÇÖZÜLDÜ — 12.07, Grup D]** Faz 0 haritalaması: hiçbir çağıran (video
+MetricsSubsystem::push, srt_output ~1/sn, wasapi periyodik) senkron garanti
+beklemiyor — üçü de `void` push'a veriyi teslim edip devam ediyor; broadcast
+WS istemcilerine fire-and-forget. Mutex yalnız reuse `String` tamponunu
+koruyordu (broadcast Sender zaten Sync). **Çözüm:** (1) `read_unaligned` ile
+hizasız-okuma UB'si kapatıldı; (2) JSON `write!`+`clone`+`broadcast::send`+
+`Mutex` hot-path'ten kaldırılıp 16ms drainer task'ına taşındı (task-yerel
+tampon, kilit yok); hot-path artık yalnız lock-free `metric_ring.push(s)`.
+`ws_evt_tx`/`ws_json_buf` FfiState'ten silindi; tek broadcast kanalı drainer
+(üretici) + WsState.evt_rx (tüketici) arasında paylaşılıyor. **Ölçüm (kod
+incelemesi, benchmark DEĞİL):** hot-path'te heap-alloc 1(String clone)→0,
+Mutex kilidi 1→0. **Gözlemlenebilir tek fark:** WS metrik broadcast'i
+push-anında-senkron → 16ms-drainer'da-toplu (≤16ms gecikme; push zaten ~1/sn
+throttle'lı → ihmal edilebilir). Ring-dolu (256 slot, ~1/sn'de imkânsız)
+durumunda örnek tamamen düşer. Doğrulama: 67 Rust test PASS, PipelineCharacterization
++ OutputSubsystem + SehFilter PASS, ctest 6/8 (bilinen 2 kırık).
+
 **Kaynak:** Fable 5 (2.3, 6.5) + Opus 4.8 (1.2, 2.1) — cift dogrulanmis,
 iki ayri acidan (guvenlik: unaligned read; performans: alloc+clone).
 
@@ -1048,6 +1065,25 @@ sadece DXGI fallback path'i icin gecerli olabilir).
 ---
 
 ### I18 — wasapi_capture.cpp FFI'yi Dogrudan Cagiriyor (Katman Ihlali)
+
+**[✅ ÇÖZÜLDÜ — 12.07, Grup D]** Faz 0 haritalaması: 3 çağrı noktası —
+368 (`on_device_change`, IMMNotificationClient cihaz-değişim), 402
+(`capture_loop`, `AUDCLNT_E_DEVICE_INVALIDATED` buffer hatası), 567
+(`publish_metrics`, periyodik). Mevcut desen `AudioFrameCallback` (ham
+fonksiyon-pointer + user_data, `init`'e enjekte) — I18 çözümünün istediği
+desenin ta kendisi. **Çözüm:** İki yeni ham fonksiyon-pointer typedef
+(`ConnectionLostCallback`, `MetricsCallback`) `init()`'e enjekte edildi
+(non-null zorunlu → çağrı noktaları koşulsuz çağırır, eski doğrudan `::rj_*`
+ile birebir). wasapi artık sink'e delege ediyor; gerçek `::rj_connection_lost`/
+`::rj_metrics_push` çağrısı `AudioSubsystem::on_connection_lost`/`on_metrics`
+passthrough'una taşındı. **Onaylı karar:** metrik passthrough'a SEH
+EKLENMEDİ (video yolundaki MetricsSubsystem::push'ta var, ama eklemek davranış
+değişikliği olurdu — "bir bit değişmemeli" hedefi). **Davranışsal eşdeğerlik:
+kod incelemesiyle** doğrulandı (aynı arg/sıra/koşul; fonksiyon-pointer çağrısı
+senkron → zamanlama birebir) — cihaz-kaybı runtime simülasyonu YAPILMADI
+(plan bunu kod incelemesine izin veriyor). self-healing zinciri
+(`rj_connection_lost`→`MediaEvent::SourceDisconnected`→reconnect) korundu.
+Doğrulama: reji_app derlendi+linklendi, PipelineCharacterization PASS.
 
 **Kaynak:** Opus 4.8 (5.2) — tek kaynak, test edilebilirlik sorunu.
 

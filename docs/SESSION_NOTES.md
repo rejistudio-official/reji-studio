@@ -1,3 +1,46 @@
+## Oturum: 12 Temmuz 2026 — V8 Sprint 3-4 Grup D (Hot-Path Metrics + Wasapi Katman İhlali)
+
+Grup D, Sprint 3-4'ün **en riskli** grubu — hedef "davranış hiç değişmemeli"
+(bilinçli değişiklik değil, sessiz regresyon riski en yüksek). Faz 0-tamamlayıcı
+haritalaması + Faz 1 tasarımı 2 karar noktasıyla onaya sunuldu → ikisi de önerilen
+onaylandı. **Grup D tamamlandı** (I18 önce, sonra I15):
+
+- **I18 — wasapi katman ihlali (davranışsal eşdeğerlik):** Faz 0: 3 çağrı noktası
+  (368 `on_device_change`/cihaz-değişim, 402 `capture_loop`/`AUDCLNT_E_DEVICE_INVALIDATED`,
+  567 `publish_metrics`/periyodik). Mevcut `AudioFrameCallback` deseni (ham fn-pointer
+  + user_data) çözümün istediği desen. İki yeni typedef (`ConnectionLostCallback`,
+  `MetricsCallback`) `WasapiCapture::init`'e enjekte (non-null zorunlu → çağrı noktaları
+  koşulsuz, eski `::rj_*` ile birebir). Gerçek FFI çağrısı `AudioSubsystem::on_connection_lost`/
+  `on_metrics` passthrough'una taşındı. **Onaylı karar:** metrik passthrough'a SEH
+  eklenmedi (eklemek davranış değişikliği olurdu). Eşdeğerlik **kod incelemesiyle**
+  (aynı arg/sıra/koşul; senkron fn-pointer çağrısı) — cihaz-kaybı runtime simülasyonu
+  YAPILMADI (plan izin veriyor). self-healing zinciri korundu.
+- **I15 — rj_metrics_push hot-path alloc→drainer:** Faz 0: hiçbir çağıran senkron
+  garanti beklemiyor (üçü de void push'a teslim edip devam); Mutex yalnız reuse `String`
+  tamponunu koruyordu (broadcast Sender zaten Sync); drainer eskiden JSON/broadcast'e
+  dokunmuyordu. **Onaylı karar:** `read_unaligned` dahil edildi. JSON `write!`+`clone`+
+  `broadcast::send`+`Mutex` hot-path'ten 16ms drainer task'ına taşındı (task-yerel tampon,
+  kilit yok); hot-path artık yalnız lock-free `metric_ring.push(s)`. `ws_evt_tx`/`ws_json_buf`
+  FfiState'ten silindi; tek broadcast kanalı drainer + WsState.evt_rx paylaşımlı.
+
+**Ölçüm (kod incelemesi, mikro-benchmark DEĞİL — dürüstlük):** I15 hot-path'te
+heap-alloc 1(String clone)→0, Mutex kilidi 1→0. **I15 gözlemlenebilir tek fark:** WS
+metrik broadcast'i push-anında-senkron → 16ms-drainer'da-toplu (≤16ms gecikme; push zaten
+~1/sn throttle → ihmal edilebilir); ring-dolu (256 slot, ~1/sn'de imkânsız) durumunda
+örnek düşer.
+
+**Doğrulama:** Rust lib 67 PASS (değişmedi); release orchestrator derlendi (4 uyarı,
+önceden var — `default_mode` vb.); reji_app derlendi+linklendi (C4324 padding uyarısı
+`alignas(64) scratch_`'ten, önceden var); ctest 6/8 — **PipelineCharacterization +
+OutputSubsystemTest + SehFilterTest PASS** (davranış taban çizgisi + SRT push yolu +
+SEH korundu), yalnız bilinen 2 kırık (FrameProfiler/ShaderCache). I15 asenkronlaşan
+broadcast'in GUI'de canlı metrik barına etkisi (görsel) kullanıcı onayında.
+
+**Sırada:** I23 (b) → ayrı GPU-interop talimatı (execute_copy slot). Sprint 3-4'ün
+kalan (a)-sınıfı maddeleri kapandı.
+
+---
+
 ## Oturum: 12 Temmuz 2026 — V8 Sprint 3-4 Grup B (Girdi/Ortam Sertleştirme)
 
 Faz 0 ön-triyajı (Grup A oturumunda) onaylıydı; bu oturumda Faz 1 yaklaşımı 3 karar
