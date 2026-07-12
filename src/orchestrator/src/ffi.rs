@@ -200,8 +200,8 @@ pub(crate) fn next_action_id() -> u32 {
 }
 
 /// V8/I33c: Aksiyon kategorileri — UI'ın 3 auto-onay grubuyla (bitrate/
-/// resolution/fps) eşleşir. (`chk_source_auto` UI'da var ama karşılık gelen
-/// source-switch aksiyon tipi yok — inert; V8 Sprint 4 temizlik maddesi.)
+/// resolution/fps) eşleşir. (V8/I34: eski inert `chk_source_auto` UI'dan
+/// kaldırıldı — karşılık gelen source-switch aksiyon tipi yok.)
 pub(crate) const RJ_ACTION_CAT_BITRATE: u32 = 0;
 pub(crate) const RJ_ACTION_CAT_RESOLUTION: u32 = 1;
 pub(crate) const RJ_ACTION_CAT_FPS: u32 = 2;

@@ -25,7 +25,8 @@ public:
 
     // Co-Pilot action settings (Yaklaşım C)
     QCheckBox* chk_bitrate_auto{nullptr};        // varsayılan: açık
-    QCheckBox* chk_source_auto{nullptr};         // varsayılan: açık
+    // V8/I34: chk_source_auto kaldırıldı — karşılık gelen source-switch aksiyon tipi
+    // pipeline'da yok (I33c auto-onay yalnız bitrate/resolution/fps'e bağlı), inert'ti.
     QCheckBox* chk_resolution_auto{nullptr};     // varsayılan: kapalı
     QCheckBox* chk_fps_auto{nullptr};            // varsayılan: kapalı
 
@@ -90,10 +91,6 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     d_->chk_bitrate_auto = new QCheckBox(tr("Bitrate otomatik"), this);
     d_->chk_bitrate_auto->setChecked(true);  // varsayılan: açık
     layout_copilot->addWidget(d_->chk_bitrate_auto);
-
-    d_->chk_source_auto = new QCheckBox(tr("Kaynak yeniden bağlan"), this);
-    d_->chk_source_auto->setChecked(true);  // varsayılan: açık
-    layout_copilot->addWidget(d_->chk_source_auto);
 
     d_->chk_resolution_auto = new QCheckBox(tr("Çözünürlük düşür"), this);
     d_->chk_resolution_auto->setChecked(false);  // varsayılan: kapalı
@@ -263,10 +260,6 @@ void SettingsDialog::onOkClicked() {
 // Yaklaşım C: Co-Pilot action setting getters
 bool SettingsDialog::isBitrateAuto() const {
     return d_->chk_bitrate_auto && d_->chk_bitrate_auto->isChecked();
-}
-
-bool SettingsDialog::isSourceAuto() const {
-    return d_->chk_source_auto && d_->chk_source_auto->isChecked();
 }
 
 bool SettingsDialog::isResolutionAuto() const {

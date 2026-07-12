@@ -372,8 +372,8 @@ void MainWindow::buildCentralWidget() {
 
 // V8/I33c: SettingsDialog'daki per-kategori auto-onay checkbox'larını Rust
 // motoruna iter (kapı motorda; UI yalnız değeri iletir). Startup'ta ve
-// healingModeChanged (OK) her tetiklendiğinde çağrılır. chk_source_auto inert
-// (source-switch aksiyonu yok) — dahil edilmez.
+// healingModeChanged (OK) her tetiklendiğinde çağrılır. (V8/I34: eski inert
+// "source auto" kutusu kaldırıldı — source-switch aksiyonu yok.)
 void MainWindow::syncAutoApproveToRust() {
     if (!settings_dialog_) return;
     rj_set_action_auto_approve(RJ_ACTION_CAT_BITRATE,    settings_dialog_->isBitrateAuto());

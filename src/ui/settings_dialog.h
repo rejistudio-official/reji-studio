@@ -22,7 +22,6 @@ public:
 
     // Yaklaşım C: Co-Pilot action settings
     bool isBitrateAuto() const;
-    bool isSourceAuto() const;
     bool isResolutionAuto() const;
     bool isFpsAuto() const;
 
