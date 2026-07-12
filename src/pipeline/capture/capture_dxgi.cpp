@@ -389,10 +389,46 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
             if (amd_copy_fence_) {
                 auto* ctx = display_ctx_->d3d_context();
                 ctx->End(amd_copy_fence_.Get());
+                // J6: bounded spin. Sınırsız döngü TDR/GPU-hang'de frame thread'i
+                // kalıcı dondururdu (GetData device-removed'da S_FALSE dışı HRESULT
+                // döner, eski koşul bunu hiç yakalamıyordu). Eskalasyon: kısa yoğun
+                // spin → SwitchToThread → ~100ms üst sınırda pes et. 100ms bilinçli
+                // olarak keyed-mutex yolundaki 16ms'den farklı: bu yol yalnız
+                // preview'i gate'ler (encode değil), düşen kare maliyeti daha düşük.
+                constexpr ULONGLONG kAmdCopyTimeoutMs = 100;
+                constexpr int       kBusySpinIters    = 4096;
+                const ULONGLONG start = GetTickCount64();
                 BOOL done = FALSE;
-                while (ctx->GetData(amd_copy_fence_.Get(), &done, sizeof(done),
-                                    D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_FALSE || !done) {
-                    YieldProcessor();
+                int  iter = 0;
+                for (;;) {
+                    HRESULT gd = ctx->GetData(amd_copy_fence_.Get(), &done, sizeof(done),
+                                              D3D11_ASYNC_GETDATA_DONOTFLUSH);
+                    if (gd == S_OK && done) { break; }  // kopya tamamlandı
+                    if (FAILED(gd)) {
+                        // TDR / device-removed: 100ms beklemenin anlamı yok, hemen pes et.
+                        fprintf(stderr,
+                                "[DxgiCapture] amd_copy_fence GetData failed: 0x%08lX "
+                                "(device lost?) — dropping frame\n",
+                                static_cast<unsigned long>(gd));
+                        fflush(stderr);
+                        capture_->release_frame();
+                        return nullptr;
+                    }
+                    // gd == S_FALSE: hâlâ bekliyor. Önce yoğun spin, sonra CPU'yu bırak.
+                    if (iter++ < kBusySpinIters) {
+                        YieldProcessor();
+                    } else {
+                        SwitchToThread();
+                        if (GetTickCount64() - start >= kAmdCopyTimeoutMs) {
+                            fprintf(stderr,
+                                    "[DxgiCapture] amd_copy_fence spin timeout (%llums) "
+                                    "— dropping frame\n",
+                                    static_cast<unsigned long long>(kAmdCopyTimeoutMs));
+                            fflush(stderr);
+                            capture_->release_frame();
+                            return nullptr;
+                        }
+                    }
                 }
             }
         }
