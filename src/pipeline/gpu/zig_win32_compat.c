@@ -6,20 +6,30 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <bcrypt.h>
+#include <intrin.h>   /* __rdtsc — MSVC ve MinGW-w64 sağlar (I25 fallback) */
 #pragma comment(lib, "bcrypt.lib")
 
 /* GCC Stack Smashing Protector sembolleri — MinGW ekler, MSVC CRT'de yok.
- * Sabit canary SSP'yi etkisiz kilar; BCryptGenRandom ile rastgele baslatilir.
- * Fallback: BCrypt basarisiz olursa sabit deger kalir (linking hatasini onler). */
+ * Sabit canary SSP'yi etkisiz kilar; BCryptGenRandom ile rastgele baslatilir. */
 void* __stack_chk_guard = (void*)(uintptr_t)0xDEADBEEFDEADBEEFull;
 void __cdecl __stack_chk_fail(void) { ExitProcess(255); }
 
 static void init_stack_guard(void) {
     uintptr_t v = 0;
     if (BCryptGenRandom(NULL, (PUCHAR)&v, sizeof(v),
-                        BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
+                        BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0 && v != 0) {
         __stack_chk_guard = (void*)v;
+        return;
     }
+    /* V8/I25: BCrypt başarısız → sabit 0xDEADBEEF canary'de kalma. Zayıf ama
+     * çalıştırmadan-çalıştırmaya değişen entropi üret: yüksek-çözünürlüklü sayaç
+     * (rdtsc) ^ süreç kimliği (golden-ratio ile bit yayılımı) ^ stack adresi
+     * (ASLR ile değişken). İdeal CSPRNG değil, ama tahmin edilebilir sabitten iyi. */
+    uintptr_t e = (uintptr_t)__rdtsc();
+    e ^= (uintptr_t)GetCurrentProcessId() * (uintptr_t)0x9E3779B97F4A7C15ull;
+    e ^= (uintptr_t)(void*)&v;
+    if (e == 0) e = (uintptr_t)0xDEADBEEFDEADBEEFull;  /* dejenere sıfırı önle */
+    __stack_chk_guard = (void*)e;
 }
 
 #ifdef _MSC_VER
