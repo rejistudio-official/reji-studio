@@ -228,8 +228,19 @@ struct Pipeline::Impl {
                 }
                 break;
             case RJ_ACTION_SCALE_RESOLUTION:
-                (void)encode_sub_.set_resolution(cmd.param1 / 1000.0f);
+            case RJ_ACTION_RESTORE_RESOLUTION: {
+                // HP1: restore da buraya gelir (param1=1000 → scale 1.0; set_resolution
+                // mutlak olduğundan tam çözünürlüğe döner). HP3: sonuç artık yutulmuyor —
+                // başarısızlıkta senkron ERROR log. Bu dal yalnız healing aksiyonu
+                // geldiğinde çalışır (her kare değil), hot-path'e yük bindirmez.
+                const float scale = cmd.param1 / 1000.0f;
+                if (!encode_sub_.set_resolution(scale)) {
+                    fprintf(stderr, "[Pipeline] set_resolution(%.3f) FAILED "
+                                    "(action_type=%u) — cozunurluk degismedi\n",
+                            scale, cmd.action_type);
+                }
                 break;
+            }
             case RJ_ACTION_CAP_FPS:
                 (void)encode_sub_.set_fps_limit(static_cast<uint32_t>(cmd.param1));
                 break;
@@ -799,6 +810,13 @@ bool Pipeline::apply_action(const RjAction& action) {
         }
         case RJ_ACTION_SCALE_RESOLUTION:
             impl_->command_router_.push_frame_cmd({RJ_ACTION_SCALE_RESOLUTION, action.param1});
+            return true;
+        case RJ_ACTION_RESTORE_RESOLUTION:
+            // HP1: eskiden bu case yoktu → default'a düşüp "unknown action_type"
+            // loglanıp false dönüyordu (restore hiç encoder'a ulaşmıyordu). Artık
+            // frame cmd olarak iletiliyor; param1 = scale×1000 (restore kuralı boş
+            // params → 1000 = 1.0 → mutlak set_resolution tam çözünürlüğe döner).
+            impl_->command_router_.push_frame_cmd({RJ_ACTION_RESTORE_RESOLUTION, action.param1});
             return true;
         case RJ_ACTION_CAP_FPS:
             impl_->command_router_.push_frame_cmd({RJ_ACTION_CAP_FPS, action.param1});

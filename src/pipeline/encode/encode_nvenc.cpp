@@ -76,6 +76,11 @@ struct NvencEncoder::Impl {
     NV_ENC_INITIALIZE_PARAMS   saved_init    = {};   // stored without encodeConfig ptr
 
     NvencEncoder::Config       config        = {};
+    // HP1: init (orijinal) çözünürlük — set_resolution mutlak ölçek için buna
+    // göre hesaplar (compounding yok) ve restore (scale=1.0) buraya geri döner.
+    // maxEncode* tavanı da bu değerlerde tutulur (J9), böylece upscale-back reddedilmez.
+    uint32_t                   orig_width    = 0;
+    uint32_t                   orig_height   = 0;
     PacketCallback             on_packet;
     bool                       initialized   = false;
     int64_t                    frame_idx     = 0;
@@ -219,6 +224,10 @@ struct NvencEncoder::Impl {
         // config dims yeterli; init üstüne upscale wire'lı değil (buffer maliyeti yok).
         init.maxEncodeWidth    = config.width;
         init.maxEncodeHeight   = config.height;
+        // HP1: init dims == oturum tavanı (maxEncode). set_resolution/restore
+        // mutlak ölçeği bunlara göre hesaplasın diye sakla.
+        orig_width             = config.width;
+        orig_height            = config.height;
         init.darWidth          = config.width;
         init.darHeight         = config.height;
         init.frameRateNum      = config.fps_num;
@@ -496,19 +505,30 @@ bool NvencEncoder::set_bitrate(uint32_t kbps) {
 bool NvencEncoder::set_resolution(float scale_factor) {
     if (!impl_->initialized || scale_factor <= 0.0f) { return false; }
 
-    uint32_t new_width  = static_cast<uint32_t>(impl_->config.width * scale_factor);
-    uint32_t new_height = static_cast<uint32_t>(impl_->config.height * scale_factor);
+    // HP1: MUTLAK ölçek — mevcut (belki zaten düşürülmüş) config'e değil, init'teki
+    // ORİJİNAL dims'e göre hesapla. Böylece tekrarlı downscale compounding yapmaz
+    // ve restore (scale=1.0) gerçekten tam çözünürlüğe döner.
+    uint32_t new_width  = static_cast<uint32_t>(impl_->orig_width  * scale_factor);
+    uint32_t new_height = static_cast<uint32_t>(impl_->orig_height * scale_factor);
 
     // Clamp to NVENC minimum (typically 16x16, but practical minimum is ~64x64 for H.264)
     if (new_width < 128 || new_height < 128) {
         fprintf(stderr, "[NVENC] Resolution scale %.2f too small (min ~128x128)\n", scale_factor);
         return false;
     }
+    // Oturum tavanını (init dims == orijinal) asla aşma — NVENC reconfigure
+    // maxEncode üstüne çıkışı reddeder.
+    if (new_width > impl_->orig_width || new_height > impl_->orig_height) {
+        new_width  = impl_->orig_width;
+        new_height = impl_->orig_height;
+    }
 
     impl_->saved_init.encodeWidth     = new_width;
     impl_->saved_init.encodeHeight    = new_height;
-    impl_->saved_init.maxEncodeWidth  = new_width;
-    impl_->saved_init.maxEncodeHeight = new_height;
+    // HP1: maxEncode* tavanda (orijinal) KALIR — downscale sonrası aşağı clamp
+    // edilirse sonraki restore/upscale reddedilirdi (eski davranışın kırığı).
+    impl_->saved_init.maxEncodeWidth  = impl_->orig_width;
+    impl_->saved_init.maxEncodeHeight = impl_->orig_height;
 
     NV_ENC_RECONFIGURE_PARAMS rp = {};
     rp.version                         = impl_->sv(2, true);  // NV_ENC_RECONFIGURE_PARAMS_VER
