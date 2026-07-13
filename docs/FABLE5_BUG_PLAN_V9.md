@@ -54,9 +54,9 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | ❌ 🔵 1/3 | ÇÜRÜTÜLDÜ — cross-thread tek alan `preview_cb_` `cb_mutex_` altında, texture'lar frame-thread-only + toggle wire'lı değil (çifte güvence) | Sprint 3 |
 | J12 | GLM: `client_sock_` atomik olmayan erişim (SRT worker/frame thread) | ✅ 🔵 1/3 | FIXED 0a0fade — data-race hijyeni (NOT critical/UAF; listener-only/dormant, caller-mode'da inert) atomic<SRTSOCKET> | Sprint 3 |
 | J13 | `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor | ✅ 🔵 1/3 | YENİ (latent — aktif UAF değil, ama cache asimetrisi gerçek) — FIXED 9413a5e | Sprint 3 |
-| J14 | Kimlik bilgileri (WS parola, RTMP key) registry'de düz metin | 🟡 2/3 | YENİ (bilinen/kabul edilmiş sınırlama) | Sprint 4 |
-| J15 | `program_widget.cpp` hot-path'te `convertToFormat` alloc | 🔵 1/3 | YENİ | Sprint 4 |
-| J16 | Küçük temizlik/performans maddeleri (bkz. Sprint 4 detayı) | çeşitli | YENİ | Sprint 4 |
+| J14 | Kimlik bilgileri (WS parola, RTMP key) registry'de düz metin | ✅ 🟡 2/3 | GÖZDEN GEÇİRİLDİ — bilinçli/kabul edilmiş tasarım kararı (settings_dialog.cpp:249-254 yorumu + I8), kod değişmedi; DPAPI opsiyonel ertelendi | Sprint 4 |
+| J15 | `program_widget.cpp` hot-path'te `convertToFormat` alloc | ✅ 🔵 1/3 | FIXED a831b06 — per-frame ~8MB swizzle-alloc kaldırıldı, GL_BGRA doğrudan yükleme (PreviewWidget deseni) | Sprint 4 |
+| J16 | Küçük temizlik/performans maddeleri (bkz. Sprint 4 detayı) | ✅ çeşitli | J16.1 FIXED e8704b7 (handle fail-closed); J16.2 not (ihmal edilebilir); J16.3 kısmen çürütüldü; J16.4 zaten çözülmüş | Sprint 4 |
 
 ---
 
@@ -455,6 +455,12 @@ herhangi bir yerel process registry'yi okuyup akışı durdurabilir.
 **Öncelik notu:** Bilinçli kabul edilmiş bir tasarım kararı olduğundan
 düşük öncelik — yalnızca kullanıcı bunu gerçek bir tehdit olarak görürse
 ele alınmalı.
+**✅ SONUÇ (Sprint 4):** GÖZDEN GEÇİRİLDİ, kod değişmedi. Faz 0 teyidi:
+`settings_dialog.cpp:249-254`'te bunun bilinçli bir tasarım kararı olduğu
+kod içi yorumla belgeli ("OBS ile aynı yaklaşım… keychain kapsam dışı"),
+SESSION_NOTES V8/I8 girdisiyle tutarlı. Mevcut kararla uyumlu; DPAPI
+sarmalama (opsiyonel defense-in-depth) kullanıcı tehdit olarak görmedikçe
+ertelendi.
 
 ### J15 — `program_widget.cpp` hot-path'te `convertToFormat` alloc 🔵 1/3
 **Kaynak:** Fable5 2.2 ("HOT-PATH: no heap allocation" yorumuyla doğrudan
@@ -465,6 +471,13 @@ alloc'u, hemen üstündeki "hot-path'te alloc yok" yorumuyla çelişiyor.
 **Önerilen düzeltme:** BGRA'yı doğrudan `GL_BGRA` ile yükle (PreviewWidget'ın
 zaten yaptığı gibi, shader swizzle ile) veya dönüşümü tek seferlik
 `uploadFrame`'e taşı.
+**✅ SONUÇ (Sprint 4) — FIXED a831b06:** Faz 0 doğruladı: `paintGL():193` her
+dirty karede `pending_frame`'i `Format_ARGB32`'den `Format_RGBA8888`'e
+çeviriyordu (gerçek per-frame heap alloc). `pending_frame` zaten
+`Format_ARGB32` (little-endian'da BGRA bayt sırası) olduğundan `convertToFormat`
+kaldırıldı; doku doğrudan `GL_BGRA + GL_UNSIGNED_BYTE` ile yükleniyor
+(PreviewWidget'ın satır 472'deki deseni). İç format `GL_RGBA8` kaldı, shader'lar
+değişmedi. "HOT-PATH: no heap allocation" yorumu artık gerçekten doğru.
 
 ### J16 — Diğer küçük maddeler (gruplandırılmış, ayrı Faz 0 gerekmeyebilir)
 Aşağıdakiler tekil kaynaklı, düşük risk/düşük etkili, muhtemelen Sprint
@@ -473,15 +486,32 @@ Aşağıdakiler tekil kaynaklı, düşük risk/düşük etkili, muhtemelen Sprin
 - **`create_cross_adapter_shared()`'da `OpenSharedResource1` başarısız
   olursa handle sızıntısı** (GLM 2.1) — J3 ile aynı dosya/bölge, birlikte
   ele alınabilir.
+  **✅ FIXED e8704b7:** Faz 0 doğruladı — `shared_handle_` (CreateSharedHandle)
+  sonraki iki hata dönüşünde kapatılmıyordu, yalnızca `shutdown()`'da. Her
+  hata dönüşüne `CloseHandle + nullptr` eklendi (J3 fail-closed deseni).
 - **`FrameProfiler` her mark çağrısında mutex alıyor** (GLM 4.4) —
   60fps'te 6 kilit/kare, tanı-amaçlı kod için performans notu.
+  **📝 NOT (dokunulmadı):** Faz 0 — profiler `pipeline.cpp:330`'da koşulsuz
+  aktif (production path), ama mark'lar cross-thread (`current_sample_`
+  paylaşımlı: capture thread acquire/copy, UI thread paintGL) → mutex
+  gerekli, tümüyle gereksiz değil. Kilitler çekişmesiz, ~360/sn; ölçülebilir
+  etkisi yok. Opsiyonel env-flag opt-in mümkün ama YAGNI, ertelendi.
 - **`preview_staging_` legacy texture hâlâ her karede kopyalanıyor**
   (Fable5 4.2, Opus 2.4) — deprecated işaretli ama hâlâ aktif, silinmesi
   öneriliyor.
+  **🟡 KISMEN ÇÜRÜTÜLDÜ (dokunulmadı):** Faz 0 — `capture_dxgi.cpp:443`
+  kopyası **koşullu** (`if (preview_staging_)`), yalnızca preview aktif/
+  fallback iken tahsis edilir; "her karede koşulsuz" değil. J11 Faz 0 zaten
+  frame-thread-only teyit etmişti. Aktif bug/yarış yok; silme/dedup ayrı
+  düşük öncelikli temizlik, bu turda kapsam dışı.
 - **`next_action_id()` wrap'ta teorik 0-sentinel çakışması** (Fable5 1.7,
   Opus 1.6) — ~13 yıl kesintisiz çalışmada gerçekleşir, I23'teki u32-global
   ID kararıyla aynı analiz sınıfı, pratik önemi yok, `fetch_update` döngüsü
   ile bir satırlık iyileştirme mümkün.
+  **✅ ZATEN ÇÖZÜLMÜŞ (dokunulmadı):** Faz 0 — `ffi.rs:224-232` sayacı 0'a
+  denk gelince ikinci `fetch_add` ile 0'ı **zaten atlıyor**. Sentinel
+  çakışması hâlihazırda önlenmiş, non-zero garantili. `fetch_update`
+  refactoru işlevsel olarak eşdeğer, gereksiz — kapatıldı.
 - **`MainWindow` god-object** (Fable5 5.3), **`PreviewWidget`'ın Vulkan
   submission'ı doğrudan sürmesi** (Fable5 5.1) — mimari refactor
   önerileri, bug değil, ayrı bir mimari tartışma gerektirir (Sprint 3-4

@@ -1,3 +1,34 @@
+## Oturum: 14 Temmuz 2026 — V9 Sprint 4 Bölüm A (J14-J16) ✅ KAPANDI
+
+Sprint 4 (düşük öncelik/bakım). Her madde Faz 0'da kod-doğrulandı, sonra ya
+düzeltildi ya da gerekçeyle kapatıldı. **2 kod düzeltmesi + 4 belge/kapatma.**
+
+- **J14** ✅ GÖZDEN GEÇİRİLDİ (kod değişmedi): WS parola + RTMP key düz metin —
+  `settings_dialog.cpp:249-254`'te bilinçli tasarım kararı olduğu yorumla
+  belgeli ("OBS ile aynı yaklaşım, keychain kapsam dışı"), I8 ile tutarlı.
+  DPAPI opsiyonel; kullanıcı tehdit görmedikçe ertelendi.
+- **J15** ✅ FIXED (a831b06): `paintGL()` her dirty karede `convertToFormat`
+  (ARGB32→RGBA8888, ~8MB swizzle-alloc) yapıyordu — "HOT-PATH: no heap
+  allocation" yorumuyla çelişiyordu. `pending_frame` zaten ARGB32 (BGRA bayt)
+  → doğrudan `GL_BGRA` yüklendi (PreviewWidget deseni), shader değişmedi.
+- **J16.1** ✅ FIXED (e8704b7): `create_cross_adapter_shared` iki hata dönüşünde
+  `shared_handle_`'ı kapatmıyordu (yalnız shutdown'da) → re-init'te leak riski.
+  Her hata dönüşüne `CloseHandle + nullptr` (J3 fail-closed deseni).
+- **J16.2** 📝 NOT (dokunulmadı): `FrameProfiler` mark'ta mutex — production'da
+  aktif ama cross-thread (`current_sample_`) olduğundan mutex gerekli; çekişmesiz
+  ~360/sn, ölçülebilir etki yok. Env-flag opt-in mümkün ama YAGNI.
+- **J16.3** 🟡 KISMEN ÇÜRÜTÜLDÜ (dokunulmadı): `preview_staging_` kopyası
+  (`capture_dxgi.cpp:443`) **koşullu** (yalnız preview aktif/fallback), "her
+  karede koşulsuz" değil; J11 frame-thread-only teyidi geçerli. Silme/dedup
+  ayrı düşük öncelikli temizlik.
+- **J16.4** ✅ ZATEN ÇÖZÜLMÜŞ (dokunulmadı): `next_action_id()` (`ffi.rs:224-232`)
+  0-sentinel'i ikinci `fetch_add` ile **zaten atlıyor**; çakışma önlenmiş.
+
+**Build:** reji_app yeşil (incremental 6.0s), her iki C++ dosyası temiz derlendi.
+**Sırada:** Bölüm B — Healing Plumbing (HP1-HP4), kendi Faz 0/1 döngüsü.
+
+---
+
 ## Oturum: 13 Temmuz 2026 — V9 Sprint 3 (J9-J13) ✅ TAMAMEN KAPANDI
 
 Sıra: J13 → J11 → J12 → J9 → J10 (en somuttan doğrulama yükü en ağıra). Beş
