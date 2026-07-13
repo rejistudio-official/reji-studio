@@ -195,9 +195,49 @@ hazırlıksız/kendi Faz 0'ı olmayan madde olur. Dört gözlem:
 Ek: `set_resolution` scaling kümülatif (491: güncel config.width×scale) +
 downscale'de maxEncodeWidth'i düşürüyor (502-503).
 
-**KARAR (kullanıcı):** V9 Sprint 3 kapandığına göre, healing'in gerçek ürün
-etkisi (kullanıcı görüyor mu, tetiklenme sıklığı) değerlendirilip ayrı bir
-mini-talimat olarak açılıp açılmayacağına birlikte karar verilecek.
+#### Keşif turu — resolution-healing tam yaşam döngüsü (Sprint 3 sonrası)
+
+Gözlem #2 (RESTORE_RESOLUTION) üzerine bir Faz 0 keşif turu; find-references +
+şablon kural + metrik kaynağı izlendi. Kanonik kural seti `docs/config/
+rules.json.template` bir **GPU-termal histerezis döngüsü** tanımlıyor:
+`gpu_thermal_throttle` (gpu_temp_c>85 → scale 0.5) ↔ `gpu_thermal_restore`
+(gpu_temp_c<70 → restore) + `memory_pressure` (RAM>85 → scale 0.25).
+
+**Kritik tespitler (metrik gerçekliğiyle birlikte):**
+- **`scale_factor` HİÇ okunmuyor:** şablon kuralları `params:{scale_factor:0.5/
+  0.25}` veriyor ama `create_action` yalnız `step_kbps` okuyor → resolution
+  kurallarında param1=0 → `set_resolution(0.0)` → false. **Downscale fiilen
+  no-op** (gözlem #1'in somut kanıtı).
+- **GPU thermal metriği STUB:** `query_gpu_thermal_wmi/amd_adl/nvidia_nvapi`
+  üçü de `return 0` (metrics_collector.cpp:107-110) → `gpu_temp_c` daima 0.
+  → `gpu_thermal_throttle` (`0>85`) **hiç tetiklenmez** (dormant).
+- **⚠️ `gpu_thermal_restore` koşulu HEP-TRUE:** `gpu_temp_c<70` = `0<70` = daima
+  doğru → RESTORE_RESOLUTION **sürekli üretilir** → `apply_action`'da drop +
+  default **co-pilot** modunda (template:73) `restore_resolution` kritik değil
+  (require_approval=true) → hiç düşmemiş çözünürlük için **periyodik "çözünürlüğü
+  geri getir?" pending/overlay** üretebilir (cooldown/hysteresis_ms=10000 seyreltir;
+  kesin sıklık runtime izlenmedi — kod-temelli çıkarım).
+- **memory_usage_pct GERÇEK** (`GlobalMemoryStatusEx`, metrics_collector.cpp:116).
+  → **`memory_pressure` ERİŞİLEBİLİR ama KIRIK:** RAM>85'te "preview'i çeyreğe
+  düşür" niyeti scale_factor yok sayıldığından **hiçbir şey yapmıyor** (preview
+  kalitesi; stream-kritik değil).
+
+**Erişilebilir-ama-kırık vs dormant ayrımı (kaybetme):** GPU-thermal yolu iki kez
+ölü (stub metrik + scale_factor) AMA gpu_temp zaten bilinen stub → regresyon değil.
+memory-pressure yolu ise **gerçek metrikle erişilebilir** ve kırık — asıl somut
+kullanıcı-erişilebilir zarar burası + yanıltıcı co-pilot pending'leri.
+
+**KARAR (kullanıcı) — mini-talimat: Sprint 4 İLE BİRLİKTE, ayrı talimat, tek
+Faz 0/1 döngüsü** (dört düzeltme birbirine bağlı, parça parça değil):
+- (a) `apply_action`'a RESTORE_RESOLUTION case'i (encoder'a upscale bağla).
+- (b) `create_action` `scale_factor`'ı gerçekten okusun.
+- (c) `set_resolution` sonucu yutulmasın (state'e yansısın).
+- (d) memory-pressure yolu gerçekten çalışsın (a+b+c'nin bileşimi).
+**KAPSAM DIŞI:** GPU-termal tarafı (stub metrik) — o ayrı bir "gerçek GPU sıcaklık
+okuması implemente et" işi (WMI/ADL/NVAPI, potansiyel büyük). `gpu_thermal_*`
+kuralları GPU metriği gelene kadar dormant kalır; mini-talimatta yalnız bu notla
+geçilir. `gpu_thermal_restore` hep-true semptomu, (a)+(b)+(c) düzeltilince zaten
+anlamlı davranışa kavuşur (gerçek gpu_temp gelene dek pratikte pasif).
 
 ---
 
