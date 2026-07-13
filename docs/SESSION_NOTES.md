@@ -46,7 +46,39 @@ zaten patolojik bir durum. Not olarak bırakıldı.
 **Doğrulama:** `test_pipeline_characterization` derlendi (yalnız bilinen D9025
 uyarısı, yeni uyarı yok), `ctest PipelineCharacterization` PASS (2.33s —
 shutdown crash-free senaryosu). baseline `git checkout` ile geri alındı.
-**Push: onay bekliyor.**
+**Push: 9413a5e (kod) + 4cbc15e (doküman) → origin/master (senkron).**
+
+### J11 — `shared_texture_` preview toggle race ❌ ÇÜRÜTÜLDÜ (kod değişmedi)
+
+**Sınıf:** V9 [YENİ], 🔵 1/3 (GLM tekil, "critical"). **Faz 0 çürüttü — şık (c),
+GLM yanlış okuması. J7'nin ikizi (tek kaynaklı iddia, doğrulama sorunsuz çıktı).**
+
+**Faz 0 (5 adım, titiz mod — "critical" iddiası):**
+1-2. `cb_mutex_` YALNIZCA `preview_cb_` (tek bool) koruyor (header:215 ile uyumlu).
+   `set_preview_requested` (461-463) sadece `preview_cb_` set eder, texture'a
+   dokunmaz. `ensure_preview_staging` (466-469) kilit altında sadece
+   `preview_staging_` alloc/free eder.
+3. **Thread haritası (find-references):** tek cross-thread alan `preview_cb_`,
+   iki taraf da `cb_mutex_` altında ✓. Tüm texture'lar (`shared_texture_`/
+   `staging_texture_`/`preview_staging_`/`keyed_mutex_shared_`/`amd_copy_fence_`)
+   yalnız frame thread'de: `capture_next`/`map_preview_frame`/`shared_texture()`
+   hepsi `run_frame`'den. `shared_texture_` bir kez yaratılıp shutdown'a dek
+   Reset edilmiyor (473 early-return). GLM muhtemelen `capture_next`'in
+   `shared_texture_`'a kilitsiz erişimini (372+) görüp race çıkardı — ama o
+   alan cross-thread mutate edilmiyor. UI-thread istisnası (`init_preview_staging`
+   ← `set_d3d11_frame_callback:531`) zamanlamayla kapanıyor: frame_thread
+   başlamadan önce (main_window 148 vs 198).
+4. **J6 etkileşimi yok:** bounded spin (393-433) `amd_copy_fence_`/`shared_texture_`
+   frame-thread-only; toggle bunlara dokunmaz.
+5. **Çifte güvence:** tasarımca güvenli + runtime'da erişilemez (preview toggle
+   hiç wire'lı değil — `set_preview_requested` yalnız init'te bir kez).
+
+**J13 ile zıtlık:** J13'te niyet vardı güvenlik yoktu (asimetri gerçek → düzeltildi);
+J11'de header'ın "any thread" niyeti VE tasarım güvenliği birlikte var → düzeltme yok.
+
+**Doğrulama sınıfı:** kod incelemesi + find-references (test edilmedi — kanıtlanacak
+race yok, senkronizasyon deseni statik olarak kesin). Kod değişmedi, yalnız
+FABLE5_BUG_PLAN_V9.md + SESSION_NOTES güncellendi.
 
 ---
 

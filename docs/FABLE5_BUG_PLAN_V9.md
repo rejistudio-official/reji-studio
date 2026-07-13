@@ -51,7 +51,7 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J8 | `MetricsCollector::poll()` frame thread'de PDH sorgusu çalıştırıyor | ✅ 🟡 2/3 | YENİ (AGENTS.md ihlali — DOĞRULANDI) — FIXED efb0fe3 | Sprint 2 |
 | J9 | NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor | 🔵 1/3 | YENİ | Sprint 3 |
 | J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | 🔵 1/3 (Minimax, kırık raporun sağlam parçası) | YENİ | Sprint 3 |
-| J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | 🔵 1/3 | YENİ | Sprint 3 — doğrulama önce |
+| J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | ❌ 🔵 1/3 | ÇÜRÜTÜLDÜ — cross-thread tek alan `preview_cb_` `cb_mutex_` altında, texture'lar frame-thread-only + toggle wire'lı değil (çifte güvence) | Sprint 3 |
 | J12 | GLM: `client_sock_` atomik olmayan erişim (SRT worker/frame thread) | 🔵 1/3 | YENİ | Sprint 3 — doğrulama önce |
 | J13 | `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor | ✅ 🔵 1/3 | YENİ (latent — aktif UAF değil, ama cache asimetrisi gerçek) — FIXED 9413a5e | Sprint 3 |
 | J14 | Kimlik bilgileri (WS parola, RTMP key) registry'de düz metin | 🟡 2/3 | YENİ (bilinen/kabul edilmiş sınırlama) | Sprint 4 |
@@ -268,7 +268,7 @@ gönderiliyor ama C++ tarafında yok sayılıyor.
 daha kademeli, sabit hedef ise ani düşüş) yoksa gerçek bir tutarsızlık mı —
 `RuleEngine`'in `param1`'i neden gönderdiği incelenmeli.
 
-### J11 — `shared_texture_`'a kilitsiz erişim (preview toggle race) 🔵 1/3
+### J11 — `shared_texture_`'a kilitsiz erişim (preview toggle race) ❌ ÇÜRÜTÜLDÜ 🔵 1/3
 **Kaynak:** GLM 1.1 ("critical" işaretlenmiş, diğer iki rapor değinmiyor)
 **Konum:** `src/pipeline/capture/capture_dxgi.cpp`, `capture_next()`
 **Açıklama:** `capture_next()` (frame thread) `shared_texture_`,
@@ -277,10 +277,41 @@ erişiyor; `ensure_preview_staging()`/`set_preview_requested()` (herhangi
 bir thread'den, `cb_mutex_` altında) bu texture'ları `Reset()` edebiliyor.
 Preview toggle sırasında kopya devam ederken texture serbest bırakılırsa
 use-after-free/null-deref iddiası.
-**Faz 0'da doğrulanacak (öncelikli):** `cb_mutex_`'in gerçekten bu
-alanları korumadığı find-references ile teyit edilmeli — GLM'in tek
-başına bulduğu bir "critical" iddia, gerçek olup olmadığı doğrulanmadan
-implementasyona geçilmemeli.
+
+**Faz 0 sonucu (çürütüldü — şık (c), GLM yanlış okuması; J7'nin ikizi):**
+find-references + adım-adım thread analizi ile:
+- **`cb_mutex_` yalnızca `preview_cb_` (tek bool) koruyor** (header:215 ile
+  uyumlu). `set_preview_requested` (461-463) SADECE `preview_cb_` set eder,
+  hiçbir texture'a dokunmaz. `ensure_preview_staging` (466-469) `cb_mutex_`
+  altında SADECE `preview_staging_`'i alloc/free eder (`shared_texture_`'a
+  değil).
+- **Tek cross-thread alan `preview_cb_` ve iki taraf da `cb_mutex_` altında.**
+  Diğer tüm texture'lar (`shared_texture_`/`staging_texture_`/`preview_staging_`/
+  `keyed_mutex_shared_`/`amd_copy_fence_`) yalnız frame thread'de dokunuluyor:
+  `capture_next` ← `run_frame`; `map_preview_frame`/`unmap` ← `run_frame`;
+  `shared_texture()` ← `run_frame`. `shared_texture_` bir kez yaratılıp
+  shutdown'a dek hiç Reset edilmiyor (473 `if (shared_texture_) return true`).
+- **Tek UI-thread istisnası zamanlamayla kapanıyor:** `init_preview_staging`
+  bir kez `set_d3d11_frame_callback:531`'den (UI thread) çağrılıyor ama
+  `frame_thread` başlamadan ÖNCE (main_window: callback set 148 → frame start
+  198) → eşzamanlılık yok.
+- **Kritik senaryo bile güvenli:** toggle `preview_cb_=false` yaparsa frame
+  thread `ensure_preview_staging`'de (351, kilit altında) `preview_staging_`'i
+  reset eder, sonra AYNI `capture_next`'te 443'te null görüp atlar — aynı
+  thread, sıralı, frame-ortası realloc yok.
+- **J6 etkileşimi yok:** bounded spin (393-433) `amd_copy_fence_`/`shared_texture_`
+  üzerinde frame-thread-only; toggle bunlara dokunmaz.
+- **Çifte güvence:** race hem tasarımca güvenli, hem runtime'da erişilemez —
+  preview toggle hiç wire'lı değil (`set_preview_requested` yalnız init'te bir
+  kez, frame thread'den önce).
+- **J13 ile zıtlık:** J13'te niyet vardı güvenlik yoktu (asimetri gerçekti,
+  düzeltildi); J11'de header'ın "any thread" niyeti VE tasarım güvenliği
+  birlikte mevcut → düzeltilecek bir şey yok.
+
+**Doğrulama sınıfı:** kod incelemesi + find-references (test edilmedi —
+kanıtlanacak bir race yok, senkronizasyon deseni statik olarak kesin).
+**Verdict:** İmplementasyon yok (I29/I31 deseni). "1/3 iddia abartılı" —
+disiplinin doğru çalıştığının kanıtı (TALIMAT öngörüsü).
 
 ### J12 — `client_sock_` atomik olmayan erişim (SRT) 🔵 1/3
 **Kaynak:** GLM 1.2 ("critical" işaretlenmiş)
