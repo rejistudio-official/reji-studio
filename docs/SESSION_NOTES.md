@@ -1,3 +1,39 @@
+## Oturum: 13 Temmuz 2026 — V9 Sprint 2 (J5-J8)
+
+Sıra: J6 → J5 → J7 → J8. J6 (fedb297) ve J5 (0a7ce88) daha önce
+FIXED+PUSHED. Bu oturum: J7.
+
+### J7 — Keyed-mutex key sabitleri paylaşımlı header'a → `reji_constants.h` ✅ (452a4bb)
+
+**Sınıf:** V9 [YENİ], 🟡 2/3 (Fable5+Opus), **aktif bug değil — bakım riski.**
+
+**Faz 0 (iddia doğrulandı, protokol kendim satır satır doğrulandı):**
+1. `capture_dxgi.cpp` (D3D11 üretici): `AcquireSync(0)` → CopyResource →
+   `ReleaseSync(1)`. `copy_optimizer.h` (Vulkan tüketici): `km_acquire_key_=1`
+   → oku → `km_release_key_=0`. Ping-pong `{0,1}`: `0`=D3D11 yazma turu,
+   `1`=Vulkan okuma turu. Handoff doğru, deadlock yok — GLM'in "doğru"
+   bulgusuna körü körüne güvenmeden yeniden doğrulandı.
+2. **Risk teorik değil:** `capture_dxgi.cpp` bu sprint'te 3× dokunuldu
+   (I23/J4/J6), `copy_optimizer` I23'te. İki dosya değerleri **TERS
+   rollerle** kullanıyor (bir taraftaki acquire = diğerinin release değeri)
+   → biri tek tarafı `0↔1` çevirse sessiz kalıcı deadlock, derleyici uyarmaz.
+3. Konvansiyon zaten mevcut: `reji_constants.h` (`rj::constants`).
+   `copy_optimizer.h` bu header'ı zaten include ediyordu; `capture_dxgi.cpp`
+   tek satır include eklendi. Key **değerlerinin** başka tüketicisi yok
+   (diğer dosyalar sadece `use_keyed_mutex` özellik bayrağı).
+
+**Karar (kullanıcı onaylı):** Rol-tabanlı iki sabit —
+`kKeyedMutexKeyD3D11=0`, `kKeyedMutexKeyVulkan=1`. Değer-tabanlı
+(Write/Read) alternatifi ve refactor'ü yapmama seçeneği reddedildi.
+
+**Doğrulama:** reji_app Release derlendi+linklendi (yeni uyarı yok, hepsi
+bilinen: D9025/C4005/C4996 freopen). ctest PipelineCharacterization
+(davranış korundu) + GpuResourcePitch + SlotRing PASS. Saf refactor,
+değerler birebir. baseline_metrics.txt checkout ile geri alındı.
+**Push: 452a4bb → origin/master (senkron).** SIRADA: J8.
+
+---
+
 ## Oturum: 12 Temmuz 2026 — V9 Sprint 1 (J1-J4)
 
 ### J3 — Cross-adapter `transfer()` senkronsuz yol → fail-closed ✅ (5f9d3ed)

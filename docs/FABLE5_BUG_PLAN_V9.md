@@ -47,7 +47,7 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J4 | `ExternalMemoryBridge::get_frame_images` `static` slot | 🟢 3/3 | V8 TARAFINDAN ZATEN ELE ALINDI — DOĞRULA (I23) | Sprint 1 |
 | J5 | `action_thread_main` sabit 100ms poll, kuyruk boşalana kadar sürmüyor | 🟢 3/3 | YENİ | Sprint 2 |
 | J6 | AMD fallback spin-wait timeout'suz (TDR riski) | 🟢 3/3 | YENİ | Sprint 2 |
-| J7 | Keyed-mutex key sabitleri paylaşımlı header'da değil | 🟡 2/3 | YENİ (bakım riski, aktif bug değil) | Sprint 2 |
+| J7 | Keyed-mutex key sabitleri paylaşımlı header'da değil | ✅ 🟡 2/3 | YENİ (bakım riski, aktif bug değil) — FIXED 452a4bb | Sprint 2 |
 | J8 | `MetricsCollector::poll()` frame thread'de PDH sorgusu çalıştırıyor | 🟡 2/3 | YENİ (AGENTS.md ihlali adayı) | Sprint 2 |
 | J9 | NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor | 🔵 1/3 | YENİ | Sprint 3 |
 | J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | 🔵 1/3 (Minimax, kırık raporun sağlam parçası) | YENİ | Sprint 3 |
@@ -188,7 +188,7 @@ donduruyor. Ayrıca CPU çekirdeğini gereksiz yere %100 kullanıyor.
 **Önerilen düzeltme:** Sınırlı spin sayısı sonrası `Sleep(0)`/`SwitchToThread`
 eskalasyonu veya event-query + bounded sleep deseni.
 
-### J7 — Keyed-mutex key sabitleri paylaşımlı header'da değil 🟡 2/3
+### J7 — Keyed-mutex key sabitleri paylaşımlı header'da değil ✅ FIXED (452a4bb) 🟡 2/3
 **Kaynak:** Fable5 3.3, Opus 3.3 (ikisi de HIGH bakım riski diyor)
 **Konum:** `copy_optimizer.cpp` (`km_acquire_key_=1`, `km_release_key_=0`)
 vs `capture_dxgi.cpp` (`AcquireSync(0)`/`ReleaseSync(1)`)
@@ -200,6 +200,13 @@ dönüşmesi.
 **Önerilen düzeltme:** Key sabitlerini tek bir paylaşımlı header'a
 (`reji_constants.h` gibi) çıkar, her iki taraf oradan referans alsın.
 **Öncelik notu:** Düşük risk ama düşük efor da — bakım borcu temizliği.
+**SONUÇ (452a4bb):** Faz 0 iddiayı doğruladı — aktif bug yok, protokol
+kendim satır satır doğrulandı (GLM'e körü körüne güvenilmedi). Bakım riski
+teorik değil (capture_dxgi.cpp bu sprint'te 3× dokunuldu; iki dosya
+değerleri TERS rollerle kullanıyor → sinsi drift). `reji_constants.h`'ye
+rol-tabanlı iki sabit eklendi: `kKeyedMutexKeyD3D11=0` (D3D11 yazma turu),
+`kKeyedMutexKeyVulkan=1` (Vulkan okuma turu). Saf refactor, değerler
+birebir. PipelineCharacterization + GpuResourcePitch + SlotRing PASS.
 
 ### J8 — `MetricsCollector::poll()` frame thread'de PDH sorgusu 🟡 2/3
 **Kaynak:** Fable5 4.4, Opus 4.3 (Opus özellikle "AGENTS.md açıkça bunu
