@@ -1,3 +1,41 @@
+## Oturum: 14 Temmuz 2026 — V9 Sprint 4 Bölüm B: Healing Plumbing (HP1-HP4) ✅ KAPANDI
+
+Resolution-healing'i (termal/RAM bazlı çözünürlük koruması) gerçekten çalışır hale
+getirme turu. V9 taramasının hiç görmediği alan; kendi Faz 0/1 döngüsü. Dört bulgu
+birbirine bağlı, birlikte tasarlandı.
+
+**Faz 0:** Dört bulgu da taze gözle teyit edildi (aradan geçen işler etkilememiş).
+Ek kritik bulgu: `set_resolution` **göreli** ölçek + maxEncode'u aşağı clamp ediyordu
+→ naif `set_resolution(1.0)` restore no-op olurdu ve upscale-back NVENC'te reddedilirdi.
+Bu, HP1 tasarımını "mutlak set_resolution"a yönlendirdi.
+
+**Faz 1 kararları (kullanıcı onayı):** HP1 = mutlak set_resolution (orijinal dims'e
+göre); termal hep-true önlemi = `gpu_temp_c==0` guard'ı dahil; sıra HP2→HP3→HP1→HP4.
+
+**Faz 2 — düzeltmeler:**
+- **HP1** ✅ FIXED (844ec9c): `apply_action`'a RESTORE_RESOLUTION case'i +
+  `NvencEncoder::set_resolution` mutlak (orijinal init dims, maxEncode tavanı korunur).
+  Restore(1.0) artık tam çözünürlüğe döner; downscale compounding'i de düzeldi.
+- **HP2** ✅ FIXED (e6d96bf): `create_action` resolution aksiyonlarında `scale_factor`
+  × 1000 okuyor (eskiden step_kbps=0 → no-op). memory-pressure koruması gerçek oldu.
+- **HP3** ✅ FIXED (844ec9c): `apply_frame_cmd` set_resolution sonucunu artık
+  yutmuyor — başarısızlıkta senkron ERROR log. (Motora geri bildirim kapsam dışı.)
+- **HP4** ✅ (HP1+guard ile): mesaj artık gerçekten yürüyen aksiyon için gösteriliyor;
+  termal guard sahte restore'u susturuyor. Canlı UI failure-feedback kapsam dışı.
+- **Termal hep-true önlemi** ✅ FIXED (e6d96bf): `evaluate` `gpu_temp_c==0` iken
+  `gpu_temp_c`'ye dayanan kuralları atlar → `gpu_thermal_restore` sahte pending'i sustu.
+
+**Faz 3 — test/dürüstlük:** Rust 70 test PASS (2 yeni: scale_factor okuma + termal
+guard). C++ PipelineCharacterization + PipelineIntegration PASS. **Davranış değişikliği:**
+RAM-pressure koruması artık gerçekten preview çözünürlüğünü düşürüp geri getirir
+(önceden sessiz no-op). Gerçek runtime doğrulaması (RAM basıncı simülasyonu) zor →
+kullanıcıda kalır. **Kapsam dışı:** gerçek GPU-termal metrik okuması (WMI/ADL/NVAPI).
+
+**Bu, V9 bug planının fiilen tamamlanması demektir (Sprint 1-4 + healing-plumbing).**
+Talimat `docs/talimatlar/` arşivine taşındı.
+
+---
+
 ## Oturum: 14 Temmuz 2026 — V9 Sprint 4 Bölüm A (J14-J16) ✅ KAPANDI
 
 Sprint 4 (düşük öncelik/bakım). Her madde Faz 0'da kod-doğrulandı, sonra ya

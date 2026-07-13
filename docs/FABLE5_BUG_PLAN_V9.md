@@ -529,6 +529,45 @@ Aşağıdakiler tekil kaynaklı, düşük risk/düşük etkili, muhtemelen Sprin
 
 ---
 
+## Healing Plumbing (HP1-HP4) — ✅ KAPANDI (Sprint 4 Bölüm B)
+
+**Kaynak:** V9 üç-model taramasının **hiç görmediği** alan; J9/J10 Faz 0 keşif
+turlarında tesadüfen ortaya çıktı (bkz. SESSION_NOTES "resolution-healing tam
+yaşam döngüsü"). Resolution-healing (termal/RAM bazlı çözünürlük koruması) fiilen
+no-op'tu ve `gpu_thermal_restore` hep-true koşulu CoPilot'ta temelsiz onay
+istekleri üretiyordu. Faz 0 dört bulguyu da taze gözle teyit etti.
+
+- **HP1 — `RESTORE_RESOLUTION` encoder'a ulaşmıyordu** ✅ FIXED 844ec9c:
+  `apply_action`'da case yoktu → default → false. Case eklendi; ayrıca
+  `NvencEncoder::set_resolution` **mutlak** yapıldı (orijinal init dims'e göre,
+  maxEncode tavanı korunur) → restore(1.0) gerçekten tam çözünürlüğe döner,
+  downscale compounding'i de düzeldi.
+- **HP2 — `scale_factor` okunmuyordu** ✅ FIXED e6d96bf: `create_action`
+  resolution aksiyonları için artık `scale_factor × 1000`'i param1'e yazıyor
+  (eskiden `step_kbps`=0 → set_resolution(0.0) no-op). memory-pressure koruması
+  artık gerçekten çalışır.
+- **HP3 — `set_resolution` sonucu yutuluyordu** ✅ FIXED 844ec9c: `apply_frame_cmd`
+  `(void)` yerine başarısızlıkta senkron ERROR log (healing motoruna geri
+  bildirim kapsam dışı — not düşüldü).
+- **HP4 — UI yanıltıcı state** ✅ (HP1+guard ile çözüldü): mesaj eskiden hiç
+  yürümeyen aksiyon için gösteriliyordu; artık aksiyon gerçekten yürüyor +
+  termal guard sahte restore'u susturuyor. Canlı UI başarısızlık-geri bildirimi
+  (I33 event'ine yeni dal) kapsam dışı — not düşüldü.
+- **`gpu_thermal_restore` hep-true önlemi** ✅ FIXED e6d96bf: `evaluate`
+  `gpu_temp_c==0` (stub/veri-yok) iken `gpu_temp_c`'ye dayanan kuralları atlar.
+  Gerçek termal okuma (WMI/ADL/NVAPI) gelince guard kalkar.
+
+**Kapsam dışı (bilinçli):** Gerçek GPU-termal metrik okuması — ayrı, potansiyel
+büyük iş; `gpu_thermal_*` kuralları o gelene dek dormant. **Davranış değişikliği:**
+RAM-pressure koruması artık gerçekten preview çözünürlüğünü düşürüp geri getirir
+(önceden sessiz no-op'tu). **Doğrulama:** Rust 70 test PASS (2 yeni HP testi),
+C++ PipelineCharacterization + PipelineIntegration PASS. Gerçek runtime (RAM
+basıncı → preview düşüş/geri dönüş) zor simüle edilir → kullanıcıda kalır.
+
+**Bu, V9 bug planının fiilen tamamlanması demektir (Sprint 1-4 + healing-plumbing).**
+
+---
+
 ## Sonraki Adım Önerisi
 
 Sprint 1'in dört maddesi (J1-J4) hem en yüksek güvenilirlikte hem de kendi
