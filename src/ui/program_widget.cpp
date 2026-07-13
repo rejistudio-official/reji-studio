@@ -190,7 +190,12 @@ void ProgramWidget::paintGL() {
     {
         QMutexLocker lock(&d_->frame_mutex);
         if (d_->frame_dirty && !d_->pending_frame.isNull()) {
-            const QImage img = d_->pending_frame.convertToFormat(QImage::Format_RGBA8888);
+            // J15: pending_frame is Format_ARGB32 (BGRA byte order on little-endian).
+            // Upload it directly as GL_BGRA — no per-frame convertToFormat() heap
+            // alloc (a ~8MB byte-swizzle at 1080p every frame). Same GL_BGRA upload
+            // path PreviewWidget already uses; internal format stays GL_RGBA8, so the
+            // shaders are unchanged. This makes the HOT-PATH comment above actually true.
+            const QImage& img = d_->pending_frame;
             if (!d_->tex_a || img.width() != d_->tex_w || img.height() != d_->tex_h) {
                 if (d_->tex_a) glDeleteTextures(1, &d_->tex_a);
                 glGenTextures(1, &d_->tex_a);
@@ -199,14 +204,14 @@ void ProgramWidget::paintGL() {
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
                              img.width(), img.height(), 0,
-                             GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
+                             GL_BGRA, GL_UNSIGNED_BYTE, img.constBits());
                 d_->tex_w = img.width();
                 d_->tex_h = img.height();
             } else {
                 glBindTexture(GL_TEXTURE_2D, d_->tex_a);
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
                                 img.width(), img.height(),
-                                GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
+                                GL_BGRA, GL_UNSIGNED_BYTE, img.constBits());
             }
             d_->frame_dirty = false;
         }
