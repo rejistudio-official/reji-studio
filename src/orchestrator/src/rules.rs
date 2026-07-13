@@ -303,6 +303,18 @@ impl RuleEngine {
                 }
             }
 
+            // HP (healing plumbing): GPU termal metriği stub (query_gpu_thermal_*
+            // hep 0 döndürür). gpu_temp_c==0 "0°C" değil "veri yok" demektir; bu
+            // yüzden `gpu_temp_c`'ye dayanan kuralları atla. Aksi halde
+            // `gpu_thermal_restore` koşulu (`gpu_temp_c < 70`) daima doğru olup
+            // CoPilot'ta sürekli temelsiz "çözünürlüğü geri getir?" pending/overlay
+            // üretir (alarm yorgunluğu). Gerçek termal okuma (WMI/ADL/NVAPI) geldiğinde
+            // gpu_temp_c sıfır-dışı olur ve guard kendiliğinden kalkar.
+            if metrics.gpu_temp_c == 0 && rule.condition.contains("gpu_temp_c") {
+                debug!(rule_id = %rule.id, "gpu_temp_c stub (0) — termal kural atlandı");
+                continue;
+            }
+
             // Condition evaluation
             if eval_condition(&rule.condition, metrics) {
                 let action = self.create_action(&rule, metrics)?;
@@ -343,11 +355,27 @@ impl RuleEngine {
             _ => return Err(format!("Unknown action: {}", rule.action).into()),
         };
 
-        let param1 = rule
-            .params
-            .get("step_kbps")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
+        // HP2: param1 taşıdığı büyüklük aksiyona göre değişir:
+        //  - bitrate aksiyonları: `step_kbps` (kbps, doğrudan)
+        //  - resolution aksiyonları: `scale_factor` × 1000 sabit-nokta (frame
+        //    handler `param1 / 1000.0` yapar). `restore_resolution` params boş →
+        //    varsayılan 1.0 (tam çözünürlük). Eskiden resolution kuralları da
+        //    `step_kbps` okuduğundan param1=0 → set_resolution(0.0) no-op'tu.
+        let param1 = match action_type {
+            ActionType::ScaleResolution | ActionType::RestoreResolution => {
+                let scale = rule
+                    .params
+                    .get("scale_factor")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0);
+                (scale * 1000.0).round() as i32
+            }
+            _ => rule
+                .params
+                .get("step_kbps")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32,
+        };
 
         let param2 = rule
             .params
@@ -558,6 +586,71 @@ mod tests {
             engine.evaluate(&m, "auto-pilot").unwrap().len(),
             0,
             "cooldown süresince kural bastırılmalı"
+        );
+    }
+
+    #[test]
+    fn test_scale_factor_read_for_resolution() {
+        // HP2: resolution kuralları scale_factor'ı param1 = scale×1000 olarak
+        // okumalı (eskiden step_kbps okunuyordu → param1=0 → set_resolution no-op).
+        let engine = RuleEngine::new_test(vec![], 0);
+
+        let mut scale_params = HashMap::new();
+        scale_params.insert("scale_factor".to_string(), serde_json::json!(0.25));
+        let scale_rule = Rule {
+            id: "mem_pressure".to_string(),
+            description: String::new(),
+            condition: "memory_usage_pct > 85".to_string(),
+            action: "scale_resolution".to_string(),
+            params: scale_params,
+            modes: vec!["auto-pilot".to_string()],
+        };
+        let a = engine.create_action(&scale_rule, &RuleMetrics::default()).unwrap();
+        assert_eq!(a.action_type, ActionType::ScaleResolution);
+        assert_eq!(a.param1, 250, "scale_factor 0.25 → param1 250 (×1000)");
+
+        // restore_resolution: boş params → varsayılan 1.0 → param1 1000 (tam çözünürlük).
+        let restore_rule = Rule {
+            id: "gpu_thermal_restore".to_string(),
+            description: String::new(),
+            condition: "gpu_temp_c < 70".to_string(),
+            action: "restore_resolution".to_string(),
+            params: HashMap::new(),
+            modes: vec!["auto-pilot".to_string()],
+        };
+        let r = engine.create_action(&restore_rule, &RuleMetrics::default()).unwrap();
+        assert_eq!(r.action_type, ActionType::RestoreResolution);
+        assert_eq!(r.param1, 1000, "boş params → scale 1.0 → param1 1000");
+    }
+
+    #[test]
+    fn test_gpu_thermal_rule_skipped_when_metric_stub() {
+        // HP: gpu_temp_c metriği stub (0) iken gpu_temp_c'ye dayanan kurallar
+        // atlanmalı — aksi halde `gpu_temp_c < 70` hep-true olup sahte restore üretir.
+        let restore_rule = Rule {
+            id: "gpu_thermal_restore".to_string(),
+            description: String::new(),
+            condition: "gpu_temp_c < 70".to_string(),
+            action: "restore_resolution".to_string(),
+            params: HashMap::new(),
+            modes: vec!["auto-pilot".to_string()],
+        };
+        let engine = RuleEngine::new_test(vec![restore_rule], 0);
+
+        // gpu_temp_c == 0 (stub) → kural atlanır, hiç aksiyon üretilmez.
+        let stub = RuleMetrics { gpu_temp_c: 0, ..Default::default() };
+        assert_eq!(
+            engine.evaluate(&stub, "auto-pilot").unwrap().len(),
+            0,
+            "stub metrikte (0) termal kural atlanmalı"
+        );
+
+        // gpu_temp_c gerçek (0-dışı) ve < 70 → guard kalkar, kural tetiklenir.
+        let real = RuleMetrics { gpu_temp_c: 60, ..Default::default() };
+        assert_eq!(
+            engine.evaluate(&real, "auto-pilot").unwrap().len(),
+            1,
+            "gerçek metrikte (60<70) termal kural tetiklenmeli"
         );
     }
 }
