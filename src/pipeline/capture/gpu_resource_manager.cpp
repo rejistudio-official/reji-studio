@@ -128,12 +128,20 @@ bool GpuResourceManager::create_cross_adapter_shared(uint32_t w, uint32_t h,
     hr = encode_gpu_->d3d_device()->QueryInterface(IID_PPV_ARGS(&encode_dev1));
     if (FAILED(hr)) {
         fprintf(stderr, "[GpuRM] QI ID3D11Device1 failed: 0x%08lX\n", hr);
+        // J16.1 (GLM 2.1) fail-closed: shared_handle_ was created above; close it
+        // on every failure return so a re-init (or the always-failing cross-vendor
+        // path) does not leak the NT handle until shutdown().
+        CloseHandle(shared_handle_);
+        shared_handle_ = nullptr;
         return false;
     }
 
     hr = encode_dev1->OpenSharedResource1(shared_handle_, IID_PPV_ARGS(&encode_tex_));
     if (FAILED(hr)) {
         fprintf(stderr, "[GpuRM] OpenSharedResource1 (NT) failed: 0x%08lX\n", hr);
+        // J16.1 (GLM 2.1) fail-closed: release the exported handle on failure.
+        CloseHandle(shared_handle_);
+        shared_handle_ = nullptr;
         return false;
     }
 
