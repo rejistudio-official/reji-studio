@@ -49,7 +49,7 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J6 | AMD fallback spin-wait timeout'suz (TDR riski) | 🟢 3/3 | YENİ | Sprint 2 |
 | J7 | Keyed-mutex key sabitleri paylaşımlı header'da değil | ✅ 🟡 2/3 | YENİ (bakım riski, aktif bug değil) — FIXED 452a4bb | Sprint 2 |
 | J8 | `MetricsCollector::poll()` frame thread'de PDH sorgusu çalıştırıyor | ✅ 🟡 2/3 | YENİ (AGENTS.md ihlali — DOĞRULANDI) — FIXED efb0fe3 | Sprint 2 |
-| J9 | NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor | 🔵 1/3 | YENİ | Sprint 3 |
+| J9 | NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor | ✅ 🔵 1/3 | FIXED 06bb809 — faktüel doğru ama atıl (upscale wire'lı değil); ucuz DRC sigortası (max=config dims). Ayrı: healing plumbing 3 kırık (SESSION_NOTES) | Sprint 3 |
 | J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | 🔵 1/3 (Minimax, kırık raporun sağlam parçası) | YENİ | Sprint 3 |
 | J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | ❌ 🔵 1/3 | ÇÜRÜTÜLDÜ — cross-thread tek alan `preview_cb_` `cb_mutex_` altında, texture'lar frame-thread-only + toggle wire'lı değil (çifte güvence) | Sprint 3 |
 | J12 | GLM: `client_sock_` atomik olmayan erişim (SRT worker/frame thread) | ✅ 🔵 1/3 | FIXED 0a0fade — data-race hijyeni (NOT critical/UAF; listener-only/dormant, caller-mode'da inert) atomic<SRTSOCKET> | Sprint 3 |
@@ -246,7 +246,7 @@ Bu maddeler tek bir inceleyiciden geliyor. Somut kod referanslarıyla
 destekleniyorlar ama diğer iki rapor tarafından teyit edilmemiş — Faz 0'da
 **önce gerçekliği doğrulanmalı**, sonra düzeltme planlanmalı.
 
-### J9 — NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor 🔵 1/3
+### J9 — NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor ✅ FIXED (06bb809) 🔵 1/3
 **Kaynak:** Opus 2.3
 **Konum:** `src/pipeline/encode/encode_nvenc.cpp`
 **Açıklama:** `set_resolution` yeni boyutu ayarlıyor ama encoder init'te
@@ -254,8 +254,40 @@ destekleniyorlar ama diğer iki rapor tarafından teyit edilmemiş — Faz 0'da
 çözünürlüğü için ayrılmış olabilir, büyütme reconfig'i başarısız olabilir.
 Bu, self-healing çözünürlük düşürme/geri yükleme yolunda gerçek bir
 fonksiyonel hata iddiası.
-**Faz 0'da doğrulanacak:** NVENC init parametrelerinin gerçek değerleri,
-reconfig'in gerçekten başarısız olup olmadığı (loglardan/davranıştan).
+
+**Faz 0 sonucu (faktüel doğru ama ATIL; ucuz sigorta ile kapatıldı):**
+- **Faktüel çekirdek DOĞRU:** init (207-221) `maxEncodeWidth/Height`'a
+  dokunmuyor → `{}` ile 0. NVENC 0'ı encodeWidth/Height alır → max = init.
+- **SDK semantiği (doküman, donanımda test edilmedi):** max=init(implicit) →
+  downscale (≤ init) izinli; init üstüne upscale başarısız. Downscale explicit
+  max GEREKTİRMEZ (Yorum A).
+- **Wiring:** yalnız `SCALE_RESOLUTION` (downscale) `set_resolution`'a ulaşıyor;
+  `RESTORE_RESOLUTION` `apply_action`'da (pipeline.cpp:776-811) `default`'a
+  düşüp DROP ediliyor → upscale hiç tetiklenmiyor. Yani missing max'ın tek
+  başarısızlık senaryosu (upscale-above-init) hiç çalışmıyor → J9 **atıl**.
+- **Belirsizlik:** Yorum B (bazı sürücüler DRC için explicit max ister) donanım/
+  logsuz elenemedi. Belirleyici kanıt: `[NVENC] ReconfigureEncoder ... failed`
+  runtime logu (gözlemlenemedi).
+
+**Faz 1 (uygulandı) — "hangi yorum doğru olursa olsun aynı/daha iyi" ilkesi:**
+init'e `maxEncodeWidth/Height = config.width/height` eklendi. Yorum A → no-op
+(sıfır risk); Yorum B → downscale healing'i çalışır kılar. İki yorumu da kapatan
+ucuz sigorta (J12 emsali). config dims: downscale hedefleri hep < init, upscale
+wire'lı değil → buffer maliyeti yok.
+
+**Doğrulama sınıfı:** kod incelemesi + SDK-doküman muhakemesi + build/test
+(PipelineIntegration + PipelineCharacterization PASS). Gerçek DRC donanımda
+test edilmedi (headless).
+
+**⚠️ Faz 0 keşfi — resolution-healing uçtan uca AYRICA kırık (J9 kapsamı DIŞI,
+V9 statik-taramasının hiç dokunmadığı alan; Sprint 3 sonrası ayrı değerlendirme):**
+1. Scale factor `param1/1000`, `param1` ise Rust'ta `rule.params["step_kbps"]`'ten
+   okunuyor (rules.rs:346-350) — bir **bitrate parametresi** resolution scale'ine
+   dönüşüyor; step_kbps yoksa param1=0 → `set_resolution(0.0)` no-op.
+2. `RESTORE_RESOLUTION` pipeline apply yolunda wire'lı değil → çözünürlük hiç
+   geri yükselmiyor.
+3. `set_resolution` sonucu `(void)` ile yutuluyor (pipeline.cpp:231).
+Ayrıntı: SESSION_NOTES J9 girişi.
 
 ### J10 — Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor 🔵 1/3
 **Kaynak:** Minimax'ın kırık raporunun kendi içinde tutarlı tek bölümü

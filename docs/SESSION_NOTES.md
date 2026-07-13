@@ -117,7 +117,47 @@ TOCTOU zaten üst katmanlarla örtülü, kötüleşmez.
 
 **Doğrulama:** `srt_output.cpp` derlendi (yalnız bilinen D9025, yeni uyarı yok);
 `ctest` **OutputSubsystemTest + PipelineCharacterization PASS**. baseline
-`git checkout` ile geri alındı. **Push: onay bekliyor.**
+`git checkout` ile geri alındı. **Push: 0a0fade (kod) + 1839b5f (doküman) →
+origin/master (senkron).**
+
+### J9 — NVENC init `maxEncodeWidth/Height` set etmiyor ✅ FIXED (06bb809)
+
+**Sınıf:** V9 [YENİ], 🔵 1/3 (Opus 2.3 tekil). **Faz 0: faktüel doğru ama fonksiyonel
+olarak ATIL — "hangi yorum doğru olursa olsun aynı/daha iyi" ucuz sigortasıyla kapatıldı.**
+
+**Faz 0 (4 adım):**
+1-2. Init (207-221) `maxEncodeWidth/Height`'a dokunmuyor → 0. NVENC 0'ı
+   encodeWidth/Height alır → session max = init çözünürlüğü. SDK (doküman,
+   donanımsız): downscale (≤init) izinli, upscale-above-init başarısız;
+   downscale explicit max gerektirmez (Yorum A). Yorum B (bazı sürücüler DRC
+   için explicit max ister) donanım/logsuz elenemedi.
+3. Wiring: yalnız `SCALE_RESOLUTION` (downscale) `set_resolution`'a ulaşır;
+   `RESTORE_RESOLUTION` `apply_action` (776-811) `default`'a düşüp DROP edilir.
+   Missing max'ın tek başarısızlık senaryosu (upscale) hiç wire'lı değil → atıl.
+4. Karar: init'e `maxEncodeWidth/Height = config.width/height`. Yorum A→no-op,
+   Yorum B→downscale healing çalışır. İki yorumu da kapatır (J12 ucuz-fix emsali).
+
+**Doğrulama:** `encode_nvenc.cpp` derlendi (yalnız D9025); PipelineIntegration +
+PipelineCharacterization PASS. Gerçek DRC headless test edilmedi.
+
+**⚠️ Faz 0 KEŞFİ — resolution-healing uçtan uca AYRICA kırık (J9 kapsamı DIŞI):**
+Bu, V9'un üç-model statik taramasının HİÇ dokunmadığı bir alan; kendi Faz 0
+keşfimizin ürünü. Aceleyle V9 maddesi (J17) açılmadı — hazırlıksız/kendi Faz 0'ı
+olmayan madde olur. Üç kırık, ayrı ayrı:
+1. **Scale factor yanlış kaynaktan:** `set_resolution(param1/1000)`, ama `param1`
+   Rust `create_action`'da `rule.params["step_kbps"]`'ten okunuyor (rules.rs:346-350)
+   — bir bitrate step'i resolution scale'ine dönüşüyor. step_kbps yoksa param1=0
+   → `set_resolution(0.0)` hemen false (no-op).
+2. **RESTORE_RESOLUTION wire'lı değil:** RuleEngine üretiyor (rules.rs:339) ama
+   pipeline `apply_action`/`apply_frame_cmd` yalnız SCALE'i işliyor → çözünürlük
+   düştükten sonra hiç geri yükselmiyor (yalnız main_window.cpp:640 UI-log'unda var).
+3. **Sonuç yutuluyor:** `(void)encode_sub_.set_resolution(...)` (pipeline.cpp:231)
+   — reconfig başarısızlığı yalnız fprintf'e gidiyor, healing state'e yansımıyor.
+Ek: `set_resolution` scaling kümülatif (491: güncel config.width×scale) +
+downscale'de maxEncodeWidth'i düşürüyor (502-503).
+**KARAR (kullanıcı):** Sprint 3 kapandığında (J10 sonrası), resolution-healing'in
+gerçek ürün etkisi (kullanıcı görüyor mu, tetiklenme sıklığı) değerlendirilip
+ayrı bir mini-talimat olarak açılıp açılmayacağına birlikte karar verilecek.
 
 ---
 
