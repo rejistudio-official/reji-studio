@@ -1,8 +1,16 @@
-## Oturum: 13 Temmuz 2026 — V9 Sprint 3 (J13 → J11 → J12 → J9 → J10) 🔄 DEVAM
+## Oturum: 13 Temmuz 2026 — V9 Sprint 3 (J9-J13) ✅ TAMAMEN KAPANDI
 
-Sıra: J13 → J11 → J12 → J9 → J10 (en somuttan doğrulama yükü en ağıra). Tüm
-maddeler 🔵 1/3 konsensüs → önceki sprintlerden yüksek şüphecilik eşiği;
-her madde önce Faz 0'da iddiayı kanıtlar, sonra düzeltme.
+Sıra: J13 → J11 → J12 → J9 → J10 (en somuttan doğrulama yükü en ağıra). Beş
+madde de 🔵 1/3 konsensüs (tek-model iddiaları) → önceki sprintlerden yüksek
+şüphecilik eşiği; her madde önce Faz 0'da iddiayı kanıtladı, sonra düzeltme.
+
+**Sonuç: 3 düzeltme + 2 çürütme — disiplinin doğru çalıştığının kanıtı.**
+- **J13** ✅ FIXED (9413a5e): cache dangling gerçek (asimetri), aktif-UAF latent → savunma-derinliği.
+- **J11** ❌ ÇÜRÜT (bc98d1f): `cb_mutex_` senkronizasyonu doğru, texture'lar frame-thread-only + toggle wire'sız (çifte güvence). J7'nin ikizi.
+- **J12** ✅ FIXED (0a0fade): gerçek data race (dormant listener kodu) ama şiddet abartılı (int handle, UAF değil) → atomic hijyen, J3 emsali.
+- **J9** ✅ FIXED (06bb809): faktüel doğru ama atıl (upscale wire'sız) → "hangi yorum olursa olsun aynı/daha iyi" ucuz DRC sigortası.
+- **J10** ❌ ÇÜRÜT (bu commit): iki bağımsız mekanizma karıştırılmış; REDUCED_BITRATE_KBPS Predictive yolunda kullanılıyor, 0.85× ayrı politika (recover 1.15× ile simetrik = kasıtlı).
+- **Yan ürün:** healing plumbing 4 gözlem (aşağıda) — V9 taramasının hiç görmediği alan, Faz 0 keşfi. Sprint 3 sonrası ayrı değerlendirilecek.
 
 ### J13 — `GpuInteropSubsystem::shutdown()` son-frame cache'i temizlemiyor ✅ (9413a5e)
 
@@ -140,24 +148,56 @@ olarak ATIL — "hangi yorum doğru olursa olsun aynı/daha iyi" ucuz sigortası
 **Doğrulama:** `encode_nvenc.cpp` derlendi (yalnız D9025); PipelineIntegration +
 PipelineCharacterization PASS. Gerçek DRC headless test edilmedi.
 
-**⚠️ Faz 0 KEŞFİ — resolution-healing uçtan uca AYRICA kırık (J9 kapsamı DIŞI):**
-Bu, V9'un üç-model statik taramasının HİÇ dokunmadığı bir alan; kendi Faz 0
-keşfimizin ürünü. Aceleyle V9 maddesi (J17) açılmadı — hazırlıksız/kendi Faz 0'ı
-olmayan madde olur. Üç kırık, ayrı ayrı:
-1. **Scale factor yanlış kaynaktan:** `set_resolution(param1/1000)`, ama `param1`
-   Rust `create_action`'da `rule.params["step_kbps"]`'ten okunuyor (rules.rs:346-350)
-   — bir bitrate step'i resolution scale'ine dönüşüyor. step_kbps yoksa param1=0
-   → `set_resolution(0.0)` hemen false (no-op).
+**⚠️ Faz 0 KEŞFİ:** resolution-healing uçtan uca ayrıca kırık — ayrıntı aşağıdaki
+konsolide **"Healing plumbing gözlemleri (J9+J10 Faz 0 keşifleri)"** notunda.
+
+### J10 — Bitrate azaltma `REDUCED_BITRATE_KBPS` yok sayıyor ❌ ÇÜRÜTÜLDÜ (kod değişmedi)
+
+**Sınıf:** V9 [YENİ], 🔵 1/3 (Minimax, kırık raporun sağlam parçası). **Faz 0: şık (c),
+Minimax iki bağımsız alt sistemi karıştırdı. Sprint 3'ün en temiz çürütmesi.**
+
+**Faz 0 (4 adım):** Sistemde İKİ bağımsız bitrate-azaltma mekanizması var:
+- **Yol A (Predictive):** `HealingEvent::ReduceBitrate{REDUCED_BITRATE_KBPS=3500}`
+  (healing.rs:525) → `RJ_CMD_BITRATE_SET, param_u32=3500` (ffi.rs:419-422) →
+  C++ `apply_command` (255-261) → `set_bitrate(3500)`. **Sabit KULLANILIYOR** —
+  mutlak "güvenli hedefe sıçra". İddianın "yok sayılıyor" premisi YANLIŞ.
+- **Yol B (RuleEngine):** RjAction BITRATE_REDUCE, param1=step_kbps → `apply_action`
+  (780-785) → `current*0.85f`. REDUCED_BITRATE_KBPS ile ilgisiz, ayrı kademeli politika.
+- **Kasıtlılık kanıtı = SİMETRİ:** REDUCE (0.85×) ve RECOVER (1.15×) İKİSİ de param1'i
+  aynı şekilde yok sayıp simetrik sabit çarpan uyguluyor → C++ eğrinin sahibi,
+  RjAction'lar tetikleyici. İki bağımsız yerde simetrik davranış rastgele
+  unutkanlık olamaz (istatistiksel argüman); kasıtlıdır. `param1:3500` (ffi.rs:1138)
+  yalnız test helper'ı, production değil.
+**Verdict:** Tutarsızlık değil, tasarım kararı (I29/I31). Kod değişmedi, yalnız
+FABLE5_BUG_PLAN_V9.md + SESSION_NOTES.
+
+---
+
+### Healing plumbing gözlemleri (J9+J10 Faz 0 keşifleri — V9 kapsamı DIŞI)
+
+Bunlar V9'un üç-model statik taramasının HİÇ dokunmadığı, J9/J10 Faz 0'larında
+**kendi keşfimizle** çıkan bulgular. Aceleyle V9 maddesi (J17) açılmadı —
+hazırlıksız/kendi Faz 0'ı olmayan madde olur. Dört gözlem:
+
+1. **Resolution scale yanlış kaynaktan:** `set_resolution(param1/1000)`, ama
+   `param1` Rust `create_action`'da `rule.params["step_kbps"]`'ten okunuyor
+   (rules.rs:346-350) — bir bitrate step'i resolution scale'ine dönüşüyor.
+   step_kbps yoksa param1=0 → `set_resolution(0.0)` hemen false (no-op).
 2. **RESTORE_RESOLUTION wire'lı değil:** RuleEngine üretiyor (rules.rs:339) ama
    pipeline `apply_action`/`apply_frame_cmd` yalnız SCALE'i işliyor → çözünürlük
-   düştükten sonra hiç geri yükselmiyor (yalnız main_window.cpp:640 UI-log'unda var).
-3. **Sonuç yutuluyor:** `(void)encode_sub_.set_resolution(...)` (pipeline.cpp:231)
-   — reconfig başarısızlığı yalnız fprintf'e gidiyor, healing state'e yansımıyor.
+   düştükten sonra hiç geri yükselmiyor (yalnız main_window.cpp:640 UI-log'unda).
+3. **set_resolution sonucu yutuluyor:** `(void)encode_sub_.set_resolution(...)`
+   (pipeline.cpp:231) — reconfig başarısızlığı yalnız fprintf'e, state'e yansımıyor.
+4. **RuleEngine `step_kbps` bitrate_reduce'da etkisiz (J10 keşfi):** `apply_action`
+   BITRATE_REDUCE param1'i yok sayıp 0.85× yapıyor → kural yazarının `step_kbps`
+   ayarı bitrate azaltmayı etkilemiyor (yanıltıcı config knob). C++'ın "eğri
+   sahibi" tasarımıyla tutarlı ama config-hijyeni açığı.
 Ek: `set_resolution` scaling kümülatif (491: güncel config.width×scale) +
 downscale'de maxEncodeWidth'i düşürüyor (502-503).
-**KARAR (kullanıcı):** Sprint 3 kapandığında (J10 sonrası), resolution-healing'in
-gerçek ürün etkisi (kullanıcı görüyor mu, tetiklenme sıklığı) değerlendirilip
-ayrı bir mini-talimat olarak açılıp açılmayacağına birlikte karar verilecek.
+
+**KARAR (kullanıcı):** V9 Sprint 3 kapandığına göre, healing'in gerçek ürün
+etkisi (kullanıcı görüyor mu, tetiklenme sıklığı) değerlendirilip ayrı bir
+mini-talimat olarak açılıp açılmayacağına birlikte karar verilecek.
 
 ---
 

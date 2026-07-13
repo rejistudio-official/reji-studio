@@ -50,7 +50,7 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J7 | Keyed-mutex key sabitleri paylaşımlı header'da değil | ✅ 🟡 2/3 | YENİ (bakım riski, aktif bug değil) — FIXED 452a4bb | Sprint 2 |
 | J8 | `MetricsCollector::poll()` frame thread'de PDH sorgusu çalıştırıyor | ✅ 🟡 2/3 | YENİ (AGENTS.md ihlali — DOĞRULANDI) — FIXED efb0fe3 | Sprint 2 |
 | J9 | NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor | ✅ 🔵 1/3 | FIXED 06bb809 — faktüel doğru ama atıl (upscale wire'lı değil); ucuz DRC sigortası (max=config dims). Ayrı: healing plumbing 3 kırık (SESSION_NOTES) | Sprint 3 |
-| J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | 🔵 1/3 (Minimax, kırık raporun sağlam parçası) | YENİ | Sprint 3 |
+| J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | ❌ 🔵 1/3 (Minimax) | ÇÜRÜTÜLDÜ — tasarım kararı; REDUCED_BITRATE_KBPS Predictive→RjCommand yolunda kullanılıyor, 0.85× ayrı RuleEngine politikası (recover 1.15× ile simetrik) | Sprint 3 |
 | J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | ❌ 🔵 1/3 | ÇÜRÜTÜLDÜ — cross-thread tek alan `preview_cb_` `cb_mutex_` altında, texture'lar frame-thread-only + toggle wire'lı değil (çifte güvence) | Sprint 3 |
 | J12 | GLM: `client_sock_` atomik olmayan erişim (SRT worker/frame thread) | ✅ 🔵 1/3 | FIXED 0a0fade — data-race hijyeni (NOT critical/UAF; listener-only/dormant, caller-mode'da inert) atomic<SRTSOCKET> | Sprint 3 |
 | J13 | `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor | ✅ 🔵 1/3 | YENİ (latent — aktif UAF değil, ama cache asimetrisi gerçek) — FIXED 9413a5e | Sprint 3 |
@@ -289,16 +289,32 @@ V9 statik-taramasının hiç dokunmadığı alan; Sprint 3 sonrası ayrı değer
 3. `set_resolution` sonucu `(void)` ile yutuluyor (pipeline.cpp:231).
 Ayrıntı: SESSION_NOTES J9 girişi.
 
-### J10 — Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor 🔵 1/3
+### J10 — Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor ❌ ÇÜRÜTÜLDÜ (tasarım kararı) 🔵 1/3
 **Kaynak:** Minimax'ın kırık raporunun kendi içinde tutarlı tek bölümü
 **Konum:** `pipeline.cpp::apply_action`, `RJ_ACTION_BITRATE_REDUCE` case
 **Açıklama:** C++ tarafı `current * 0.85f` ile yüzdesel azaltma yapıyor;
 Rust tarafındaki `REDUCED_BITRATE_KBPS = 3500` sabiti (healing hedefi
 olarak tanımlı) hiç kullanılmıyor, `RjAction::param1` de bu amaçla
 gönderiliyor ama C++ tarafında yok sayılıyor.
-**Faz 0'da doğrulanacak:** Bu kasıtlı bir tasarım mı (yüzdesel azaltma
-daha kademeli, sabit hedef ise ani düşüş) yoksa gerçek bir tutarsızlık mı —
-`RuleEngine`'in `param1`'i neden gönderdiği incelenmeli.
+
+**Faz 0 sonucu (çürütüldü — şık (c), Minimax iki alt sistemi karıştırdı):**
+Sistemde **iki bağımsız bitrate-azaltma mekanizması** var, farklı kanal/semantik:
+- **Yol A (Predictive healing):** `HealingEvent::ReduceBitrate{REDUCED_BITRATE_KBPS=3500}`
+  (healing.rs:525) → `RJ_CMD_BITRATE_SET, param_u32=3500` (ffi.rs:419-422) → C++
+  `apply_command` (pipeline.cpp:255-261) → `set_bitrate(3500)`. **REDUCED_BITRATE_KBPS
+  burada mutlak hedef olarak KULLANILIYOR** (iddianın aksine yok sayılmıyor).
+- **Yol B (RuleEngine reaktif):** RjAction `BITRATE_REDUCE`, param1=step_kbps →
+  `apply_action` (780-785) → `current*0.85f`. Bu, REDUCED_BITRATE_KBPS ile HİÇ
+  ilgili değil — ayrı, kademeli bir politika.
+**Kasıtlılık kanıtı (simetri):** `apply_action` hem REDUCE (0.85×, 782) hem
+RECOVER (1.15×, 792) için param1'i AYNI şekilde yok sayıp simetrik sabit çarpan
+uyguluyor → C++ katmanı adaptasyon eğrisinin sahibi, RjAction'lar yalnız
+tetikleyici. İki bağımsız yerde simetrik "aynı davranış" rastgele unutkanlık
+olamaz; kasıtlıdır. `param1:3500` (ffi.rs:1138) yalnız test helper'ı.
+**Verdict:** Tutarsızlık değil, tasarım kararı. İmplementasyon yok (I29/I31).
+**Not (kapsam dışı):** RuleEngine'in `step_kbps` param'ı `apply_action`'da fiilen
+etkisiz — J9'un plumbing gözlemleriyle aynı kovada (SESSION_NOTES "healing
+plumbing gözlemleri").
 
 ### J11 — `shared_texture_`'a kilitsiz erişim (preview toggle race) ❌ ÇÜRÜTÜLDÜ 🔵 1/3
 **Kaynak:** GLM 1.1 ("critical" işaretlenmiş, diğer iki rapor değinmiyor)
