@@ -52,7 +52,7 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J9 | NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor | 🔵 1/3 | YENİ | Sprint 3 |
 | J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | 🔵 1/3 (Minimax, kırık raporun sağlam parçası) | YENİ | Sprint 3 |
 | J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | ❌ 🔵 1/3 | ÇÜRÜTÜLDÜ — cross-thread tek alan `preview_cb_` `cb_mutex_` altında, texture'lar frame-thread-only + toggle wire'lı değil (çifte güvence) | Sprint 3 |
-| J12 | GLM: `client_sock_` atomik olmayan erişim (SRT worker/frame thread) | 🔵 1/3 | YENİ | Sprint 3 — doğrulama önce |
+| J12 | GLM: `client_sock_` atomik olmayan erişim (SRT worker/frame thread) | ✅ 🔵 1/3 | FIXED 0a0fade — data-race hijyeni (NOT critical/UAF; listener-only/dormant, caller-mode'da inert) atomic<SRTSOCKET> | Sprint 3 |
 | J13 | `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor | ✅ 🔵 1/3 | YENİ (latent — aktif UAF değil, ama cache asimetrisi gerçek) — FIXED 9413a5e | Sprint 3 |
 | J14 | Kimlik bilgileri (WS parola, RTMP key) registry'de düz metin | 🟡 2/3 | YENİ (bilinen/kabul edilmiş sınırlama) | Sprint 4 |
 | J15 | `program_widget.cpp` hot-path'te `convertToFormat` alloc | 🔵 1/3 | YENİ | Sprint 4 |
@@ -313,7 +313,7 @@ kanıtlanacak bir race yok, senkronizasyon deseni statik olarak kesin).
 **Verdict:** İmplementasyon yok (I29/I31 deseni). "1/3 iddia abartılı" —
 disiplinin doğru çalıştığının kanıtı (TALIMAT öngörüsü).
 
-### J12 — `client_sock_` atomik olmayan erişim (SRT) 🔵 1/3
+### J12 — `client_sock_` atomik olmayan erişim (SRT) ✅ FIXED (0a0fade) 🔵 1/3
 **Kaynak:** GLM 1.2 ("critical" işaretlenmiş)
 **Konum:** `src/pipeline/output/srt_output.cpp`, `send_internal` /
 `worker_loop`
@@ -321,13 +321,40 @@ disiplinin doğru çalıştığının kanıtı (TALIMAT öngörüsü).
 yazarken, frame/encode thread aynı anda `send_internal`'de bu socket'i
 kullanıyor olabilir — mutex/atomic koruması yok, use-after-free/geçersiz
 socket'e gönderim iddiası.
-**Faz 0'da doğrulanacak:** J11 gibi, tek kaynaklı "critical" iddia —
-gerçek eşzamanlılık senaryosunun mümkün olup olmadığı (worker ve frame
-thread'in gerçekten örtüşüp örtüşmediği) find-references ile teyit
-edilmeli.
-**Not:** J2 (SRT/I18 deseni) ile aynı dosyada — Faz 0'da birlikte
-incelenmesi verimli olabilir, ama farklı sorunlar (biri katman ihlali,
-biri thread-safety).
+
+**Faz 0 sonucu — karma (mekanizma gerçek, şiddet ABARTILI, üründe ulaşılamaz):**
+- **Mekanizma GERÇEK (listener mode):** `client_sock_` düz `SRTSOCKET`'ti.
+  Worker thread (ayrı `worker_thread`) 341-342/355-359'da yazar; frame/encode
+  thread (`on_packet` "same thread as run_frame" → `send_internal`:384) okur.
+  İki thread streaming'de örtüşür → senkronizasyonsuz **data race (UB)**.
+  (J11'den farklı: orada senkronizasyon doğruydu; burada gerçekten yok.)
+- **DÜRÜST ŞİDDET — "critical/UAF" DEĞİL, data-race hijyeni:** `SRTSOCKET=int32`
+  handle (vcpkg srt.h:129), pointer değil → app sınırında **use-after-free yok**;
+  x64 hizalı int okuma **torn olmaz**; `srt_sendmsg2` içsel thread-safe
+  registry'de ID arar, kapalı ID'de `SRT_ERROR` döner (391-403 ele alır);
+  `seh_safe_sendmsg` zaten SEH backstop. En kötü sonuç: minik TOCTOU'da yeni
+  kapanmış ID'ye bir paket → zarif drop. Bozulma/crash yok.
+- **ULAŞILABİLİRLİK:** Mevcut ürün `caller_mode=true` hardcode (pipeline.cpp:451,
+  override yok); `client_sock_` yalnız listener-mode alanı (tüm mutasyonları
+  `!cfg.caller_mode` gate'li) → caller-mode'da race erişilemez, `sock` da
+  streaming'de yazılmaz (init'te worker'dan önce / cleanup'ta worker join sonrası).
+- **J2/I18 etkileşimi:** sink mimarisi + `transport_atomic_` gate socket yaşam
+  döngüsünden bağımsız; J2 yeni yan etki yaratmıyor, race J2'yi öncelıyor.
+
+**Faz 1 (uygulandı) — J3/I4/I5/I27/I28/I30/I32 emsali:** listener mode dead
+değil, **dormant** (tam implement, bakımı yapılan özellik). "İnert ama planlı
+kod"u fail-closed düzeltip koru deseni. `client_sock_` → `std::atomic<SRTSOCKET>`
+(lock-free) + acquire/release; tüm erişimler `.load()`/`.store()`. ~10 satır
+mekanik, **caller-mode davranışı sıfır etkilenir**. Maliyet-fayda asimetrisi:
+bu kadar ucuz düzeltme için bilinen data-race'i dormant kodda bırakmak riski
+gerekçesiz büyütürdü. atomic formal race'i + torn-read'i kaldırır; TOCTOU zaten
+üst katmanlarla örtülü, kötüleşmez.
+
+**Doğrulama sınıfı:** kod incelemesi + find-references + build/test
+(OutputSubsystemTest + PipelineCharacterization PASS). Race deterministik test
+edilmedi (doğası gereği); davranış değişmedi (caller-mode inert).
+**Not:** J2 (SRT/I18 deseni) ile aynı dosyada — farklı sorunlar (biri katman
+ihlali, biri thread-safety), etkileşim yok.
 
 ### J13 — `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor ✅ FIXED (9413a5e) 🔵 1/3
 **Kaynak:** Opus 2.2

@@ -80,6 +80,45 @@ J11'de header'ın "any thread" niyeti VE tasarım güvenliği birlikte var → d
 race yok, senkronizasyon deseni statik olarak kesin). Kod değişmedi, yalnız
 FABLE5_BUG_PLAN_V9.md + SESSION_NOTES güncellendi.
 
+### J12 — SRT `client_sock_` atomik olmayan erişim ✅ FIXED (0a0fade)
+
+**Sınıf:** V9 [YENİ], 🔵 1/3 (GLM tekil, "critical"). **Faz 0: karma — mekanizma
+GERÇEK, şiddet ABARTILI (critical/UAF değil), üründe ULAŞILAMAZ. Üçüncü kategori
+(J13≠J11).**
+
+**Faz 0 (4 adım, titiz mod):**
+1. **Mekanizma gerçek (listener):** `client_sock_` düz `SRTSOCKET`. Worker
+   thread (ayrı `worker_thread`, 296) 341-342 (close+INVALID) / 355-359 (accept)
+   yazar; frame/encode thread (`on_packet` "same thread as run_frame":271 →
+   `send_internal`:384) okur. İki thread streaming'de örtüşür → senkronizasyonsuz
+   data race (UB). J11'den farklı: orada `cb_mutex_` senkronizasyonu doğruydu.
+2. **J2/I18:** sink + `transport_atomic_` gate socket yaşam döngüsünden bağımsız,
+   yeni yan etki yok.
+3. **Şiddet ABARTILI — data-race hijyeni, UAF DEĞİL:** `SRTSOCKET=int32_t` handle
+   (vcpkg srt.h:129 doğrulandı), pointer değil → UAF yok; x64 hizalı int torn
+   olmaz; `srt_sendmsg2` içsel thread-safe registry → kapalı ID'de SRT_ERROR
+   (391-403 ele alır); `seh_safe_sendmsg` SEH backstop. En kötü: TOCTOU'da
+   kapanmış ID'ye 1 paket → zarif drop.
+4. **Ulaşılamaz:** `caller_mode=true` hardcoded (pipeline.cpp:451, override yok);
+   `client_sock_` yalnız listener alanı (mutasyonlar `!cfg.caller_mode` gate'li).
+   Caller-mode'da inert; `sock` da streaming'de yazılmaz.
+
+**Üç maddenin çerçevesi:** J13 = kusur gerçek + üründe çalışır (fix). J11 = kusur
+yok (çürüt). J12 = kusur gerçek ama **dormant** kodda + şiddet abartılı.
+
+**Karar (kullanıcı, B):** J3/I4/I5/I27/I28/I30/I32 emsali — "inert ama planlı/
+bakımı yapılan kod"u bu projede hiç "dokunma" ile geçmedik, fail-closed düzeltip
+koruduk. Dormant ≠ dead. Maliyet-fayda asimetrisi: ~10 satır mekanik atomic,
+caller-mode sıfır etki → bilinen data-race'i bırakmak riski gerekçesiz büyütürdü.
+
+**Çözüm:** `client_sock_` → `std::atomic<SRTSOCKET>` (lock-free) + acquire/release,
+tüm erişimler `.load()`/`.store()`. atomic formal race'i + torn-read'i kaldırır;
+TOCTOU zaten üst katmanlarla örtülü, kötüleşmez.
+
+**Doğrulama:** `srt_output.cpp` derlendi (yalnız bilinen D9025, yeni uyarı yok);
+`ctest` **OutputSubsystemTest + PipelineCharacterization PASS**. baseline
+`git checkout` ile geri alındı. **Push: onay bekliyor.**
+
 ---
 
 ## Oturum: 13 Temmuz 2026 — V9 Sprint 2 (J5-J8) ✅ TAMAMEN KAPANDI
