@@ -1,4 +1,5 @@
 #include "capture_dxgi.h"
+#include "../include/reji_constants.h"  // J7: paylaşımlı keyed-mutex anahtarları
 #ifdef RJ_PLATFORM_WINDOWS
 
 #include "../include/frame_profiler.h"
@@ -370,7 +371,7 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
     // 1.1: AMD fallback — use_keyed_mutex_=false skips AcquireSync to avoid deadlock
     if (shared_texture_) {
         if (use_keyed_mutex_ && keyed_mutex_shared_) {
-            HRESULT hr = keyed_mutex_shared_->AcquireSync(0, 16);  // 16ms timeout
+            HRESULT hr = keyed_mutex_shared_->AcquireSync(rj::constants::kKeyedMutexKeyD3D11, 16);  // 16ms timeout
             if (hr != S_OK) {
                 fprintf(stderr, "[Capture] KeyedMutex timeout/fail: 0x%08X\n", hr);
                 fflush(stderr);
@@ -378,7 +379,7 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
                 return nullptr;
             }
             display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
-            keyed_mutex_shared_->ReleaseSync(1);  // hand off to Vulkan (key=1)
+            keyed_mutex_shared_->ReleaseSync(rj::constants::kKeyedMutexKeyVulkan);  // hand off to Vulkan (key=1)
         } else {
             // AMD fallback: keyed mutex yok — dogrudan kopyala, tamamlanma icin fence bekle.
             display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);

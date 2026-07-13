@@ -102,8 +102,8 @@ private:
 #ifdef _WIN32
     // D3: Keyed mutex info as member — pointers into these fields must outlive vkQueueSubmit
     VkWin32KeyedMutexAcquireReleaseInfoKHR keyed_mutex_info_ = {};
-    uint64_t       km_acquire_key_ = 1;
-    uint64_t       km_release_key_ = 0;
+    uint64_t       km_acquire_key_ = rj::constants::kKeyedMutexKeyVulkan;  // Vulkan turu alır
+    uint64_t       km_release_key_ = rj::constants::kKeyedMutexKeyD3D11;   // D3D11'e devreder
     uint32_t       km_timeout_     = UINT32_MAX;
     VkDeviceMemory km_memory_      = VK_NULL_HANDLE;
 #endif
