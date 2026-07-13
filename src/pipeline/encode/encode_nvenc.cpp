@@ -211,6 +211,14 @@ struct NvencEncoder::Impl {
         init.presetGUID        = NV_ENC_PRESET_P4_GUID;
         init.encodeWidth       = config.width;
         init.encodeHeight      = config.height;
+        // J9: DRC (set_resolution) için max'ı açıkça init çözünürlüğüne bağla.
+        // maxEncode*=0 bırakılırsa NVENC bunları encodeWidth/Height olarak alır —
+        // Yorum A'da bu satırlar no-op (davranış değişmez), ama bazı sürücülerde
+        // (Yorum B) reconfigure-resolution'ın çalışması explicit max ister; iki
+        // yorumu da kapatan ucuz sigorta. Downscale hedefleri hep < init olduğundan
+        // config dims yeterli; init üstüne upscale wire'lı değil (buffer maliyeti yok).
+        init.maxEncodeWidth    = config.width;
+        init.maxEncodeHeight   = config.height;
         init.darWidth          = config.width;
         init.darHeight         = config.height;
         init.frameRateNum      = config.fps_num;
