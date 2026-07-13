@@ -1,7 +1,14 @@
 # CONTEXT.md — Reji Studio Proje Bağlamı
 
-**Son güncelleme:** 11 Temmuz 2026
+**Son güncelleme:** 14 Temmuz 2026
 **Hazırlayan:** Bu sohbetin (Claude, sohbet asistanı) kendisi — Claude Code'un gerçekleştirdiği işlerin, GitHub'dan doğrudan doğrulanmış özeti.
+
+> **V9 GÜNCEL DURUM (14.07):** V9 bug planı **fiilen tamamlandı** (Sprint 1-4 +
+> healing-plumbing). Sprint 4 Bölüm A (J14 gözden geçirildi, J15/J16.1 FIXED, J16.2-4
+> not/çürüt/zaten-çözülmüş) + Bölüm B Healing Plumbing (HP1-HP4 FIXED: resolution-healing
+> artık gerçekten çalışıyor + `gpu_thermal_restore` hep-true guard'ı). Kanonik detay:
+> `docs/FABLE5_BUG_PLAN_V9.md` + `SESSION_NOTES.md` (14.07 girdileri). Aşağıdaki bölümler
+> ağırlıklı V8 dönemine ait (11.07); tarihçe olarak korunuyor.
 
 > ⚠️ Bu dosya çok kapsamlı hazırlandı (tarihçe + güncel durum + planlar bir arada). `session-handoff` skill'inin normal disiplini CONTEXT.md'yi sadece "anlık durum" ile sınırlı tutar, tarihçeyi `SESSION_NOTES.md`/`memory.md`'ye bırakır. Bu dosya bir defalık, kapsamlı bir "yeniden başlangıç noktası" olarak hazırlandı — ileride normal disipline göre budanabilir.
 >
