@@ -53,7 +53,7 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | 🔵 1/3 (Minimax, kırık raporun sağlam parçası) | YENİ | Sprint 3 |
 | J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | 🔵 1/3 | YENİ | Sprint 3 — doğrulama önce |
 | J12 | GLM: `client_sock_` atomik olmayan erişim (SRT worker/frame thread) | 🔵 1/3 | YENİ | Sprint 3 — doğrulama önce |
-| J13 | `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor | 🔵 1/3 | YENİ | Sprint 3 |
+| J13 | `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor | ✅ 🔵 1/3 | YENİ (latent — aktif UAF değil, ama cache asimetrisi gerçek) — FIXED 9413a5e | Sprint 3 |
 | J14 | Kimlik bilgileri (WS parola, RTMP key) registry'de düz metin | 🟡 2/3 | YENİ (bilinen/kabul edilmiş sınırlama) | Sprint 4 |
 | J15 | `program_widget.cpp` hot-path'te `convertToFormat` alloc | 🔵 1/3 | YENİ | Sprint 4 |
 | J16 | Küçük temizlik/performans maddeleri (bkz. Sprint 4 detayı) | çeşitli | YENİ | Sprint 4 |
@@ -298,7 +298,7 @@ edilmeli.
 incelenmesi verimli olabilir, ama farklı sorunlar (biri katman ihlali,
 biri thread-safety).
 
-### J13 — `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor 🔵 1/3
+### J13 — `GpuInteropSubsystem::cache_last_images` shutdown'da temizlenmiyor ✅ FIXED (9413a5e) 🔵 1/3
 **Kaynak:** Opus 2.2
 **Konum:** `src/pipeline/gpu_interop_subsystem.cpp`, `shutdown()`
 **Açıklama:** `shutdown()` `ext_bridge_`'i sıfırlıyor (VkImage'ları yok
@@ -309,6 +309,29 @@ edilmiş handle'ları döndürebilir.
 içinde cache atomiklerini `nullptr`'a set et.
 **Not:** Bu, küçük ve düşük riskli bir madde; doğrulama sonrası doğrudan
 düzeltilebilir, ayrı bir tasarım turu gerektirmez.
+
+**Faz 0 sonucu (doğrulandı):** İddianın teknik çekirdeği DOĞRU — cache
+gerçekten dangling kalıyor (`ext_bridge_shutdown()` `image_pool`/
+`gl_target_images` VkImage'larını `vkDestroyImage` ile yok ediyor,
+`external_memory_bridge.zig`) ve okuma yolu (`get_last_frame_images`)
+yazma yolundaki (`get_frame_images`, `if (raw() && ...)`) `raw()`/bridge-alive
+guard'ından **yoksun** — asimetri gerçek. ANCAK "aktif use-after-free"
+kısmı LATENT: getter'ın tek çağıranı (`main_window.cpp:154`,
+`d3d11_frame_callback`, yalnızca `run_frame` içinde frame thread'de) normal
+teardown'da (`~MainWindow`: `stopFrameThread()` join → sonra `pipeline_`
+yıkımı → `shutdown()`) shutdown'dan ÖNCE join ediliyor → dangling cache hiç
+okunmuyor. Şık (b): teorik geçerli, normal akışta ulaşılamaz.
+**Faz 1 (uygulandı):** Savunma-derinliği — düşük maliyet (3 satır, davranış
+değişikliği yok) + header'ın belgelediği GL-thread okuyucusunu geleceğe
+karşı güvenceye alma gerekçesiyle düzeltildi (I29/I31 "çürüt" değil; iddia
+yanlış değildi, yalnızca şu anki etkisi sıfırdı). Regresyon:
+`PipelineCharacterization` PASS.
+**Kapsam-dışı gözlem:** `stopFrameThread()` `wait(5000)` zaman aşarsa
+(run_frame 5sn+ asılırsa) frame thread join edilmeden teardown devam eder →
+shutdown ile `run_frame` yarışır. Bu J13'ün konusu değil (daha geniş bir
+teardown race'i, `get_frame_images`/`shared_texture()` erişiminin tümünü
+kapsar); yeni V9 maddesi önerilmiyor, yalnızca ileride tökezleme olmaması
+için SESSION_NOTES'a not düşüldü.
 
 ---
 

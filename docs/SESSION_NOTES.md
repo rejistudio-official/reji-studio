@@ -1,3 +1,55 @@
+## Oturum: 13 Temmuz 2026 — V9 Sprint 3 (J13 → J11 → J12 → J9 → J10) 🔄 DEVAM
+
+Sıra: J13 → J11 → J12 → J9 → J10 (en somuttan doğrulama yükü en ağıra). Tüm
+maddeler 🔵 1/3 konsensüs → önceki sprintlerden yüksek şüphecilik eşiği;
+her madde önce Faz 0'da iddiayı kanıtlar, sonra düzeltme.
+
+### J13 — `GpuInteropSubsystem::shutdown()` son-frame cache'i temizlemiyor ✅ (9413a5e)
+
+**Sınıf:** V9 [YENİ], 🔵 1/3 (Opus 2.2 tekil). **Faz 0 sonucu: iddia teknik
+olarak DOĞRU ama "aktif use-after-free" kısmı LATENT.**
+
+**Faz 0 (4 adım):**
+1-3. `shutdown()` (`gpu_interop_subsystem.cpp:70`) `ext_bridge_->shutdown()` +
+   `reset()` yapıyor → `ext_bridge_shutdown()` (`external_memory_bridge.zig:322`)
+   `image_pool`/`gl_target_images` VkImage'larını `vkDestroyImage` ile yok
+   ediyor. Cache atomikleri (`last_staging_vk_`/`last_target_vk_`/`last_slot_`)
+   shutdown'da DOKUNULMUYOR → dangling. `get_last_frame_images()` (satır 62)
+   non-null → "geçerli" döndürür ve yazma yolundaki (`get_frame_images`,
+   `if (raw() && ...)`) `raw()`/bridge-alive guard'ından YOKSUN. **Asimetri
+   gerçek.**
+4. **Ama tek çağıran** (`main_window.cpp:154`, `d3d11_frame_callback`, yalnızca
+   `run_frame` içinde → frame thread; repoda başka çağıran yok) normal
+   teardown'da shutdown'dan ÖNCE join ediliyor: `~MainWindow` (`main_window.cpp:202`)
+   `stopFrameThread()`'i İLK çağırıyor (`requestInterruption`+`quit`+`wait(5000)`,
+   join) → sonra `pipeline_` yıkımı → `~Pipeline` → `shutdown()`. Dangling cache
+   hiç okunmuyor. **Şık (b): teorik geçerli, normal akışta ulaşılamaz.**
+
+**Verdict:** Bu J7 tipi "çürüt" DEĞİL (J7'de düzeltilecek bir şey yoktu; burada
+teknik çekirdek gerçek ve düzeltilmemiş). B seçeneği "iddia yanlış" derdi ama
+iddia yanlış değildi, yalnızca şu anki etkisi sıfırdı. Kullanıcı A'yı onayladı:
+maliyet/risk ezici (3 satır, davranış değişikliği yok — zaten okunmuyor) +
+header'ın belgelediği GL-thread okuyucu niyeti ile kod arasındaki boşluğu
+şimdi kapatmak ("niyet var, güvenlik yok" durumunu I19'un tersi olarak önceden
+engelle).
+
+**Çözüm:** `shutdown()` sonunda üç atomiği `nullptr`/0'a set. Savunma-derinliği.
+
+**⚠️ Kapsam-dışı gözlem (ileride tökezlememek için):** `stopFrameThread()`
+`wait(5000)` ZAMAN AŞARSA (run_frame 5sn+ asılırsa) frame thread join
+edilmeden teardown devam eder → `shutdown()` ile `run_frame` yarışır. Bu
+J13'ün konusu DEĞİL — daha geniş bir teardown race'i (`get_frame_images` satır
+626'da `s.gpu_sub_.raw()` + `dxgi->shared_texture()` erişiminin tümünü kapsar,
+yalnızca cache'i değil). Yeni V9 maddesi önerilmiyor; gerçekte 5sn'lik hang
+zaten patolojik bir durum. Not olarak bırakıldı.
+
+**Doğrulama:** `test_pipeline_characterization` derlendi (yalnız bilinen D9025
+uyarısı, yeni uyarı yok), `ctest PipelineCharacterization` PASS (2.33s —
+shutdown crash-free senaryosu). baseline `git checkout` ile geri alındı.
+**Push: onay bekliyor.**
+
+---
+
 ## Oturum: 13 Temmuz 2026 — V9 Sprint 2 (J5-J8) ✅ TAMAMEN KAPANDI
 
 Sıra: J6 → J5 → J7 → J8. J6 (fedb297), J5 (0a7ce88), J7 (452a4bb+1dd71d6),
