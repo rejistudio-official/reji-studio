@@ -1,7 +1,59 @@
-## Oturum: 13 Temmuz 2026 — V9 Sprint 2 (J5-J8)
+## Oturum: 13 Temmuz 2026 — V9 Sprint 2 (J5-J8) ✅ TAMAMEN KAPANDI
 
-Sıra: J6 → J5 → J7 → J8. J6 (fedb297) ve J5 (0a7ce88) daha önce
-FIXED+PUSHED. Bu oturum: J7.
+Sıra: J6 → J5 → J7 → J8. J6 (fedb297), J5 (0a7ce88), J7 (452a4bb+1dd71d6),
+J8 (efb0fe3) — dördü de FIXED+PUSHED, master origin senkron. Sprint 2 kapandı.
+
+### J8 — `MetricsCollector::poll()` frame thread'den 1Hz arka plan thread'ine ✅ (efb0fe3)
+
+**Sınıf:** V9 [YENİ], 🟡 2/3 (Fable5+Opus), **AGENTS.md ihlali — Faz 0 doğruladı.**
+
+**I14 AYRIMI (ilk cümle):** `rj_metrics_poll` (Rust, `ffi.rs` — UI'ın
+`MetricState`'ten atomik okuması, I14) ≠ `MetricsCollector::poll()` (C++,
+`metrics_collector.cpp` — `PdhCollectQueryData` çağıran fonksiyon). J8 =
+ikincisi. Tek ortak: "poll" kelimesi.
+
+**Faz 0 (5 adım):**
+1-2. `metrics_sub_.poll()` → `metrics_->poll()` (PDH), `pipeline.cpp:688`
+   `run_frame()`'in son satırından çağrılıyor; run_frame dedike QThread'de
+   sıkı `while` döngüsü (`main_window.cpp:188-195`) = frame thread. DOĞRULANDI.
+   Ek: `main_window.cpp:589` UI thread'inde AYRI bir MetricsCollector instance'ı
+   poll ediyor (kapsam dışı).
+3. **AGENTS.md:108-115 tam metni okundu (yorumlanmadı):** iki KÜMÜLATİF kural —
+   (1) "thermal, CPU load queries ayrı thread'te" + ✅ DOĞRU "background thread
+   (MetricsCollector) → poll", (2) "Min 1 Hz". **Throttle, ayrı-thread'in
+   istisnası DEĞİL.** Kod #2'yi sağlıyor, #1'i ihlal ediyor. Dahası header:42
+   + build_sample:86 yorumları ZATEN "background thread" iddia ediyordu → kod
+   kendi sözleşmesiyle çelişiyordu. NÜANS: ❌ YASAK maddesinin "deadlock risk"i
+   gerçek WMI/COM içindi; thermal WMI STUB (return 0) + rj_metrics_poll artık
+   I14 atomik okuma → o spesifik felaket senaryo MEVCUT DEĞİL.
+4. 1Hz throttle gerçek: `POLL_INTERVAL=1000ms`, poll() erken-return.
+5. **Etki: ölçülemedi (FrameProfiler bilinen-kırık + canlı GPU gerekir),
+   kod incelemesi tahmini** ~0.5-3ms/sn (GPU Engine wildcard counter ağır),
+   60fps'de saniyede 1 kare geç → ~1Hz mikro-stutter riski.
+
+**Verdict:** Tasarım sorusunda gri alan yok (kod kendi AGENTS.md kuralı +
+yorumlarıyla çelişiyor) ama şiddet DÜŞÜK. Kullanıcı düzeltmeyi onayladı.
+
+**Çözüm (CommandRouter start/stop+join deseni birebir):** MetricsSubsystem'e
+`std::thread poll_thread_` + `atomic poll_running_`; init() thread'i başlatır,
+`poll_loop` = `while(running){ metrics_->poll(); Sleep(250); }` (poll() zaten
+1Hz self-throttle, 250ms tick yalnız stop yanıtı); `stop()` (running=false+join)
+Pipeline::shutdown()'da + destructor RAII (idempotent). run_frame'den poll()
+çağrısı + public `MetricsSubsystem::poll()` kaldırıldı. metrics_lock_ poll_loop
+↔ get_latest güvenliğini zaten sağlıyor; PDH tek-thread → CoInitialize gerekmez
+(stub WMI). Kullanıcı onaylı 2 karar: Sleep döngüsü (condvar değil) + yalnız
+PipelineCharacterization (ayrı test yok, J5 orantı muhakemesi).
+
+**DAVRANIŞ:** I15/I18 gibi "hiç değişmemeli" DEĞİL — kasıtlı iyileştirme
+(frame thread PDH için durmaz + metrikler cadence'ten bağımsız). Veri eşdeğer.
+
+**Doğrulama:** reji_app Release derlendi+linklendi yeni uyarı yok (D9025/C4324
+bilinen). ctest PipelineCharacterization (fps/drops/bitrate kolonları etkilenmez;
+**shutdown()==true yeni thread'in temiz join'ini doğrular**) + GpuResourcePitch +
+OutputSubsystem + SehFilter + SlotRing PASS. baseline checkout ile geri alındı.
+**Push: efb0fe3 → origin/master (senkron).** Sprint 2 kapandı → SIRADA Sprint 3.
+
+### J7 — Keyed-mutex key sabitleri paylaşımlı header'a → `reji_constants.h` ✅ (452a4bb)
 
 ### J7 — Keyed-mutex key sabitleri paylaşımlı header'a → `reji_constants.h` ✅ (452a4bb)
 

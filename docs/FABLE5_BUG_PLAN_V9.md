@@ -48,7 +48,7 @@ Faz 0 doğrulamasından geçmelidir (proje disiplini, istisnasız).
 | J5 | `action_thread_main` sabit 100ms poll, kuyruk boşalana kadar sürmüyor | 🟢 3/3 | YENİ | Sprint 2 |
 | J6 | AMD fallback spin-wait timeout'suz (TDR riski) | 🟢 3/3 | YENİ | Sprint 2 |
 | J7 | Keyed-mutex key sabitleri paylaşımlı header'da değil | ✅ 🟡 2/3 | YENİ (bakım riski, aktif bug değil) — FIXED 452a4bb | Sprint 2 |
-| J8 | `MetricsCollector::poll()` frame thread'de PDH sorgusu çalıştırıyor | 🟡 2/3 | YENİ (AGENTS.md ihlali adayı) | Sprint 2 |
+| J8 | `MetricsCollector::poll()` frame thread'de PDH sorgusu çalıştırıyor | ✅ 🟡 2/3 | YENİ (AGENTS.md ihlali — DOĞRULANDI) — FIXED efb0fe3 | Sprint 2 |
 | J9 | NVENC `set_resolution` init'te `maxEncodeWidth/Height` ayarlamıyor | 🔵 1/3 | YENİ | Sprint 3 |
 | J10 | Bitrate azaltma `REDUCED_BITRATE_KBPS` sabitini yok sayıyor | 🔵 1/3 (Minimax, kırık raporun sağlam parçası) | YENİ | Sprint 3 |
 | J11 | GLM: `shared_texture_`'a kilitsiz erişim (preview toggle race) | 🔵 1/3 | YENİ | Sprint 3 — doğrulama önce |
@@ -208,7 +208,7 @@ rol-tabanlı iki sabit eklendi: `kKeyedMutexKeyD3D11=0` (D3D11 yazma turu),
 `kKeyedMutexKeyVulkan=1` (Vulkan okuma turu). Saf refactor, değerler
 birebir. PipelineCharacterization + GpuResourcePitch + SlotRing PASS.
 
-### J8 — `MetricsCollector::poll()` frame thread'de PDH sorgusu 🟡 2/3
+### J8 — `MetricsCollector::poll()` frame thread'de PDH sorgusu ✅ FIXED (efb0fe3) 🟡 2/3
 **Kaynak:** Fable5 4.4, Opus 4.3 (Opus özellikle "AGENTS.md açıkça bunu
 yasaklıyor" diyor)
 **Konum:** `src/pipeline/metrics_collector.cpp` / `pipeline.cpp::run_frame()`
@@ -226,6 +226,17 @@ thread'ine taşı; `run_frame()` yalnız atomik snapshot okusun
 **Faz 0'da netleştirilmesi gereken:** Bu gerçekten AGENTS.md ihlali mi
 (kısıt tam olarak neyi yasaklıyor, throttle'lı çağrı istisna mı) — kod
 incelemesiyle teyit şart, varsayılmasın.
+**SONUÇ (efb0fe3):** Faz 0 ihlali DOĞRULADI. AGENTS.md:108-115 iki kümülatif
+kural içeriyor — (1) "thermal, CPU load queries ayrı thread'te" + ✅ DOĞRU
+"background thread (MetricsCollector) → poll", (2) 1Hz throttle. Throttle,
+ayrı-thread gereksiniminin istisnası DEĞİL. Kod #2'yi sağlıyor ama #1'i ihlal
+ediyordu (run_frame:688'den çağrı) VE kendi header/build_sample yorumlarıyla
+("background thread") çelişiyordu. Şiddet düşük (thermal WMI stub → adlandırılan
+deadlock senaryosu yok; 1Hz; tahmini ~0.5-3ms/sn jitter, ölçülmedi=kod
+incelemesi). Düzeltme: MetricsSubsystem'e CommandRouter desenli 1Hz arka plan
+thread'i (poll_loop + stop()/join + RAII destructor); run_frame yalnız
+get_latest() snapshot okur. **I14 AYRIMI:** `rj_metrics_poll` (Rust, UI atomik
+okuma) ≠ `MetricsCollector::poll()` (C++, PDH) — bu madde ikincisi.
 
 ---
 
