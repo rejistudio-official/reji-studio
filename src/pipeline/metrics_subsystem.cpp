@@ -16,6 +16,10 @@ namespace {
 
 constexpr uint32_t kMetricMagic = RJ_METRIC_MAGIC;
 
+// J8: arka plan poll thread'inin uyanma aralığı. poll() zaten 1Hz self-throttle
+// yaptığından bu yalnız shutdown yanıt süresini sınırlar (stop → join ≤ bu süre).
+constexpr uint32_t kMetricsPollTickMs = 250;
+
 inline int64_t ticks_to_us(int64_t t, int64_t freq) noexcept {
     return (t * 1'000'000LL) / freq;
 }
@@ -57,9 +61,33 @@ float CpuMeter::sample() noexcept {
 }
 
 // ── MetricsSubsystem ──────────────────────────────────────────────────────────
+MetricsSubsystem::~MetricsSubsystem() { stop(); }
+
 bool MetricsSubsystem::init() {
     metrics_ = std::make_unique<rj::MetricsCollector>();
-    return metrics_ != nullptr;
+    if (!metrics_) return false;
+
+    // J8: PDH/WMI sorgularını frame thread'inden ayır (AGENTS.md "System Queries").
+    // poll() metrics_lock_ ile korunur → get_latest() (frame thread) ile güvenli.
+    poll_running_.store(true, std::memory_order_release);
+    poll_thread_ = std::thread([this] { poll_loop(); });
+    return true;
+}
+
+// J8: PDH tek thread'den çağrılır (bu döngü) → pdh_query_/gpu_pdh_buf_ üzerinde
+// eşzamanlı erişim yok. CoInitialize GEREKMEZ (PdhCollectQueryData COM/STA
+// değil; thermal WMI şu an stub). İleride gerçek WMI eklenirse bu thread'e
+// CoInitializeEx eklenmeli.
+void MetricsSubsystem::poll_loop() {
+    while (poll_running_.load(std::memory_order_acquire)) {
+        if (metrics_) metrics_->poll();  // poll() ZATEN 1Hz self-throttle
+        Sleep(kMetricsPollTickMs);
+    }
+}
+
+void MetricsSubsystem::stop() {
+    poll_running_.store(false, std::memory_order_release);
+    if (poll_thread_.joinable()) poll_thread_.join();
 }
 
 RjMetricSample MetricsSubsystem::build_sample(uint32_t bitrate_kbps,
@@ -83,7 +111,8 @@ RjMetricSample MetricsSubsystem::build_sample(uint32_t bitrate_kbps,
     m.frame_drops = frame_drops_delta;
 
     // v0.4+: Extended metrics from MetricsCollector
-    // NOTE: WMI queries run in separate thread; run_frame() only reads snapshot
+    // J8: PDH/WMI sorguları MetricsSubsystem'in kendi 1Hz arka plan thread'inde
+    // koşar (poll_loop); burada (frame thread) yalnız atomik snapshot okunur.
     if (metrics_) {
         auto latest = metrics_->get_latest();
         m.frame_drop_pct   = latest.frame_drop_pct;
@@ -103,10 +132,6 @@ void MetricsSubsystem::push(const RjMetricSample& sample) noexcept {
     seh_metrics_push(&sample);
 }
 
-void MetricsSubsystem::poll() {
-    if (metrics_) metrics_->poll();
-}
-
 } // namespace rj
 
 #else  // !_WIN32
@@ -114,13 +139,18 @@ void MetricsSubsystem::poll() {
 namespace rj {
 CpuMeter::CpuMeter() noexcept {}
 float CpuMeter::sample() noexcept { return 0.f; }
-bool MetricsSubsystem::init() { return false; }
+MetricsSubsystem::~MetricsSubsystem() { stop(); }
+bool MetricsSubsystem::init() { return false; }  // thread başlatılmaz
 RjMetricSample MetricsSubsystem::build_sample(uint32_t, uint32_t,
                                               int64_t, int64_t) noexcept {
     return RjMetricSample{};
 }
 void MetricsSubsystem::push(const RjMetricSample&) noexcept {}
-void MetricsSubsystem::poll() {}
+void MetricsSubsystem::poll_loop() {}
+void MetricsSubsystem::stop() {
+    poll_running_.store(false, std::memory_order_release);
+    if (poll_thread_.joinable()) poll_thread_.join();  // hiç başlamadı → no-op
+}
 } // namespace rj
 
 #endif // _WIN32

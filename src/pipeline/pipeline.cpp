@@ -685,8 +685,10 @@ bool Pipeline::run_frame() {
     // 5) Frame pacing  absolute deadline (FramePacer alt sistemi)
     s.pacer_.pace();
 
-    s.metrics_sub_.poll();
-
+    // J8: metrics_sub_.poll() ARTIK burada değil — PDH/WMI sorguları AGENTS.md
+    // gereği frame thread'inde koşmaz, MetricsSubsystem'in kendi 1Hz arka plan
+    // thread'ine taşındı. run_frame yalnız build_sample() içinde get_latest()
+    // snapshot okur (yukarıda, "4) Metrics push").
     return true;
 }
 
@@ -702,6 +704,11 @@ bool Pipeline::shutdown() {
 
         // v0.4+: Stop action processor thread (CommandRouter: running=false + join)
         s.command_router_.stop();
+
+        // J8: Stop metrics poll thread (running=false + join). MetricsCollector
+        // (metrics_) bu join'den SONRA yok edilir → thread'in metrics_->poll()
+        // erişimi güvenli. Destructor da çağırır (idempotent).
+        s.metrics_sub_.stop();
 
         // Finalize profiler
         if (profiler_) {

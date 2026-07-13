@@ -11,8 +11,10 @@
 // birden çok noktadan yazar). build_sample() delta'yı PARAMETRE olarak alır,
 // kendi içinde tutmaz.
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include "metrics_collector.h"
 #include "../ffi/ffi_bridge.h"   // RjMetricSample
 
@@ -32,7 +34,14 @@ private:
 
 class MetricsSubsystem {
 public:
-    // MetricsCollector oluşturur. false → collector kurulamadı.
+    // J8: destructor arka plan poll thread'ini durdurur (RAII güvenlik ağı —
+    // Pipeline::shutdown() stop()'u açıkça çağırsa da idempotent).
+    ~MetricsSubsystem();
+
+    // MetricsCollector oluşturur VE 1Hz arka plan poll thread'ini başlatır.
+    // false → collector kurulamadı. J8: PDH/WMI sorguları AGENTS.md gereği
+    // frame thread'inde DEĞİL, bu ayrı thread'de koşar (run_frame yalnız
+    // get_latest() snapshot okur).
     bool init();
 
     // RjMetricSample'ı doldurur. fps, last_frame_ticks_ ile frame_start arasındaki
@@ -46,8 +55,10 @@ public:
     // seh_metrics_push sarmalayıcısı (SEH-korumalı FFI push).
     void push(const RjMetricSample& sample) noexcept;
 
-    // MetricsCollector::poll() — WMI/PDH sorgu döngüsünü ilerletir.
-    void poll();
+    // J8: arka plan poll thread'ini durdurur (poll_running_=false + join).
+    // Pipeline::shutdown() sırasında, CommandRouter::stop() ile aynı desende.
+    // Idempotent — birden çok kez çağrılabilir (destructor da çağırır).
+    void stop();
 
     // Bu frame'in başlangıç tick'ini kaydeder (fps ölçümü için, build_sample SONRASI).
     // qpc_freq gerekmez (yalnızca tick saklanır — YAGNI).
@@ -56,9 +67,17 @@ public:
     }
 
 private:
+    // J8: arka plan poll döngüsü — while(running){ metrics_->poll(); sleep }.
+    // poll() zaten 1Hz self-throttle (POLL_INTERVAL); tick sleep yalnız stop
+    // yanıt süresini sınırlar (≤kMetricsPollTickMs).
+    void poll_loop();
+
     CpuMeter                              cpu_;
     std::unique_ptr<rj::MetricsCollector> metrics_;
     int64_t                               last_frame_ticks_ = 0;
+
+    std::thread                           poll_thread_;
+    std::atomic<bool>                     poll_running_{false};
 };
 
 } // namespace rj
