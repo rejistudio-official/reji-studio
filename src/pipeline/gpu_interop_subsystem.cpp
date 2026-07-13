@@ -74,6 +74,16 @@ void GpuInteropSubsystem::shutdown() {
         ext_bridge_->shutdown();
         ext_bridge_.reset();
     }
+    // J13: ext_bridge_->shutdown() cache'lenen VkImage'ları (image_pool /
+    // gl_target_images) yok eder; last_*_vk_ aksi halde dangling handle tutar.
+    // get_last_frame_images() bunları raw()/bridge-alive guard'ı OLMADAN okur
+    // (get_frame_images yazma yolunun aksine) → savunma-derinliği için burada
+    // sıfırla. Normal teardown'da tek okuyucu (frame thread) zaten join edilmiş
+    // olur, ama header'ın belgelediği GL-thread okuyucusu bağlanırsa bu boşluk
+    // aktifleşir; şimdi kapatıyoruz.
+    last_staging_vk_.store(nullptr, std::memory_order_release);
+    last_target_vk_.store(nullptr, std::memory_order_release);
+    last_slot_.store(0, std::memory_order_relaxed);
 }
 
 } // namespace rj
