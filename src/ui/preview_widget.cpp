@@ -524,6 +524,20 @@ void PreviewWidget::paintGL() {
         VkDeviceMemory staging_mem = bridge_
             ? bridge_->get_shared_texture_memory()
             : VK_NULL_HANDLE;
+        // K6 (savunma-derinliği, I13/J13 tripwire): keyed-mutex staging_mem'i korur; tüm pool
+        // slotları AYNI D3D11 shared-texture memory'sini alias eder (Zig I32 tasarımı — Faz 0'da
+        // doğrulandı). Bu değişmez bozulursa keyed-mutex YANLIŞ VkDeviceMemory'yi korur, senkronu
+        // sessizce geçersiz kılar. Ucuz pointer-karşılaştırması; ASLA tetiklenmemeli — tetiklenirse
+        // Zig-tarafı aliasing regresyonudur (loud log, kare düşürülmez: yalnız teşhis tripwire).
+        if (bridge_ && staging_mem != VK_NULL_HANDLE && staging_vk != VK_NULL_HANDLE) {
+            VkDeviceMemory actual_mem = bridge_->get_staging_memory_for_image(staging_vk);
+            if (actual_mem != staging_mem) {
+                fprintf(stderr, "[PreviewWidget] K6 IHLALI: keyed-mutex mem=%p != staging image mem=%p "
+                                "— pool aliasing bozuldu, sync gecersiz olabilir\n",
+                        (void*)staging_mem, (void*)actual_mem);
+                fflush(stderr);
+            }
+        }
         // D5+K3: execute_copy'nin YAZACAĞI image'in (gl_signal_slot) GL-okuma fence'ini bekle —
         //        GL o image'i okumayı bitirmeden Vulkan üzerine yazmasın (doğru image, off-by-one
         //        düzeltildi). İlk kullanımda fence null → atlanır: o image hiç okunmamış, WAR yok (K5).
