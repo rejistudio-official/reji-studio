@@ -601,6 +601,37 @@ void MainWindow::pollMetrics() {
     }
 }
 
+namespace {
+// Özellik#1: RjMetricId → (insan-okunur ad, birim) eşlemesi UI-yerel — Rust yalnız
+// sayısal id + değer + eşik gönderir, yerelleştirilebilir cümle burada kurulur.
+// `MetricNone` (LogOnly / koşul parse edilemedi) → boş QString: UI açıklama
+// satırını atlar. Örn. çıktı: "GPU Sıcaklığı: 87°C (eşik 85°C)".
+QString formatActionExplanation(const RjActionEvent& ev) {
+    QString name;
+    QString unit;
+    switch (ev.metric_id) {
+        case GpuTempC:       name = QObject::tr("GPU Sıcaklığı");    unit = QStringLiteral("°C");  break;
+        case CpuTempC:       name = QObject::tr("CPU Sıcaklığı");    unit = QStringLiteral("°C");  break;
+        case FrameDropPct:   name = QObject::tr("Kare düşüşü");      unit = QStringLiteral("%");   break;
+        case MemoryUsagePct: name = QObject::tr("Bellek kullanımı"); unit = QStringLiteral("%");   break;
+        case CpuLoadPct:     name = QObject::tr("CPU yükü");         unit = QStringLiteral("%");   break;
+        case GpuLoadPct:     name = QObject::tr("GPU yükü");         unit = QStringLiteral("%");   break;
+        case NetworkRttMs:   name = QObject::tr("Ağ gecikmesi");     unit = QStringLiteral(" ms"); break;
+        case NetworkLossPct: name = QObject::tr("Paket kaybı");      unit = QStringLiteral("%");   break;
+        case MetricNone:
+        default:
+            return QString();  // açıklanamayan aksiyon → açıklama satırı yok
+    }
+    // Not: QString::arg en düşük numaralı %n'in TÜM geçişlerini değiştirir; %3
+    // (birim) iki kez kullanılır → tek .arg(unit) çağrısı ikisini de doldurur.
+    return QObject::tr("%1: %2%3 (eşik %4%3)")
+        .arg(name)
+        .arg(ev.current_value)
+        .arg(unit)
+        .arg(ev.threshold_value);
+}
+} // namespace
+
 // ---------------------------------------------------------------------------
 // Healing action poll — drains rj_action_dequeue every 200 ms and feeds
 // HealingOverlay.  Non-blocking: returns immediately when queue is empty.
@@ -653,6 +684,14 @@ void MainWindow::pollHealingActions() {
             event.type        = reji::ActionType::LogOnly;
             event.description = tr("Kayıt (log-only)");
             break;
+    }
+
+    // Özellik#1: aksiyonu tetikleyen metrik/değer/eşik açıklamasını ekle (varsa).
+    // Tek satırda kalması için " — " ayırıcı; description hem geçmiş listesinde,
+    // hem banner'da, hem CoPilot onay checkbox'ında gösterildiğinden üçünde de görünür.
+    const QString explain = formatActionExplanation(ev);
+    if (!explain.isEmpty()) {
+        event.description += QStringLiteral(" — ") + explain;
     }
 
     if (healing_overlay_) {
