@@ -528,8 +528,17 @@ void PreviewWidget::paintGL() {
         //        GL o image'i okumayı bitirmeden Vulkan üzerine yazmasın (doğru image, off-by-one
         //        düzeltildi). İlk kullanımda fence null → atlanır: o image hiç okunmamış, WAR yok (K5).
         if (gl_draw_fences_[gl_signal_slot] && pfn_ClientWaitSync_) {
-            pfn_ClientWaitSync_(gl_draw_fences_[gl_signal_slot],
-                                GL_SYNC_FLUSH_COMMANDS_BIT, 1'000'000);
+            GLenum ws = pfn_ClientWaitSync_(gl_draw_fences_[gl_signal_slot],
+                                            GL_SYNC_FLUSH_COMMANDS_BIT, 1'000'000);
+            // K4: dönüşü kontrol et (eskiden atılıyordu). ALREADY_SIGNALED/CONDITION_SATISFIED
+            // dışında (TIMEOUT_EXPIRED/WAIT_FAILED) GL hâlâ image[gl_signal_slot]'i okuyor
+            // olabilir → üzerine YAZMA (WAR), bu preview karesini düşür. Mevcut execute_copy-fail
+            // deseniyle simetrik (markPaintGLEnd + return). 1ms bounded kalır — uzatmak GL/UI
+            // thread'ini bloklardı (K2 felsefesi: boz-mak yerine kareyi at).
+            if (ws != GL_ALREADY_SIGNALED && ws != GL_CONDITION_SATISFIED) {
+                if (profiler_) profiler_->markPaintGLEnd();
+                return;
+            }
         }
         bool ok = copy_optimizer_->execute_copy(staging_vk, target_vk, w, h, pool_idx,
                                            gl_signal_slot,
