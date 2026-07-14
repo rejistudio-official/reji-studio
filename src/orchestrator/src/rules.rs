@@ -53,6 +53,45 @@ pub enum ActionType {
     LogOnly,
 }
 
+/// Özellik#1: Kural değerlendirmesinde metrik adı için sabit indeks tablosu —
+/// `eval_single_condition`'ın tanıdığı 8 metrikle birebir. FFI'da `RjMetricId`
+/// (`ffi.rs`) ile AYNI sayısal kodlamayı taşır; C++ tarafı `id → insan-okunur ad`
+/// eşlemesini yapar (yerelleştirme UI'da). `None` = açıklanamayan aksiyon
+/// (LogOnly veya koşul parse edilemedi) → UI açıklama satırını atlar.
+///
+/// Not: Bu sabitler FFI kontratının parçasıdır — sıra/değer `RjMetricId` ile
+/// senkron kalmalı (tek doğruluk kaynağı burası, `RjMetricId` bunu yansıtır).
+pub mod metric_id {
+    pub const FRAME_DROP_PCT: u32 = 0;
+    pub const GPU_TEMP_C: u32 = 1;
+    pub const CPU_TEMP_C: u32 = 2;
+    pub const MEMORY_USAGE_PCT: u32 = 3;
+    pub const CPU_LOAD_PCT: u32 = 4;
+    pub const GPU_LOAD_PCT: u32 = 5;
+    pub const NETWORK_RTT_MS: u32 = 6;
+    pub const NETWORK_LOSS_PCT: u32 = 7;
+    pub const NONE: u32 = 8;
+}
+
+/// Özellik#1: Bir aksiyonun neden üretildiğinin makine-okunur açıklaması —
+/// metrik kimliği + o anki değer + eşik. UI bu üç parçadan insan-okunur cümle
+/// kurar (örn. "GPU Sıcaklığı: 87°C, eşik 85°C"). Serbest-metin string yerine
+/// yapılandırılmış alanlar: FFI güvenlik yüzeyini büyütmez (ffi-safety-review),
+/// yerelleştirmeyi UI'a bırakır. `metric_id == NONE` → açıklama yok.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Explanation {
+    pub metric_id: u32,
+    pub current_value: i32,
+    pub threshold_value: i32,
+}
+
+impl Explanation {
+    /// Açıklanamayan aksiyon (LogOnly / koşul parse edilemedi).
+    pub fn none() -> Self {
+        Self { metric_id: metric_id::NONE, current_value: 0, threshold_value: 0 }
+    }
+}
+
 /// Aksiyon — kural değerlendirildiğinde oluşturulan komut.
 #[derive(Debug, Clone)]
 pub struct Action {
@@ -68,6 +107,9 @@ pub struct Action {
     pub require_approval: bool,
     pub log_only: bool,
     pub is_critical: bool,
+    /// Özellik#1: aksiyonu tetikleyen metrik/değer/eşik — UI açıklaması için.
+    /// `create_action` üretim anında `RuleMetrics`'ten yakalar (eskiden atılıyordu).
+    pub explanation: Explanation,
 }
 
 impl Default for Action {
@@ -81,6 +123,7 @@ impl Default for Action {
             require_approval: false,
             log_only: false,
             is_critical: false,
+            explanation: Explanation::none(),
         }
     }
 }
@@ -126,6 +169,73 @@ pub fn eval_condition(condition: &str, metrics: &RuleMetrics) -> bool {
     eval_single_condition(condition, metrics).unwrap_or(false)
 }
 
+/// Metrik adını (`RuleMetrics`) o anki değere + FFI metrik-id'sine çevirir.
+/// Bilinmeyen metrik → `None`. `eval_single_condition` ve `explanation_for`
+/// TEK bu tablodan okur (DRY — iki ayrı metrik listesi tutulmaz).
+fn metric_value_and_id(metric_name: &str, metrics: &RuleMetrics) -> Option<(i32, u32)> {
+    let pair = match metric_name {
+        "frame_drop_pct"   => (metrics.frame_drop_pct as i32,   metric_id::FRAME_DROP_PCT),
+        "gpu_temp_c"       => (metrics.gpu_temp_c as i32,       metric_id::GPU_TEMP_C),
+        "cpu_temp_c"       => (metrics.cpu_temp_c as i32,       metric_id::CPU_TEMP_C),
+        "memory_usage_pct" => (metrics.memory_usage_pct as i32, metric_id::MEMORY_USAGE_PCT),
+        "cpu_load_pct"     => (metrics.cpu_load_pct as i32,     metric_id::CPU_LOAD_PCT),
+        "gpu_load_pct"     => (metrics.gpu_load_pct as i32,     metric_id::GPU_LOAD_PCT),
+        "network_rtt_ms"   => (metrics.network_rtt_ms as i32,   metric_id::NETWORK_RTT_MS),
+        "network_loss_pct" => (metrics.network_loss_pct as i32, metric_id::NETWORK_LOSS_PCT),
+        _ => return None,
+    };
+    Some(pair)
+}
+
+/// Tek bir koşul yaprağını (`gpu_temp_c > 85`) parçalarına ayırır:
+/// `(metrik_adı, eşik)`. Operatör bulunamaz veya eşik parse edilemezse `None`.
+/// `eval_single_condition` (bool) ile `explanation_for` (açıklama) aynı ayrıştırma
+/// yolunu paylaşsın diye ayrı yardımcı — yeni bir parser icat edilmez (DRY).
+fn parse_leaf(cond: &str) -> Option<(&str, i32)> {
+    for op in &[">=", "<=", ">", "<", "=="] {
+        if let Some(idx) = cond.find(op) {
+            let metric_name = cond[..idx].trim();
+            let threshold = cond[idx + op.len()..].trim().parse::<i32>().ok()?;
+            return Some((metric_name, threshold));
+        }
+    }
+    None
+}
+
+/// Bileşik koşulun İLK yaprağını döndürür (`A && B` / `A || B` → `A`).
+/// Açıklamada hangi eşiğin gösterileceği kararı: ilk karşılaştırma (Faz 1'de
+/// onaylandı). `eval_condition`'ın önceliğiyle (|| → && → tek koşul) tutarlı
+/// olması için önce `||`, sonra `&&` üzerinden ilk parçaya iner.
+fn first_leaf(condition: &str) -> &str {
+    let condition = condition.trim();
+    if let Some(idx) = condition.find("||") {
+        return first_leaf(&condition[..idx]);
+    }
+    if let Some(idx) = condition.find("&&") {
+        return first_leaf(&condition[..idx]);
+    }
+    condition
+}
+
+/// Özellik#1: Koşul + o anki metriklerden UI açıklaması üretir. İlk yaprağı
+/// ayrıştırır (`parse_leaf`), metriği o anki değere/id'ye çevirir
+/// (`metric_value_and_id`). Metrik bilinmiyor veya koşul parse edilemiyorsa
+/// `Explanation::none()` (UI açıklama satırını atlar). Saf fonksiyon — test edilebilir.
+pub fn explanation_for(condition: &str, metrics: &RuleMetrics) -> Explanation {
+    let leaf = first_leaf(condition);
+    let Some((metric_name, threshold)) = parse_leaf(leaf) else {
+        return Explanation::none();
+    };
+    match metric_value_and_id(metric_name, metrics) {
+        Some((current_value, metric_id)) => Explanation {
+            metric_id,
+            current_value,
+            threshold_value: threshold,
+        },
+        None => Explanation::none(),
+    }
+}
+
 fn eval_single_condition(
     cond: &str,
     metrics: &RuleMetrics,
@@ -138,17 +248,8 @@ fn eval_single_condition(
                 .parse::<i32>()
                 .map_err(|_| format!("Invalid threshold: {}", threshold_str))?;
 
-            let metric_value = match metric_name {
-                "frame_drop_pct"   => metrics.frame_drop_pct as i32,
-                "gpu_temp_c"       => metrics.gpu_temp_c as i32,
-                "cpu_temp_c"       => metrics.cpu_temp_c as i32,
-                "memory_usage_pct" => metrics.memory_usage_pct as i32,
-                "cpu_load_pct"     => metrics.cpu_load_pct as i32,
-                "gpu_load_pct"     => metrics.gpu_load_pct as i32,
-                "network_rtt_ms"   => metrics.network_rtt_ms as i32,
-                "network_loss_pct" => metrics.network_loss_pct as i32,
-                _ => return Err(format!("Unknown metric: {}", metric_name).into()),
-            };
+            let (metric_value, _id) = metric_value_and_id(metric_name, metrics)
+                .ok_or_else(|| format!("Unknown metric: {}", metric_name))?;
 
             let result = match *op {
                 ">"  => metric_value > threshold,
@@ -342,7 +443,7 @@ impl RuleEngine {
     fn create_action(
         &self,
         rule: &Rule,
-        _metrics: &RuleMetrics,
+        metrics: &RuleMetrics,
     ) -> Result<Action, Box<dyn std::error::Error>> {
         let action_type = match rule.action.as_str() {
             "bitrate_reduce" => ActionType::BitrateReduce,
@@ -387,6 +488,11 @@ impl RuleEngine {
         let require_approval = !is_critical;
         let log_only = matches!(action_type, ActionType::LogOnly);
 
+        // Özellik#1: aksiyonu tetikleyen metrik/değer/eşik üçlüsünü ÜRETİM ANINDA
+        // yakala — koşul + o anki metrikler burada elde. LogOnly'de koşul metrik
+        // taşımayabilir; explanation_for parse edemezse Explanation::none() döner.
+        let explanation = explanation_for(&rule.condition, metrics);
+
         Ok(Action {
             rule_id: rule.id.clone(),
             action_type,
@@ -396,6 +502,7 @@ impl RuleEngine {
             require_approval,
             log_only,
             is_critical,
+            explanation,
         })
     }
 }
@@ -587,6 +694,58 @@ mod tests {
             0,
             "cooldown süresince kural bastırılmalı"
         );
+    }
+
+    // ===== Özellik#1: aksiyon açıklaması (metrik/değer/eşik yakalama) =====
+
+    #[test]
+    fn test_explanation_captures_metric_value_threshold() {
+        // "GPU sıcaklığı 87°C, eşik 85°C" senaryosu — üçlü doğru yakalanmalı.
+        let metrics = RuleMetrics { gpu_temp_c: 87, ..Default::default() };
+        let expl = explanation_for("gpu_temp_c > 85", &metrics);
+        assert_eq!(expl.metric_id, metric_id::GPU_TEMP_C);
+        assert_eq!(expl.current_value, 87);
+        assert_eq!(expl.threshold_value, 85);
+    }
+
+    #[test]
+    fn test_explanation_compound_uses_first_leaf() {
+        // Bileşik koşulda İLK yaprak (Faz 1 kararı): "frame_drop_pct > 5" → eşik 5.
+        let metrics = RuleMetrics { frame_drop_pct: 8, ..Default::default() };
+        let expl = explanation_for("frame_drop_pct > 5 && frame_drop_pct <= 10", &metrics);
+        assert_eq!(expl.metric_id, metric_id::FRAME_DROP_PCT);
+        assert_eq!(expl.current_value, 8);
+        assert_eq!(expl.threshold_value, 5, "ilk karşılaştırmanın eşiği (5) gösterilmeli");
+    }
+
+    #[test]
+    fn test_explanation_none_for_unparseable_or_unknown() {
+        let metrics = RuleMetrics::default();
+        // Bilinmeyen metrik → NONE
+        assert_eq!(explanation_for("bogus_metric > 5", &metrics).metric_id, metric_id::NONE);
+        // Operatör yok → NONE
+        assert_eq!(explanation_for("log_always", &metrics).metric_id, metric_id::NONE);
+    }
+
+    #[test]
+    fn test_create_action_populates_explanation() {
+        // create_action, üretilen aksiyona doğru açıklamayı koymalı.
+        let engine = RuleEngine::new_test(vec![], 0);
+        let mut params = HashMap::new();
+        params.insert("scale_factor".to_string(), serde_json::json!(0.5));
+        let rule = Rule {
+            id: "gpu_thermal_throttle".to_string(),
+            description: String::new(),
+            condition: "gpu_temp_c > 85".to_string(),
+            action: "scale_resolution".to_string(),
+            params,
+            modes: vec!["co-pilot".to_string()],
+        };
+        let metrics = RuleMetrics { gpu_temp_c: 90, ..Default::default() };
+        let action = engine.create_action(&rule, &metrics).unwrap();
+        assert_eq!(action.explanation.metric_id, metric_id::GPU_TEMP_C);
+        assert_eq!(action.explanation.current_value, 90);
+        assert_eq!(action.explanation.threshold_value, 85);
     }
 
     #[test]
