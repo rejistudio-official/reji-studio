@@ -583,3 +583,35 @@ Faz 0'da gerçekliklerinin kanıtlanması, düzeltme çalışmasından önce gel
 Bu belge, Claude Code'a verilecek talimatların kaynak dokümanı olarak
 kullanılacak — V8'deki gibi, her talimat kendi Faz 0→1→2→3 döngüsünü
 işletecek ve bu belgedeki hiçbir madde sorgusuz kabul edilmeyecek.
+
+---
+
+## EK: Vulkan/GL Interop Derin Tur (K1–K7) — tamamlandı 2026-07-15
+
+> Bu ek, V9'un üç-rapor (Fable5/Opus/GLM) taramasının "VULKAN/GL INTEROP"
+> bölümünden gelen ama gecikmeli işlenen yedi bulgudur — ayrı bir tur değil,
+> V9'un devamı. Kaynak talimat: `docs/talimatlar/TALIMAT_VULKAN_GL_INTEROP_DERIN_TUR.md`.
+> **NOT:** bu bölgenin tamamı aktif runtime yolunda (WGC) **inert**; düzeltmeler
+> DXGI-fallback zorlandığında geçerli. Doğrulama birincil olarak **kod incelemesi**
+> (runtime headless test edilemez) + her commit'te 4 regresyon paketi PASS.
+
+| # | Bulgu | Faz 0 kararı | Sonuç | Commit |
+|---|---|---|---|---|
+| K2 | Keyed-mutex timeout asimetrisi (Vulkan `UINT32_MAX` vs D3D11 16ms) → device-lost'ta hang | LATENT-GERÇEK (nedensellik talimattakinden farklı: exception değil, `ReleaseSync` kontrolsüzlüğü + `copy_optimizer.cpp` `UINT64_MAX` CPU wait) | Bounded acquire (100ms) + bounded CPU wait (100ms) + ReleaseSync kontrol — üçü birlikte | `5287860` |
+| K1 | Resize'da GL target pool yeniden kurulmuyor | GERÇEK/LATENT, **talimattan geniş**: yalnız GL memory object değil, Vulkan blit-overrun da (UB site 2). Gerçek tetik DXGI-recovery (encoder-healing DEĞİL) | Pool bütün rebuild (Tasarım R: tek-sahip + `std::mutex` + üretici `try_lock`/skip); resize-UP UB kod-inceleme kanıtıyla kapatıldı | `b588db3` |
+| K3 | `slot_gl_signaled_` + GL semaphore/fence yaşam döngüsü | GERÇEK/LATENT: ping-pong ofseti sync primitiflerini consumer-index'e hizalamış (off-by-one); açık semaphore/fence yanlış image'ı koruyor | Producer +1 hizalama (sync-index = image-index); `gl_signal_slot` parametresi, offset copy_optimizer'a gömülmedi | `8d81eec` |
+| K5 | İlk kullanımda GL fence atlanıyor (GLM iç-gerilim) | ÇÜRÜTÜLEBİLİR: ilk kullanımda o image hiç okunmamış → WAR yok → skip güvenli. GLM 3.2 eksik analiz, 3.1 haklı | Teyit-et-ve-kapat (K3 ile aynı commit, yeni hizalamada yeniden doğrulandı) | `8d81eec` |
+| K4 | `glClientWaitSync` dönüşü kontrol edilmiyor → write-while-read | GERÇEK/LATENT | Dönüş kontrol, timeout'ta kareyi düşür (K3'ün rebase ettiği doğru fence üzerinde) | `da7413c` |
+| K6 | Tüm slotların aynı D3D11 memory'sini alias ettiği doğrulanamıyor | **ÇÜRÜTÜLDÜ**: Zig kaynağından kesin doğrulandı (I32 tasarımı) — Fable5'in "buradan görülemez" boşluğunu Claude Code kod erişimiyle kapattı | Savunma-derinliği tripwire (assertion/log), risk yok | `6671be6` |
+| K7 | GLM'in "no fix needed" dediği layout/queue-family barrier'ları | Bağımsız yeniden doğrulandı: keyed-mutex external-memory deseninin kanonik hali, `oldLayout=UNDEFINED` kasıtlı | **No-op** — GLM doğrulandı, kod değişmedi | — |
+
+**Süreç notu:** Talimatın kendi çerçevesinde iki hata Faz 0/2'de yakalandı ve
+düzeltildi (Sabit Kurallar deseni): (1) K2 "CopyResource exception" nedenselliği —
+COM API C++ exception atmaz; gerçek mekanizma ReleaseSync + sınırsız CPU wait.
+(2) HP1-HP4'ün K1'i tetiklediği varsayımı — encoder DRC capture dims'e dokunmaz;
+gerçek tetik DXGI-recovery. Her ikisi de "yanlış çerçeveyle ilerlemeden önce kodu
+konuştur" ilkesiyle koda karşı çürütüldü.
+
+**Kapsam-dışı gözlem (yeni madde açılmadı):** ping-pong warm-up — ilk 1-2 karede
+render henüz yazılmamış image'i okur (kozmetik görsel gürültü, UB değil, offset'ten
+bağımsız, önceden de vardı).

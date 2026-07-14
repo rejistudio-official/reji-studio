@@ -162,6 +162,32 @@ yüklemesi bu PBO yolunu kullanır.
   image ile GL texture/layout tracking'in yanlış eşleşmesi (bayat kare, yanlış
   `oldLayout` barrier → VUID). Kaynak: `slot_ring.h::next_pool_slot`, bridge slot'u
   `execute_copy`'ye parametre. (Bu kod WGC'de inert — DXGI-fallback zorlanırsa geçerli.)
+- **Keyed-mutex hang: TÜM bağlı beklemeleri sınırla (K2 dersi).** Vulkan tüketicisinin
+  keyed-mutex acquire timeout'u ASLA `UINT32_MAX` (sonsuz) olmamalı — D3D11 release'i
+  device-lost'ta gelmezse GPU kuyruğu süresiz bloke olur. Ama bunu sınırlamak TEK BAŞINA
+  yetmez: bir sonraki `execute_copy`'nin önceki submit'i beklemesi de bounded olmalı
+  (`UINT64_MAX` → sınırlı, timeout'ta kareyi düşür), aksi halde takılı GPU submit'i CPU
+  thread'ini dondurur. Ayrıca `ReleaseSync` dönüşü kontrol edilmeli (sessizce yutulmasın).
+  Üçü birlikte — hang üç bağlı noktadan doğar, biri açık kalırsa yol savunmasız.
+  Sabitler: `reji_constants.h` (`kKeyedMutexAcquireTimeoutMs`, `kCopyPrevSubmitWaitTimeoutNs`).
+- **Resize GL interop'u BÜTÜN olarak bozar (K1 dersi).** GL target pool (Vulkan image +
+  NT handle + boyut + GL memory-object) `notify_vulkan_ready`'de bir kez, init boyutunda
+  kurulur; capture dims değişiminde (gerçek tetik: **DXGI-recovery / display-res değişimi**,
+  encoder DRC/healing DEĞİL — o capture dims'e dokunmaz) yeniden kurulmazsa init boyutunda
+  donar → `execute_copy` blit dst-extent'i (Vulkan) VE `glTexStorageMem` (GL) init-boyut
+  memory'yi aşar (UB, özellikle resize-UP). Kısmi düzeltme (yalnız GL memory object) yetmez;
+  pool bütün olarak yeniden kurulmalı. Cross-thread: pool `gl_target_images`'i üretici
+  (frame thread, `get_frame_images`) okur + tüketici (GL thread, resize) yazar → tek sahipte
+  (GL thread) rebuild + paylaşılan erişimde `std::mutex`; üretici `try_lock` ile alır,
+  meşgulse kareyi atlar (encode'u `vkDeviceWaitIdle` boyunca bloklamamak için).
+- **Ping-pong ofsetinde sync-index = image-index (K3 dersi).** Üretici bir kare ileriye
+  ürettiğinde (`execute_copy(S)` → `image[(S+1)%N]` yazar, render `image[S]` okur), per-slot
+  sync primitifleri (GL semaphore, `gl_draw_fences_`, `slot_gl_signaled_`) round-robin slot'la
+  DEĞİL, korudukları IMAGE ile indekslenmeli. Producer yazdığı image'in ((S+1)%N) semaphore/
+  fence/flag'ini kullanır; consumer doğal image-index'ini. Aksi halde açık semaphore/fence
+  yanlış image'ı korur (timeline kazara koruyabilir ama kırılgan). Offset copy_optimizer'a
+  GÖMÜLMEZ — caller iki index verir (cmdbuf-slot + gl-signal-slot), I23 tek-kaynak ilkesi.
+  (K1-K3 hepsi WGC'de inert — DXGI-fallback zorlanırsa geçerli.)
 
 ## RecoveryCoordinator / self-healing etkileşimi
 

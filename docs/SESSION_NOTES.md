@@ -2528,3 +2528,41 @@ tools/dxgi_test.cpp (I9'un TERSİ deseni, süreç çıkışı geri alır) dokunu
 - Kasıtlı AV/stack-overflow tetikleyen entegrasyon testi atlandı (CI'ı çökertir);
   riskli mantık saf seam testiyle kapsandı.
 - Eskalasyon __fastfail'in canlı süreçte gözlemi manuel doğrulanmadı (blocker değil).
+---
+
+## Vulkan/GL Interop Derin Tur (K1–K7) — 2026-07-15
+
+V9'un üç-rapor taramasından gecikmeli işlenen yedi interop bulgusu (detay +
+Faz 0 sınıflandırmaları: `FABLE5_BUG_PLAN_V9.md` "EK" bölümü). Bölge WGC-inert →
+kod-inceleme birincil doğrulama, her commit'te 4 regresyon paketi (Pipeline
+Characterization + GpuResourcePitch + SlotRing + yeni KeyedMutexTimeout) PASS.
+
+### Kapanan maddeler
+- **K2** (`5287860`) — keyed-mutex hang üç bağlı noktadan (Vulkan `UINT32_MAX`
+  acquire + `UINT64_MAX` CPU wait + kontrolsüz `ReleaseSync`); üçü birlikte bounded.
+- **K1** (`b588db3`) — resize'da GL target pool bütün rebuild (Tasarım R: tek-sahip
+  GL thread + `std::mutex` + üretici `try_lock`/skip). Talimattan geniş (Vulkan
+  blit-overrun da). Gerçek tetik DXGI-recovery, encoder-healing DEĞİL.
+- **K3+K5** (`8d81eec`) — sync-index = image-index (producer +1 hizalama); K5
+  ilk-kullanım fence skip'i yeni hizalamada da güvenli → teyit-et-ve-kapat.
+- **K4** (`da7413c`) — `glClientWaitSync` dönüş kontrol, timeout'ta kare düşür.
+- **K6** (`6671be6`) — pool-aliasing tripwire; Faz 0'da Zig kaynağından çürütüldü.
+- **K7** — barrier/queue-family bağımsız yeniden doğrulandı → no-op (GLM doğrulandı).
+
+### Süreç (Sabit Kurallar deseni — koda karşı iki çürütme)
+- K2 "CopyResource exception" nedenselliği yanlıştı (COM API exception atmaz);
+  gerçek mekanizma ReleaseSync + sınırsız CPU wait. Faz 0'da düzeltildi.
+- "HP1-HP4 K1'i tetikler" varsayımı çürüdü: encoder DRC capture dims'e dokunmaz,
+  gerçek tetik DXGI-recovery. Faz 2 plumbing doğrulamasında yakalandı.
+- K1 WIP tasarımı tek-thread premisiyle UAF/race açıyordu; resize-UP kod-inceleme
+  kanıtı yazılırken yakalandı, commit edilmeden Tasarım R'ye düzeltildi.
+
+### Kapsam-dışı (yeni madde açılmadı)
+- Ping-pong warm-up: ilk 1-2 karede render henüz yazılmamış image okur — kozmetik
+  görsel gürültü, UB değil, offset'ten bağımsız, önceden de vardı.
+
+### KULLANICIDA / doğrulama sınırı (gerekçeli)
+- Tüm bölge WGC aktifken inert + GL-context/real-device gerektirir → runtime
+  headless test edilemez. Düzeltmeler kod incelemesiyle doğrulandı; sahte seam
+  testi uydurulmadı. Yeni `KeyedMutexTimeoutTest` yalnız boundedness invariant'ını
+  (sabitlerin sonsuz'a geri dönmemesini) kilitler — runtime hang yolunu değil.
