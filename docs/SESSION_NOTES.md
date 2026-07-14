@@ -1,3 +1,15 @@
+## Oturum: 15 Temmuz 2026 — Eski planlama dosyalarının arşivlenmesi ✅
+
+Kod değişikliği yok, saf dokümantasyon. Proje başlangıcında (2026-05/06) oluşturulup
+sonra hiç güncellenmemiş `docs/memory.md` ve `docs/progress.md` — güncel proje durumuyla
+ciddi çelişiyordu (Vulkan'ı alınmamış karar sanıyor, WGC'den habersiz, farklı versiyon
+şeması) — `docs/archive/`'a taşındı ve her ikisine "ARŞİV — GÜNCEL DEĞİL" uyarı bloğu
+eklendi. `progress.md`'deki Makro Motoru fikri (henüz taahhüt edilmemiş, YAGNI notuyla)
+`docs/ROADMAP.md`'ye "Gelecek Fikir" olarak taşındı. Diğer orphan fikirler (sanal kamera,
+OBS sahne import, SQLite analitik, plugin sandbox, OSD overlay) şimdilik yalnızca not edildi.
+
+---
+
 ## Oturum: 14 Temmuz 2026 — V9 Sprint 4 Bölüm B: Healing Plumbing (HP1-HP4) ✅ KAPANDI
 
 Resolution-healing'i (termal/RAM bazlı çözünürlük koruması) gerçekten çalışır hale

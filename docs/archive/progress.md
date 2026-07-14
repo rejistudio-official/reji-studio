@@ -1,3 +1,13 @@
+> ⚠️ **ARŞİV — GÜNCEL DEĞİL.** Bu dosya projenin başlangıcında
+> (2026-05/06) oluşturuldu ve o tarihten beri hiç güncellenmedi. İçeriği
+> güncel proje durumuyla önemli ölçüde çelişiyor (örn. bu dosya Vulkan'ı
+> henüz alınmamış bir karar sanıyor, oysa Vulkan/GL interop çoktan
+> derinlemesine implemente edilmiş ve I23/K1-K7 turlarında düzeltilmiştir;
+> WGC'den hiç bahsetmiyor, oysa WGC aktif capture yoludur — bkz.
+> `docs/CONTEXT.md`). Yalnızca projenin ilk niyetinin tarihsel kaydı
+> olarak tutulmaktadır. Güncel durum için `docs/CONTEXT.md` ve
+> `docs/SESSION_NOTES.md`'ye bakın.
+
 # Reji Studio — Oturum İlerleme Günlüğü
 
 ---

@@ -1017,6 +1017,35 @@ aşamasında; gerçek çoklu-makine ihtiyacı yok. Bu not, ihtiyaç doğduğunda
 başlangıç noktası olması için kayda geçirilmiştir — YAGNI ilkesi gereği
 şimdiden bir prototip veya bağımlılık eklenmemiştir.
 
+## Gelecek Fikir — Makro Motoru (henüz taahhüt edilmedi)
+
+Projenin ilk planlama aşamasından (arşivlenmiş `docs/archive/progress.md`)
+taşınan bir fikir — hiç implemente edilmedi, şu an aktif roadmap'in
+parçası değil, yalnızca kaybolmaması için kayda geçirildi.
+
+**İçerik:** Kullanıcı tanımlı tetikleyicilerle (hotkey, zamanlayıcı,
+event-driven — örn. bir healing aksiyonu tetiklendiğinde) çalışan bir
+makro sistemi. Örnek aksiyonlar: sahne değiştir, bitrate ayarla, kayıt
+aç/kapat.
+
+**Neden şimdi değil:** Reji Studio'nun kontrol yüzeyi zaten obs-websocket
+protokolü (Faz 1) üzerinden Stream Deck/Companion gibi araçlara açık —
+bu araçların çoğu zaten kendi makro/tetikleyici sistemlerine sahip. Yeni
+bir dahili makro motoru eklemeden önce, mevcut obs-websocket yüzeyinin bu
+ihtiyacı zaten karşılayıp karşılamadığı değerlendirilmeli (YAGNI —
+V9/J-serisinde defalarca uygulanan ilke).
+
+**Olası tasarım (ileride değerlendirilecek, şimdi karar değil):**
+- Tetikleyiciler: hotkey (global), zamanlayıcı, healing-event (RuleEngine
+  ile entegrasyon ihtimali — I33'ün action-queue mimarisiyle örtüşebilir,
+  ayrı bir mekanizma icat etmeden mevcut event akışına eklenebilir mi
+  değerlendirilmeli).
+- Kalıcılık: JSON config (`rules.json` deseniyle tutarlı bir format
+  düşünülebilir).
+- Kapsam: Bu bir "ne zaman" veya "nasıl" kararı değil — yalnızca fikrin
+  kaybolmaması için buradaki not. Faz 3 (ISource) veya sonrası bir
+  noktada, gerçek kullanıcı talebi/ihtiyacı doğarsa gündeme alınabilir.
+
 ## Faz 5 — Zig Global State Tam Çözümü
 
 - [ ] external_memory_bridge.zig — state'i instance-level struct'a taşı
