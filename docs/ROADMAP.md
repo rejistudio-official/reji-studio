@@ -1046,6 +1046,125 @@ V9/J-serisinde defalarca uygulanan ilke).
   kaybolmaması için buradaki not. Faz 3 (ISource) veya sonrası bir
   noktada, gerçek kullanıcı talebi/ihtiyacı doğarsa gündeme alınabilir.
 
+## Gelecek Özellikler — Sinerjik Değerlendirme (öncelik sıralı)
+
+Aşağıdaki altı fikir, projenin zaten inşa ettiği mimari varlıklardan
+(`RuleEngine`/I33 action-queue, `ITransport` soyutlaması, obs-websocket
+protokolü/I8, `MetricState`/I14) yola çıkılarak değerlendirildi — hiçbiri
+taahhüt değil, hepsi öncelik sırasına konmuş birer aday. Sıra; maliyet,
+bağımlılık ve mevcut altyapıyla örtüşme derecesine göre belirlendi.
+
+### 1. CoPilot aksiyon açıklaması (öncelik: en yüksek, maliyet: en düşük)
+
+**İçerik:** CoPilot'ta bir pending aksiyon (veya AutoPilot/Assist'te
+uygulanan bir aksiyon) göründüğünde, hangi kuralın hangi metrik eşiğini
+aştığı için tetiklendiğini kullanıcıya göstermek (örn. "GPU sıcaklığı
+87°C, eşik 85°C").
+
+**Neden yüksek öncelik:** Healing Plumbing turunda bulduğumuz gerçek bir
+sorunu (`gpu_thermal_restore` kuralının metrik-stub yüzünden sessizce
+hep-true kalıp anlamsız pending'ler üretmesi) doğrudan hedefliyor —
+kullanıcı "neden bu öneriliyor" bilgisine sahip olsa, böyle bir anormali
+GUI'de anında fark eder. `ActionEvent` mimarisi (I33) bu bilgiyi zaten
+Rust tarafında taşıyor, yalnızca UI'a yansıtılmıyor — yeni mimari
+gerekmez, mevcut event'e bir alan eklemek yeterli.
+
+**Bağımlılık:** Yok. **Sinerji:** I33 ile birebir.
+
+### 2. Self-healing durumunu obs-websocket üzerinden dışa açmak (öncelik: yüksek, maliyet: orta)
+
+**İçerik:** Healing event'lerini (mod değişimi, pending onay belirdi,
+aksiyon uygulandı) WS event olarak yayınlamak — bir Stream Deck/Companion
+paneli healing durumunu gösterebilir veya kullanıcı kendi butonuyla
+pending'i onaylayabilir.
+
+**Neden yüksek öncelik:** Projenin iki olgun alt sistemini (I8'in
+obs-websocket protokol uyumluluğu + I33'ün pending-onay mimarisi)
+birleştiriyor — pazarda benzeri az bulunan bir kombinasyon ("self-healing,
+endüstri-standart araç zincirinle konuşuyor"). İkisi de zaten kanıtlanmış,
+olgun altyapı.
+
+**Bağımlılık:** Yok (I8 ve I33 zaten tamamlandı). **Sinerji:** I8 + I33
+kesişimi.
+
+### 3. SQLite healing-log (öncelik: orta-yüksek, maliyet: orta)
+
+**İçerik:** Her healing kararını (hangi kural, hangi metrik değeri, hangi
+aksiyon, ne zaman) kalıcı olarak SQLite'a kaydetmek.
+
+**Neden değerli:** V8/V9 boyunca defalarca (J10, Healing Plumbing turu)
+"bu kasıtlı mı tutarsız mı" sorusunu yalnızca kod okuyarak çözmek zorunda
+kaldık — çalışan sistemde gözlemleyemedik. Kalıcı bir log, bu tür
+soruları dakikalar içinde bir SQL sorgusuyla cevaplanabilir hale getirir.
+Ayrıca madde 6'nın (kalibre edilmiş eşikler) doğal ön koşulu.
+
+**Dikkat:** Yazma işlemi hot-path'te olmamalı — J8'in dersi (ayrı/batch
+mekanizma, AGENTS.md'nin bloklayan-sorgu yasağı) burada da geçerli.
+
+**Bağımlılık:** Yok, ama madde 6'yı besliyor. **Sinerji:** RuleEngine
+şeffaflığı + gelecekteki kalibrasyon.
+
+### 4. SRT/RTMP arası otomatik failover (öncelik: orta, maliyet: orta)
+
+**İçerik:** Ağ kalitesi (paket kaybı, RTT — SRT'nin doğal istatistikleri,
+zaten `MetricState`'te izleniyor) eşiği aştığında, aktif transport'u
+otomatik olarak yedek hedefe (örn. SRT → RTMP) geçirmek.
+
+**Neden değerli:** Faz 2'de kurulan `ITransport` soyutlaması şu an yalnızca
+başlangıçta hangi transport'un kullanılacağını seçiyor, runtime geçiş
+yok. Üç mevcut parçayı (`ITransport`, `MetricState`, `RuleEngine` action
+çerçevesi) birleştirmek, yeni bir mimari icat etmeden gerçek bir
+profesyonel-yayıncılık özelliği (otomatik failover) sağlar.
+
+**Maliyet notu:** Transport geçişinin kendisi bir state-machine gerektirir
+(hangi anda kesip hangi anda başlatılacağı, izleyici tarafında kesintiyi
+en aza indirme) — "orta" tahmini bu karmaşıklığı içeriyor.
+
+**Bağımlılık:** Yok. **Sinerji:** ITransport + MetricState + RuleEngine
+üçlüsü.
+
+### 5. Kalibre edilmiş temel çizgi (statik eşikler yerine) (öncelik: orta, maliyet: orta-yüksek)
+
+**İçerik:** Sistem başlangıçta (ilk birkaç dakika) donanıma özgü normal
+bitrate/sıcaklık/fps aralığını öğrenip `rules.json`'daki sabit eşikleri
+buna göre otomatik kalibre etmek.
+
+**Neden değerli:** J9/J10/Healing Plumbing serisinde tekrar tekrar aynı
+bug sınıfıyla karşılaştık — `rules.json`'daki kör sabit eşikler (örn.
+`gpu_temp_c < 70`), bir metrik kaynağı stub çıkınca (0 dönünce) tüm
+mantığı bozuyor. Kalibrasyon, bu bug sınıfının kökünü kurutur; ayrıca
+daha akıllı, donanıma duyarlı bir healing sağlar.
+
+**Bağımlılık:** Madde 3'ün (SQLite log) kalıcılık altyapısıyla doğal
+olarak birleşir — ondan önce yapılabilir ama beraber daha güçlü.
+
+**Sinerji:** RuleEngine + SQLite healing-log.
+
+### 6. Sanal kamera + OBS sahne import (öncelik: düşük, Faz 3'e bağımlı — bağımsız planlanmamalı)
+
+**İçerik:** (a) Reji'nin çıktısını DirectShow sanal kamera olarak
+Teams/Zoom/OBS'e sunmak. (b) Bir OBS kullanıcısının sahne/kaynak
+düzenini (JSON) Reji'ye aktarmak.
+
+**Neden düşük öncelik / Faz 3'e bağımlı:** İkisi de gerçek bir çoklu-kaynak/
+sahne-kompozisyon mimarisi gerektiriyor. Şu an Reji'nin "sahne" kavramı
+yalnızca obs-websocket uyumluluğu için var (`rj_push_scene_names` gibi),
+arkasında gerçek bir kompozisyon mimarisi yok — Faz 3 (ISource) bunu inşa
+edecek. Bu iki fikri Faz 3'ten önce bağımsız olarak planlamak yanıltıcı
+olur: sanal kamera "bir çıkış sink'i daha" olarak Faz 3 sonrası doğal
+oturur; OBS sahne import'un anlamlı bir hedefi (nereye parse edileceği)
+Faz 3 olmadan yok.
+
+**Bağımlılık:** Faz 3 (ISource) — henüz başlanmadı.
+
+---
+
+**Kapsam dışı bırakılan/arşivde kalan fikirler (bu değerlendirmenin
+parçası ama eklenmedi):** Plugin sandbox (Extism/WASM) — gerçek
+üçüncü-taraf plugin kullanım kanıtı olmadan erken, YAGNI. OSD overlay —
+düşük öncelik, bağımsız, veri kaynağı (`MetricState`) zaten hazır ama acil
+değil; istenirse ayrı eklenebilir.
+
 ## Faz 5 — Zig Global State Tam Çözümü
 
 - [ ] external_memory_bridge.zig — state'i instance-level struct'a taşı
