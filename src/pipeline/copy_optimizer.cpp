@@ -189,7 +189,18 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                 wait_info.semaphoreCount = 1;
                 wait_info.pSemaphores    = &timeline_semaphore_;
                 wait_info.pValues        = &signal_value_for_submit_;
-                pfn_wait_semaphores_(device_, &wait_info, UINT64_MAX);
+                // K2: bounded bekleme (eskiden UINT64_MAX/sonsuz). Önceki submit keyed-mutex
+                // acquire'da takılırsa (device-lost) bu bekleme CPU thread'ini kalıcı
+                // dondururdu. Timeout'ta bu kareyi güvenle ATLA: buffer henüz reset/reuse
+                // EDİLMEDİĞİNDEN VUID/corruption yok, timeline_counter_ henüz artmadığından
+                // geri-alma gerekmez. GPU kalıcı takılırsa app donmaz, yalnız kare düşer.
+                VkResult wr = pfn_wait_semaphores_(device_, &wait_info,
+                                                   rj::constants::kCopyPrevSubmitWaitTimeoutNs);
+                if (wr != VK_SUCCESS) {
+                    fprintf(stderr, "[GpuCopyOptimizer] prev submit wait timeout (0x%x) slot=%u — kare atlandı\n",
+                            wr, slot);
+                    return false;
+                }
             }
         }
 

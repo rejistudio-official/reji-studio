@@ -28,6 +28,17 @@ namespace rj::constants {
     inline constexpr uint64_t kKeyedMutexKeyD3D11         = 0;     // D3D11'in yazma turu
     inline constexpr uint64_t kKeyedMutexKeyVulkan        = 1;     // Vulkan'ın okuma turu
 
+    // K2: Keyed-mutex hang'ini sınırlayan iki üst-sınır. Steady-state'te (release
+    // ~1 frame içinde gelir) hiçbiri tetiklenmez; yalnız device-lost patolojisinde
+    // devreye girer. Üçlü savunma-derinliği (bkz. capture_dxgi ReleaseSync kontrolü):
+    //   - Vulkan tüketicisinin keyed-mutex acquire üst sınırı (ms). Eskiden UINT32_MAX
+    //     (sonsuz) idi → D3D11 release'i hiç gelmezse GPU kuyruğu sonsuz bloke olurdu.
+    inline constexpr uint32_t kKeyedMutexAcquireTimeoutMs = 100;
+    //   - execute_copy'nin önceki submit'i beklerken üst sınırı (ns). Eskiden UINT64_MAX
+    //     (sonsuz) idi → takılı GPU submit'i CPU thread'ini kalıcı dondururdu. 100ms =
+    //     ~6 frame@60fps tolerans; aşılırsa kare düşürülür (command buffer reset ÖNCESİ).
+    inline constexpr uint64_t kCopyPrevSubmitWaitTimeoutNs = 100'000'000ULL;
+
 }
 
 // C uyumluluk makrosu — doğrudan C başlıkları kullanan birimler için

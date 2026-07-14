@@ -379,7 +379,20 @@ ID3D11Texture2D* DxgiCapturePipeline::capture_next() {
                 return nullptr;
             }
             display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);
-            keyed_mutex_shared_->ReleaseSync(rj::constants::kKeyedMutexKeyVulkan);  // hand off to Vulkan (key=1)
+            // K2: ReleaseSync dönüşünü kontrol et (eskiden sessizce yutuluyordu). Device-lost
+            // sırasında release başarısız olursa mutex D3D11'de kilitli kalır; yarı-senkron
+            // shared_texture'ı Vulkan'a VERME (nullptr dön) — böylece null-streak zinciri
+            // (pipeline.cpp:674 → RecoveryCoordinator::handle_device_lost) recovery'yi tetikler.
+            // Hang'i A (bounded Vulkan acquire) + C (bounded CPU wait) zaten önlüyor; bu yol
+            // yalnız teşhis + bozuk-frame'i durdurma. Mevcut AcquireSync-fail deseniyle simetrik.
+            HRESULT rel = keyed_mutex_shared_->ReleaseSync(rj::constants::kKeyedMutexKeyVulkan);  // hand off to Vulkan (key=1)
+            if (rel != S_OK) {
+                fprintf(stderr, "[Capture] KeyedMutex ReleaseSync failed: 0x%08lX — device-lost?\n",
+                        static_cast<unsigned long>(rel));
+                fflush(stderr);
+                capture_->release_frame();
+                return nullptr;
+            }
         } else {
             // AMD fallback: keyed mutex yok — dogrudan kopyala, tamamlanma icin fence bekle.
             display_ctx_->d3d_context()->CopyResource(shared_texture_.Get(), frame.texture);

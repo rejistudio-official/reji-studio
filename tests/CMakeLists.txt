@@ -185,3 +185,17 @@ target_link_libraries(test_slot_ring
 )
 
 add_test(NAME SlotRingTest COMMAND test_slot_ring)
+
+# ── K2: keyed-mutex timeout boundedness invariant ──
+# reji_pipeline/Rust/Vulkan link gerekmez — reji_constants.h header-only (inline
+# constexpr). Yalnız sabitlerin sonsuz (UINT32_MAX/UINT64_MAX) değerine geri
+# dönmediğini kilitler; K2 hang'inin kök nedenini yeniden girmekten korur.
+add_executable(test_keyed_mutex_timeout
+    test_keyed_mutex_timeout.cpp
+)
+
+target_link_libraries(test_keyed_mutex_timeout
+    gtest gtest_main
+)
+
+add_test(NAME KeyedMutexTimeoutTest COMMAND test_keyed_mutex_timeout)

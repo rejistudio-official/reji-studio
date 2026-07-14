@@ -104,7 +104,7 @@ private:
     VkWin32KeyedMutexAcquireReleaseInfoKHR keyed_mutex_info_ = {};
     uint64_t       km_acquire_key_ = rj::constants::kKeyedMutexKeyVulkan;  // Vulkan turu alır
     uint64_t       km_release_key_ = rj::constants::kKeyedMutexKeyD3D11;   // D3D11'e devreder
-    uint32_t       km_timeout_     = UINT32_MAX;
+    uint32_t       km_timeout_     = rj::constants::kKeyedMutexAcquireTimeoutMs;  // K2: bounded (eskiden UINT32_MAX)
     VkDeviceMemory km_memory_      = VK_NULL_HANDLE;
 #endif
 
