@@ -27,6 +27,7 @@ const int VK_SUCCESS = 0;
 #include <wrl/client.h>
 #include <array>
 #include <atomic>
+#include <mutex>
 #include <vector>
 #include "../include/reji_constants.h"
 
@@ -60,6 +61,13 @@ class ExternalMemoryBridge {
 
   // GL interop için export edilebilir target image pool
   bool initialize_gl_target_pool(VkFormat format, uint32_t width, uint32_t height);
+  // K1: capture çözünürlüğü değişince pool'u bütün olarak yeni boyutta yeniden kurar
+  // (GPU-idle + teardown + re-init). Idempotent: aynı boyutsa no-op. gl_pool_mtx_ altında
+  // (tüketici/GL thread), üreticinin (get_frame_images) yarı-kurulmuş pool okumasını engeller.
+  bool resize_gl_target_pool(uint32_t width, uint32_t height);
+  // K1: execute_copy'nin hedef image'i (offset bridge içinde: (slot+1)%POOL_SIZE — tek kaynak).
+  // Resize sonrası tüketici pending'deki (olası dangling) target yerine bunu yeniden çeker.
+  VkImage get_execute_target(uint32_t slot) const;
   HANDLE get_gl_target_handle(uint32_t idx) const;
 
   // G6: GL memory import için exact VkMemoryRequirements::size (w*h*4 yaklaşımı spec ihlali)
@@ -135,6 +143,13 @@ class ExternalMemoryBridge {
 
   // G9: double-shutdown race guard
   std::atomic<bool> shutdown_called_{false};
+
+  // K1: GL target pool'a cross-thread erişimi seri hale getirir. TEK yazar
+  // resize_gl_target_pool (tüketici/GL thread); TEK cross-thread okur get_frame_images
+  // (üretici/frame thread) — bu try_lock ile alır (meşgulse kareyi atlar, encode-thread'i
+  // bloklamaz). Diğer okurlar (get_execute_target/handle/size) tüketici-thread'de ve
+  // resize ile aynı thread'de sıralı olduğundan kilit gerektirmez.
+  std::mutex gl_pool_mtx_;
 };
 
 }
@@ -151,6 +166,8 @@ extern "C" {
     VkImage ext_bridge_get_pooled_image(uint32_t frame_idx);
     bool ext_bridge_init_gl_target_pool(
         VkFormat, uint32_t w, uint32_t h);
+    bool ext_bridge_resize_gl_target_pool(uint32_t w, uint32_t h);
+    VkImage ext_bridge_get_execute_target(uint32_t slot);
     void* ext_bridge_get_gl_target_handle(uint32_t slot);
     VkImage ext_bridge_get_gl_target_image(uint32_t slot);
     uint64_t ext_bridge_gl_target_size(uint32_t slot);

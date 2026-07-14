@@ -563,6 +563,42 @@ pub export fn ext_bridge_init_gl_target_pool(
     return true;
 }
 
+// K1: Capture çözünürlüğü değişince (DXGI-recovery / display-res değişimi) GL target
+// pool'u BÜTÜN olarak yeni boyutta yeniden kur. init_gl_target_pool startup'ta bir kez
+// çağrılıyor; resize'da çağrılmadığından pool init boyutunda donuyordu → execute_copy
+// blit dst-extent'i (Vulkan) + GL glTexStorageMem init-boyut memory'yi aşıyordu (UB,
+// özellikle resize-UP). Çağıran (preview_widget, GL thread) bunu execute_copy ÖNCESİ,
+// GL-side re-import ile aynı paintGL akışında sıralı çağırır — yarı-kurulmuş pool'u
+// hiçbir kopya görmez. GPU-idle teardown öncesi zorunlu (in-flight image'ler).
+pub export fn ext_bridge_resize_gl_target_pool(width: u32, height: u32) bool {
+    if (state.device == null) return false;
+    // Idempotent: aynı boyutsa gereksiz GPU-idle + rebuild yapma (ilk-kare no-op dahil).
+    if (state.width == width and state.height == height) return true;
+
+    _ = vk.vkDeviceWaitIdle(state.device);
+
+    // GL target pool teardown — shutdown ile AYNI sıra (image → memory → NT handle).
+    for (0..POOL_SIZE) |i| {
+        if (state.gl_target_images[i] != null) {
+            vk.vkDestroyImage(state.device, state.gl_target_images[i], null);
+            state.gl_target_images[i] = null;
+        }
+        if (state.gl_target_memory[i] != null) {
+            vk.vkFreeMemory(state.device, state.gl_target_memory[i], null);
+            state.gl_target_memory[i] = null;
+        }
+        if (state.gl_target_handles[i]) |h| {
+            _ = std.os.windows.CloseHandle(h);
+            state.gl_target_handles[i] = null;
+        }
+        state.gl_target_sizes[i] = 0;
+    }
+
+    // Yeni boyutta yeniden kur (format korunur). init_gl_target_pool state.width/height'i
+    // günceller; başarısızsa pool null kalır → çağıran o kare CPU-fallback'e düşer (UB yok).
+    return ext_bridge_init_gl_target_pool(state.format, width, height);
+}
+
 pub export fn ext_bridge_get_gl_target_handle(slot: u32) ?*anyopaque {
     if (slot >= POOL_SIZE) return null;
     return state.gl_target_handles[slot];
@@ -571,6 +607,14 @@ pub export fn ext_bridge_get_gl_target_handle(slot: u32) ?*anyopaque {
 pub export fn ext_bridge_get_gl_target_image(slot: u32) vk.VkImage {
     if (slot >= POOL_SIZE) return null;
     return state.gl_target_images[slot];
+}
+
+// K1: execute_copy'nin hedef image'i — get_frame_images'teki (slot+1)%POOL_SIZE ping-pong
+// ofsetiyle AYNI (tek kaynak). Resize sonrası tüketici bunu yeniden çeker (pending'deki
+// eski target dangling olabilir). C++ sarması gl_pool_mtx_ senkronizasyonunu yönetir.
+pub export fn ext_bridge_get_execute_target(slot: u32) vk.VkImage {
+    if (slot >= POOL_SIZE) return null;
+    return state.gl_target_images[(slot + 1) % POOL_SIZE];
 }
 
 pub export fn ext_bridge_get_pooled_image(frame_idx: u32) vk.VkImage {

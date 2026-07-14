@@ -112,6 +112,7 @@ private:
     GLuint gl_interop_textures_[3] = {0, 0, 0};   // GL textures per pool slot (POOL_SIZE=3)
     GLuint gl_memory_objects_[3] = {0, 0, 0};     // GL memory objects per pool slot (one per NT handle)
     uint32_t gl_target_w_ = 0, gl_target_h_ = 0;  // Current GL interop texture dimensions
+    uint32_t gl_pool_w_ = 0, gl_pool_h_ = 0;      // K1: GL target pool'un kurulu olduğu boyut (resize tetiği)
     uint32_t current_pool_idx_ = 0;                // Current active pool index (for texture selection)
     uint32_t frame_counter_ = 0;                   // Frame counter for round-robin pool cycling
     int poll_frames_ = 0;

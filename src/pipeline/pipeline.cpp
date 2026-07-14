@@ -634,9 +634,13 @@ bool Pipeline::run_frame() {
                     VkImage staging_vk = nullptr;
                     VkImage target_vk = nullptr;
                     uint32_t slot = 0;  // I23: bridge'in kullandığı pool slot'u
-                    s.gpu_sub_.get_frame_images(dxgi->shared_texture(),
-                                                &staging_vk, &target_vk, &slot);
-                    s.gpu_sub_.cache_last_images(staging_vk, target_vk, slot);
+                    // K1: get_frame_images false dönebilir (try_lock — tüketici pool'u
+                    // rebuild ediyor). O durumda staging/target null kalır; eski geçerli
+                    // cache'i null'la EZME — bu preview karesini atla (encode etkilenmez).
+                    if (s.gpu_sub_.get_frame_images(dxgi->shared_texture(),
+                                                    &staging_vk, &target_vk, &slot)) {
+                        s.gpu_sub_.cache_last_images(staging_vk, target_vk, slot);
+                    }
                 }
 
                 s.d3d11_frame_cb(static_cast<void*>(tex),

@@ -460,6 +460,35 @@ void PreviewWidget::paintGL() {
             return;
         }
 
+        // K1: capture çözünürlüğü değişti mi? (DXGI-recovery / display-res değişimi —
+        // encoder DRC/healing DEĞİL, o capture dims'e dokunmaz.) GL target pool startup'ta
+        // bir kez init edilip resize'da yeniden kurulmadığından init boyutunda donuyordu:
+        // execute_copy blit dst-extent'i (Vulkan) + aşağıdaki glTexStorageMem (GL) init-boyut
+        // memory'yi aşardı (UB, özellikle resize-UP). Pool'u BÜTÜN olarak yeni boyutta yeniden
+        // kur — execute_copy ÖNCESİ, aynı paintGL/GL-thread akışında sıralı, yani yarı-kurulmuş
+        // pool'u hiçbir kopya görmez (cross-thread pending yarışı yok):
+        //   1) Vulkan tarafı (bridge): GPU-idle + image/memory/handle rebuild (idempotent)
+        //   2) GL tarafı: tüm memory object + interop texture geçersiz → sonraki per-slot blok
+        //      yeni NT handle'ı re-import eder (satır ~516'daki once-guard böylece resetlenir).
+        if (bridge_ && (w != gl_pool_w_ || h != gl_pool_h_)) {
+            bridge_->resize_gl_target_pool(w, h);
+            // target_vk pending'den geldi ve resize eski image'i YOK ETTİ → dangling.
+            // Yeni pool'dan bu slot'un target'ını yeniden çek (ofset bridge içinde).
+            target_vk = bridge_->get_execute_target(bridge_slot);
+            for (int i = 0; i < 3; ++i) {
+                if (gl_interop_textures_[i]) {
+                    glDeleteTextures(1, &gl_interop_textures_[i]);
+                    gl_interop_textures_[i] = 0;
+                }
+                if (gl_memory_objects_[i] && pfn_DeleteMemoryObjects_) {
+                    pfn_DeleteMemoryObjects_(1, &gl_memory_objects_[i]);
+                    gl_memory_objects_[i] = 0;
+                }
+            }
+            gl_pool_w_ = w;
+            gl_pool_h_ = h;
+        }
+
         // Lazy texture alloc on first frame / size change.
         // (Data is written by Vulkan compute via OpenGL interop — no CPU upload.)
         if (w != d_->tex_w || h != d_->tex_h) {

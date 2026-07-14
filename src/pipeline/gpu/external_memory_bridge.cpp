@@ -44,6 +44,15 @@ bool ExternalMemoryBridge::get_frame_images(
     // Tek instance/tek çağıran thread olduğundan davranış birebir aynı (0'dan
     // başlar, aynı next_pool_slot ilerlemesi), ama process-global paylaşım
     // kırılganlığı ortadan kalkar (ikinci bir bridge örneği kendi sayacını tutar).
+    // K1: try_lock — tüketici (GL thread) pool'u rebuild ediyorsa BEKLEME, bu kareyi atla.
+    // get_frame_images encode/frame-thread'de; blocking lock vkDeviceWaitIdle süresince
+    // encode döngüsünü durdururdu (AGENTS.md hot-path no-block + K2 "gerekirse kareyi düşür").
+    // Skip yalnız preview-interop'u etkiler; encode yolu ayrıdır. Çağıran false'ta cache'lemez.
+    std::unique_lock<std::mutex> lk(gl_pool_mtx_, std::try_to_lock);
+    if (!lk.owns_lock()) {
+        return false;
+    }
+
     bool ok = ext_bridge_get_frame_images(tex, pool_index_, staging, target);
     if (ok) {
         // I23: bu frame'i üreten slot'u raporla — çağıran (cache→widget→execute_copy)
@@ -57,6 +66,21 @@ bool ExternalMemoryBridge::get_frame_images(
 bool ExternalMemoryBridge::initialize_gl_target_pool(
     VkFormat fmt, uint32_t w, uint32_t h) {
     return ext_bridge_init_gl_target_pool(fmt, w, h);
+}
+
+bool ExternalMemoryBridge::resize_gl_target_pool(uint32_t w, uint32_t h) {
+    // K1: TEK yazar. gl_pool_mtx_ altında (RAII/lock_guard, I9/I10 deseni) — üreticinin
+    // (get_frame_images, try_lock) yarı-kurulmuş pool okumasını engeller. İçeride
+    // vkDeviceWaitIdle var; tüketici (GL thread, preview-only) burada bloklanabilir.
+    // format Zig state'inde saklanır — resize yalnız yeni boyutu alır.
+    std::lock_guard<std::mutex> lk(gl_pool_mtx_);
+    return ext_bridge_resize_gl_target_pool(w, h);
+}
+
+VkImage ExternalMemoryBridge::get_execute_target(uint32_t slot) const {
+    // K1: tüketici-thread (GL) okuru; TEK yazar resize_gl_target_pool AYNI thread'de sıralı
+    // olduğundan kilit gerekmez. Ofset ((slot+1)%POOL_SIZE) Zig'de tek kaynak.
+    return ext_bridge_get_execute_target(slot);
 }
 
 HANDLE ExternalMemoryBridge::get_gl_target_handle(uint32_t idx) const {
