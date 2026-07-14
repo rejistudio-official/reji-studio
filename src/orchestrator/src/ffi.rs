@@ -24,7 +24,7 @@ use crate::constants;
 use crate::event_bus::{EventBus, HealingEvent, MediaEvent, SystemEvent};
 use crate::healing::{HealingMonitor, HealingThresholds};
 use crate::metrics::{MetricSample, MetricState};
-use crate::rules::RuleEngine;
+use crate::rules::{RuleEngine, Explanation};
 use crate::ws_server::{self, WsState};
 
 
@@ -91,6 +91,46 @@ pub enum RjActionType {
     LogOnly = 6,
 }
 
+/// Özellik#1: Aksiyonu tetikleyen metrik kimliği — `rules::metric_id` sabitleriyle
+/// AYNI sayısal kodlama (tek doğruluk kaynağı `rules.rs`; bu enum onu FFI'ya
+/// yansıtır). C++ tarafı bu id'yi insan-okunur ada (`tr("GPU Sıcaklığı")`) çevirir.
+/// `MetricNone` = açıklanamayan aksiyon (LogOnly / koşul parse edilemedi) → UI
+/// açıklama satırını atlar. `#[repr(u32)]` (E1: repr(C) enum yasak). Sentinel adı
+/// `MetricNone` — unscoped C++ enum'da (`enum_class=false`) çıplak `None` olası
+/// makro çakışmasına karşı.
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RjMetricId {
+    FrameDropPct = 0,
+    GpuTempC = 1,
+    CpuTempC = 2,
+    MemoryUsagePct = 3,
+    CpuLoadPct = 4,
+    GpuLoadPct = 5,
+    NetworkRttMs = 6,
+    NetworkLossPct = 7,
+    MetricNone = 8,
+}
+
+impl RjMetricId {
+    /// `rules::metric_id` u32 kodunu FFI enum'una çevirir. Değerler birebir
+    /// eşleştiğinden bilinmeyen/aralık-dışı → `MetricNone` (savunmacı).
+    fn from_raw(v: u32) -> Self {
+        use crate::rules::metric_id as m;
+        match v {
+            m::FRAME_DROP_PCT   => RjMetricId::FrameDropPct,
+            m::GPU_TEMP_C       => RjMetricId::GpuTempC,
+            m::CPU_TEMP_C       => RjMetricId::CpuTempC,
+            m::MEMORY_USAGE_PCT => RjMetricId::MemoryUsagePct,
+            m::CPU_LOAD_PCT     => RjMetricId::CpuLoadPct,
+            m::GPU_LOAD_PCT     => RjMetricId::GpuLoadPct,
+            m::NETWORK_RTT_MS   => RjMetricId::NetworkRttMs,
+            m::NETWORK_LOSS_PCT => RjMetricId::NetworkLossPct,
+            _                   => RjMetricId::MetricNone,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct RjAction {
@@ -121,8 +161,16 @@ pub struct RjActionEvent {
     pub require_approval: u32,
     /// `RJ_ACTION_EVENT_*`: 0 = New, 1 = Invalidated (TTL dolumu / mod değişimi).
     pub kind: u32,
+    /// Özellik#1: aksiyonu tetikleyen metrik/değer/eşik açıklaması. Struct'ın
+    /// SONUNA eklendi (ABI: 24B→36B, `RJ_FFI_VERSION` yükseltildi). `metric_id ==
+    /// MetricNone` iken `current_value`/`threshold_value` anlamsız (0) — UI açıklama
+    /// satırını atlar. Invalidated event'lerde her zaman `MetricNone` (UI yalnız
+    /// `id` ile temizlik yapar, gösterilecek yeni bilgi yok).
+    pub metric_id: RjMetricId,
+    pub current_value: i32,
+    pub threshold_value: i32,
 }
-const _: () = assert!(core::mem::size_of::<RjActionEvent>() == 24);
+const _: () = assert!(core::mem::size_of::<RjActionEvent>() == 36);
 
 /// UI event türleri — `RjActionEvent::kind`. C++ tarafı `ffi_bridge.h`'de eşler.
 pub(crate) const RJ_ACTION_EVENT_NEW: u32 = 0;
@@ -130,7 +178,8 @@ pub(crate) const RJ_ACTION_EVENT_INVALIDATED: u32 = 1;
 
 impl RjActionEvent {
     /// Info event: otomatik uygulanan aksiyon için (require_approval=false, New).
-    pub(crate) fn info_event(a: &RjAction) -> Self {
+    /// Özellik#1: `expl` üçlüsü UI açıklaması için taşınır.
+    pub(crate) fn info_event(a: &RjAction, expl: &Explanation) -> Self {
         RjActionEvent {
             id: a.id,
             action_type: a.action_type,
@@ -138,11 +187,15 @@ impl RjActionEvent {
             param2: a.param2,
             require_approval: 0,
             kind: RJ_ACTION_EVENT_NEW,
+            metric_id: RjMetricId::from_raw(expl.metric_id),
+            current_value: expl.current_value,
+            threshold_value: expl.threshold_value,
         }
     }
 
     /// Approval event: CoPilot'ta onay bekleyen aksiyon (require_approval=true, New).
-    pub(crate) fn approval_event(a: &RjAction) -> Self {
+    /// Özellik#1: `expl` üçlüsü UI açıklaması için taşınır.
+    pub(crate) fn approval_event(a: &RjAction, expl: &Explanation) -> Self {
         RjActionEvent {
             id: a.id,
             action_type: a.action_type,
@@ -150,11 +203,16 @@ impl RjActionEvent {
             param2: a.param2,
             require_approval: 1,
             kind: RJ_ACTION_EVENT_NEW,
+            metric_id: RjMetricId::from_raw(expl.metric_id),
+            current_value: expl.current_value,
+            threshold_value: expl.threshold_value,
         }
     }
 
     /// Invalidated event: pending aksiyon TTL doldu ya da mod değişti — UI bunu
-    /// (checkbox/banner) temizlesin. `require_approval` anlamsız (0).
+    /// (checkbox/banner) temizlesin. `require_approval` anlamsız (0). Özellik#1:
+    /// açıklama taşınmaz (`MetricNone`) — UI yalnız `id` ile temizlik yapar,
+    /// gösterilecek yeni bilgi yok (PendingEntry'ye üçlü koymaya gerek kalmadı).
     pub(crate) fn invalidated_event(a: &RjAction) -> Self {
         RjActionEvent {
             id: a.id,
@@ -163,6 +221,9 @@ impl RjActionEvent {
             param2: a.param2,
             require_approval: 0,
             kind: RJ_ACTION_EVENT_INVALIDATED,
+            metric_id: RjMetricId::MetricNone,
+            current_value: 0,
+            threshold_value: 0,
         }
     }
 }
@@ -801,12 +862,12 @@ pub fn enqueue_ui_event(event: RjActionEvent) {
 /// V8/I33a: CoPilot'ta onay bekleyen aksiyonu depola + UI'a approval event
 /// gönder. Pending deposu kaynak-of-truth; UI event'i yalnız bildirim (kaybı
 /// TTL/re-üretim ile telafi edilir).
-pub fn enqueue_pending(action: RjAction, rule_id: String) {
+pub fn enqueue_pending(action: RjAction, rule_id: String, explanation: Explanation) {
     let Some(state) = FFI_STATE.get() else {
         eprintln!("[FFI] WARNING: FFI_STATE not initialized — enqueue_pending ignored");
         return;
     };
-    let event = RjActionEvent::approval_event(&action);
+    let event = RjActionEvent::approval_event(&action, &explanation);
     {
         let mut pending = state.pending_actions.lock().unwrap();
         pending.insert(
@@ -1366,9 +1427,20 @@ mod tests {
         // aynı event'i döndürmeli, boşta 0, null'da 0.
         rj_start_monitor();
         let src = RjAction { id: 4242, action_type: RjActionType::BitrateReduce, param1: 3500, param2: 0, canary: 0 };
-        enqueue_ui_event(RjActionEvent::info_event(&src));
+        // Özellik#1: gerçek açıklama üçlüsüyle enqueue et — FFI roundtrip'te
+        // metric_id/current_value/threshold_value'ın bozulmadan geçtiğini doğrula.
+        let expl = Explanation {
+            metric_id: crate::rules::metric_id::GPU_TEMP_C,
+            current_value: 87,
+            threshold_value: 85,
+        };
+        enqueue_ui_event(RjActionEvent::info_event(&src, &expl));
 
-        let mut out = RjActionEvent { id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0, require_approval: 9, kind: 9 };
+        let mut out = RjActionEvent {
+            id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0,
+            require_approval: 9, kind: 9,
+            metric_id: RjMetricId::MetricNone, current_value: 0, threshold_value: 0,
+        };
         // Kuyrukta başka testlerin event'i de olabilir (paralel/global state);
         // bizim event'imizi bulana kadar drenaj yap.
         let mut found = false;
@@ -1377,6 +1449,10 @@ mod tests {
                 assert_eq!(out.require_approval, 0, "info event onay gerektirmemeli");
                 assert_eq!(out.kind, RJ_ACTION_EVENT_NEW);
                 assert_eq!(out.param1, 3500);
+                // Özellik#1: açıklama üçlüsü roundtrip'te korunmalı.
+                assert_eq!(out.metric_id, RjMetricId::GpuTempC, "metric_id roundtrip");
+                assert_eq!(out.current_value, 87, "current_value roundtrip");
+                assert_eq!(out.threshold_value, 85, "threshold_value roundtrip");
                 found = true;
                 break;
             }
@@ -1392,7 +1468,7 @@ mod tests {
         let _g = pending_guard();
         rj_start_monitor();
         let id = 900_001;
-        enqueue_pending(mk_action(id), "rule_x".to_string());
+        enqueue_pending(mk_action(id), "rule_x".to_string(), Explanation::none());
 
         // Onay: pending'den aktüatör kuyruğuna taşınmalı, 1 dönmeli.
         assert_eq!(rj_action_approve(id), 1, "geçerli pending onaylanınca 1 dönmeli");
@@ -1422,7 +1498,7 @@ mod tests {
         let _g = pending_guard();
         rj_start_monitor();
         let id = 900_002;
-        enqueue_pending(mk_action(id), "rule_y".to_string());
+        enqueue_pending(mk_action(id), "rule_y".to_string(), Explanation::none());
 
         assert_eq!(rj_action_reject(id), 1, "bulunan pending reddedilince 1");
         assert_eq!(rj_action_reject(id), 0, "ikinci reddet → yok → 0");
@@ -1456,10 +1532,19 @@ mod tests {
             "TTL dolmuş entry sweep sonrası kalmamalı"
         );
         // UI'a Invalidated event gitmiş olmalı (kuyruğu tarayıp bul).
-        let mut out = RjActionEvent { id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0, require_approval: 0, kind: 0 };
+        let mut out = RjActionEvent {
+            id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0,
+            require_approval: 0, kind: 0,
+            metric_id: RjMetricId::MetricNone, current_value: 0, threshold_value: 0,
+        };
         let mut found = false;
         while rj_action_event_dequeue(&mut out as *mut _) == 1 {
-            if out.id == id && out.kind == RJ_ACTION_EVENT_INVALIDATED { found = true; break; }
+            if out.id == id && out.kind == RJ_ACTION_EVENT_INVALIDATED {
+                // Özellik#1: invalidated event açıklama taşımaz.
+                assert_eq!(out.metric_id, RjMetricId::MetricNone, "invalidated → MetricNone");
+                found = true;
+                break;
+            }
         }
         assert!(found, "sweep, TTL dolan aksiyon için Invalidated event üretmeli");
     }
@@ -1471,7 +1556,7 @@ mod tests {
         let id = 900_004;
         // CoPilot'a al, pending ekle, sonra farklı moda geç → pending temizlenmeli.
         assert!(rj_set_healing_mode(1)); // CoPilot
-        enqueue_pending(mk_action(id), "rule_w".to_string());
+        enqueue_pending(mk_action(id), "rule_w".to_string(), Explanation::none());
         assert!(
             FFI_STATE.get().unwrap().pending_actions.lock().unwrap().contains_key(&id),
             "pending eklendi"

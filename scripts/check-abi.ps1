@@ -140,6 +140,7 @@ Write-Info "ABI degerleri karsilastiriliyor..."
 $checks = @(
     @{ Type = "RjMetricSample"; Expected = 64 },
     @{ Type = "RjAction";       Expected = 20 },
+    @{ Type = "RjActionEvent";  Expected = 36 },
     @{ Type = "RjCommand";      Expected = 24 }
 )
 $offsetChecks = @(

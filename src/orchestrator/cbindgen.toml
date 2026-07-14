@@ -5,7 +5,7 @@ tab_width = 4
 documentation = true
 
 [export]
-include = ["MetricSample", "RjCommand", "RjAction", "RjActionType", "RjActionEvent"]
+include = ["MetricSample", "RjCommand", "RjAction", "RjActionType", "RjActionEvent", "RjMetricId"]
 
 [parse]
 parse_deps = false

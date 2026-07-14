@@ -19,7 +19,7 @@ use crate::constants;
 use crate::event_bus::{HealingEvent, MediaEvent, SystemEvent};
 use crate::ffi::{enqueue_action, next_action_id, RjAction, RjActionType};
 use crate::metrics::MetricState;
-use crate::rules::{ActionType, RuleEngine, RuleMetrics};
+use crate::rules::{ActionType, Explanation, RuleEngine, RuleMetrics};
 
 /// Self-healing katmanları.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +72,9 @@ impl HealingMode {
 struct RoutedAction {
     rj: RjAction,
     rule_id: String,
+    /// Özellik#1: aksiyonu tetikleyen metrik/değer/eşik — UI event'ine iletilir
+    /// (bugün `rule_id`'nin reject-cooldown için taşındığı gibi taşınır).
+    explanation: Explanation,
 }
 
 /// V8/I33c: CoPilot'ta bir aksiyonun kullanıcı onayı gerektirip gerektirmediği
@@ -466,6 +469,7 @@ impl HealingMonitor {
                         canary: 0,
                     },
                     rule_id: a.rule_id,
+                    explanation: a.explanation, // Özellik#1: üçlüyü UI event'ine taşı
                 })
             })
             .collect()
@@ -488,11 +492,11 @@ impl HealingMonitor {
             let auto = crate::ffi::category_auto_approve(routed.rj.action_type);
             if requires_approval(mode, auto) {
                 // CoPilot manuel-kategori: pending + approval event.
-                crate::ffi::enqueue_pending(routed.rj, routed.rule_id);
+                crate::ffi::enqueue_pending(routed.rj, routed.rule_id, routed.explanation);
             } else {
                 // Otomatik: aktüatör + info event.
                 let id = routed.rj.id;
-                crate::ffi::enqueue_ui_event(crate::ffi::RjActionEvent::info_event(&routed.rj));
+                crate::ffi::enqueue_ui_event(crate::ffi::RjActionEvent::info_event(&routed.rj, &routed.explanation));
                 if !enqueue_action(routed.rj) {
                     warn!(action_id = id, "rule action enqueue failed, kuyruk dolu");
                 }

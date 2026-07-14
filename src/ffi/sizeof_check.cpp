@@ -4,7 +4,7 @@
 // ABI constraints — derleme zamanı güvencesi; Rust const_assert ile eşleşmeli.
 static_assert(sizeof(RjMetricSample) == 64, "RjMetricSample ABI mismatch");
 static_assert(sizeof(RjAction)       == 20, "RjAction ABI mismatch");
-static_assert(sizeof(RjActionEvent)  == 24, "RjActionEvent ABI mismatch");
+static_assert(sizeof(RjActionEvent)  == 36, "RjActionEvent ABI mismatch");
 static_assert(sizeof(RjCommand)      == 24, "RjCommand ABI mismatch");
 
 // RjCommand field offsets
@@ -27,6 +27,10 @@ static_assert(offsetof(RjActionEvent, param1)           ==  8, "RjActionEvent::p
 static_assert(offsetof(RjActionEvent, param2)           == 12, "RjActionEvent::param2 offset");
 static_assert(offsetof(RjActionEvent, require_approval) == 16, "RjActionEvent::require_approval offset");
 static_assert(offsetof(RjActionEvent, kind)             == 20, "RjActionEvent::kind offset");
+// Özellik#1: açıklama üçlüsü (struct sonuna eklendi)
+static_assert(offsetof(RjActionEvent, metric_id)        == 24, "RjActionEvent::metric_id offset");
+static_assert(offsetof(RjActionEvent, current_value)    == 28, "RjActionEvent::current_value offset");
+static_assert(offsetof(RjActionEvent, threshold_value)  == 32, "RjActionEvent::threshold_value offset");
 
 // RjMetricSample field offsets
 static_assert(offsetof(RjMetricSample, magic_head)       ==  0, "RjMetricSample::magic_head offset");
