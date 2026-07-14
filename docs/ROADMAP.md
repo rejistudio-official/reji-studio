@@ -1054,7 +1054,16 @@ protokolü/I8, `MetricState`/I14) yola çıkılarak değerlendirildi — hiçbir
 taahhüt değil, hepsi öncelik sırasına konmuş birer aday. Sıra; maliyet,
 bağımlılık ve mevcut altyapıyla örtüşme derecesine göre belirlendi.
 
-### 1. CoPilot aksiyon açıklaması (öncelik: en yüksek, maliyet: en düşük)
+### 1. CoPilot aksiyon açıklaması ✅ IMPLEMENTE EDİLDI (2026-07-15)
+
+> **Durum:** `feature/copilot-action-explanation` dalında tamamlandı.
+> **Not (maliyet düzeltmesi):** "mevcut event'e bir alan eklemek yeterli"
+> varsayımı Faz 0'da kısmen çürütüldü — event üçlüyü taşımıyordu, `rule_id`
+> yarı yola kadar gidip FFI öncesi duruyordu, metrik/değer/eşik ise hiç
+> yakalanmıyordu. Gerçek maliyet 6 katmana dokunan bir ABI değişikliği
+> (`RjActionEvent` 24B→36B, `RJ_FFI_VERSION` 0x00020000) oldu — yine de
+> düşük-orta ve mimari olarak temiz (veri üretim anında hazır, sınırdan
+> yapılandırılmış/sayısal geçiyor). Bkz. `docs/talimatlar/TALIMAT_OZELLIK1_COPILOT_ACIKLAMA.md`.
 
 **İçerik:** CoPilot'ta bir pending aksiyon (veya AutoPilot/Assist'te
 uygulanan bir aksiyon) göründüğünde, hangi kuralın hangi metrik eşiğini

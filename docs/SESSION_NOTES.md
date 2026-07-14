@@ -1,3 +1,38 @@
+## Oturum: 15 Temmuz 2026 — Özellik#1: CoPilot aksiyon açıklaması ✅
+
+ROADMAP madde 1 (en yüksek öncelik). Yeni özellik: pending/uygulanan bir healing
+aksiyonu göründüğünde hangi metrik-eşiğin tetiklediğini kullanıcıya göster (örn.
+"GPU Sıcaklığı: 87°C (eşik 85°C)"). Motivasyon: Healing Plumbing turunda GUI'de
+hiçbir açıklama olmadığı için kullanıcının fark edemeyeceği anormalliği (metrik-stub
+sessiz hep-true) gelecekte anında görünür kılmak.
+
+### Faz 0 bulgusu (maliyet düzeltmesi — körü körüne kabul edilmedi)
+ROADMAP'in "event bu bilgiyi zaten taşıyor, tek alan ekle" varsayımı **kısmen
+çürütüldü**: `RjActionEvent` üçlüyü taşımıyordu; `rule_id` FFI öncesi duruyor,
+metrik/değer/eşik ise `create_action`'da (`_metrics` kullanılmadan) atılıyordu.
+Gerçek maliyet 6 katmana dokunan bir ABI değişikliği — yine de düşük-orta ve temiz.
+
+### Uygulama (4 küçük commit, `feature/copilot-action-explanation`)
+1. **rules.rs** — üçlüyü üretim anında yakala. `metric_id` sabit tablosu +
+   `Explanation` struct; `parse_leaf`/`first_leaf` `eval_single_condition`'dan DRY
+   çıkarıldı. Bileşik koşulda ilk yaprak eşiği (karar). 4 birim testi.
+2. **ffi.rs + healing.rs** — `RjMetricId` enum (`MetricNone` sentinel); `RjActionEvent`
+   +3 alan (24B→36B, sona eklendi); `RoutedAction` üçlüyü taşır; `RJ_FFI_VERSION`
+   0x00020000; sizeof_check/cbindgen/ffi_auto senkron. FFI roundtrip testi.
+3. **main_window.cpp** — `formatActionExplanation`: id→ad+birim (UI-yerel tr());
+   `description`'a " — " ile eklenir (geçmiş/banner/onay checkbox'ında görünür).
+4. **docs** — FFI_CONTRACT (RjActionEvent bölümü), ROADMAP (implemente), bu not,
+   talimat arşive taşındı.
+
+### Doğrulama sınırı
+- **Test edildi:** 74 Rust birim/entegrasyon testi (4 yeni açıklama + FFI roundtrip),
+  `abi-check` (C++ static_assert derlemesi 36B/offset), `reji_ui` derleme+link.
+- **KULLANICIDA:** Gerçek pending aksiyonun overlay'de açıklamayla doğru göründüğünün
+  GUI görsel doğrulaması (headless test edilemez). Davranış değişikliği yalnız EK
+  bilgi — onay/red/timeout akışı değişmedi.
+
+---
+
 ## Oturum: 15 Temmuz 2026 — Eski planlama dosyalarının arşivlenmesi ✅
 
 Kod değişikliği yok, saf dokümantasyon. Proje başlangıcında (2026-05/06) oluşturulup

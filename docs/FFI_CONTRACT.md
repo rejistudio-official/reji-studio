@@ -283,7 +283,7 @@ int32_t rj_reload_rules(const char *path);
 
 ```c
 int     rj_metrics_poll(RjMetricSample *out);  // Rust (ffi.rs) — MainWindow::pollMetrics, Qt timer
-uint32_t rj_ffi_version(void);                 // Zig (ffi_bridge.zig) — RJ_FFI_VERSION = 0x00010000
+uint32_t rj_ffi_version(void);                 // Zig (ffi_bridge.zig) — RJ_FFI_VERSION = 0x00020000 (Özellik#1: RjActionEvent 36B)
 ```
 
 - `rj_metrics_poll`: V8/I14'te Rust orchestrator'da implemente edildi (yukarıdaki kontrat).
@@ -346,6 +346,48 @@ C++:   enum RjActionType : uint32_t;    struct RjAction (ffi_auto.h)
 
 Discriminant değerleri `sizeof_check.cpp:42-48`'deki `static_cast<uint32_t>` assert'leriyle
 derleme zamanında doğrulanır.
+
+### `RjActionEvent` — 36 byte (Özellik#1: eski 24B)
+
+UI bildirim event'i — aktüatör kuyruğundan (`RjAction`) AYRI bir kuyrukta akar
+(V8/I33, I11). `rj_action_event_dequeue` ile çekilir.
+
+```
+Rust:  #[repr(C)] struct RjActionEvent { id, action_type, param1, param2,
+                     require_approval, kind, metric_id, current_value, threshold_value }
+C++:   struct RjActionEvent (ffi_auto.h)
+```
+
+| Offset | Alan | Tür | Notlar |
+|--------|------|-----|--------|
+| +0 | `id` | `u32` | Aksiyon kimliği (`RjAction.id` ile aynı) |
+| +4 | `action_type` | `u32` | `RjActionType` enum |
+| +8 | `param1` | `i32` | Birincil parametre |
+| +12 | `param2` | `i32` | İkincil parametre |
+| +16 | `require_approval` | `u32` | 0=bilgi (otomatik), 1=onay gerekiyor |
+| +20 | `kind` | `u32` | 0=New, 1=Invalidated (TTL/mod değişimi) |
+| +24 | `metric_id` | `u32` | **Özellik#1:** `RjMetricId` — tetikleyici metrik (8=MetricNone→açıklama yok) |
+| +28 | `current_value` | `i32` | **Özellik#1:** metriğin o anki değeri |
+| +32 | `threshold_value` | `i32` | **Özellik#1:** aşılan eşik (bileşik koşulda ilk yaprak) |
+
+**`RjMetricId` enum değerleri (`#[repr(u32)]`, `rules::metric_id` ile senkron):**
+
+| Değer | İsim | UI adı (C++ tr) |
+|-------|------|------------------|
+| 0 | `FrameDropPct` | Kare düşüşü (%) |
+| 1 | `GpuTempC` | GPU Sıcaklığı (°C) |
+| 2 | `CpuTempC` | CPU Sıcaklığı (°C) |
+| 3 | `MemoryUsagePct` | Bellek kullanımı (%) |
+| 4 | `CpuLoadPct` | CPU yükü (%) |
+| 5 | `GpuLoadPct` | GPU yükü (%) |
+| 6 | `NetworkRttMs` | Ağ gecikmesi (ms) |
+| 7 | `NetworkLossPct` | Paket kaybı (%) |
+| 8 | `MetricNone` | — (açıklanamayan aksiyon → UI açıklama satırını atlar) |
+
+`metric_id`/`current_value`/`threshold_value` struct'ın SONUNA eklendi; bu ABI
+kırılması `RJ_FFI_VERSION`'ı `0x00020000`'a yükseltti. Boyut/offset
+`sizeof_check.cpp` (`static_assert`) + `ffi.rs` (`const_assert 36`) ile doğrulanır.
+Invalidated event'ler her zaman `MetricNone` taşır (UI yalnız `id` ile temizlik yapar).
 
 ### `RjMetricSample` / `MetricSample` — 64 byte
 
