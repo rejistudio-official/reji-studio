@@ -511,20 +511,28 @@ void PreviewWidget::paintGL() {
         //      (eski last_used_slot()/next_slot() paralel-sayaç drift'i elendi).
         uint32_t pool_idx = bridge_slot;
         current_pool_idx_ = pool_idx;
+        // K3: execute_copy YAZDIĞI image = image[(pool_idx+1)%3] (ping-pong ofseti — producer
+        //     bir kare ileriye üretir, consumer image[pool_idx]'i okur). GL sync semaphore,
+        //     slot_gl_signaled_ ve pre-write fence bu YAZILAN image ile indekslenmeli (sync
+        //     index = image index) — aksi halde semaphore/fence yanlış image'ı korur (off-by-one).
+        //     Consumer (render) tarafı doğal image-index'i (current_pool_idx_) kullanır, değişmez.
+        uint32_t gl_signal_slot = (pool_idx + 1) % 3;
         VkSemaphore gl_sync_sem = bridge_
-            ? bridge_->get_gl_sync_semaphore(pool_idx)
+            ? bridge_->get_gl_sync_semaphore(gl_signal_slot)
             : VK_NULL_HANDLE;
         // H2: keyed mutex must protect shared texture memory, not the per-frame staging image
         VkDeviceMemory staging_mem = bridge_
             ? bridge_->get_shared_texture_memory()
             : VK_NULL_HANDLE;
-        // D5: execute_copy'nin kullanacağı slot'un (= pool_idx) fence'ini bekle —
-        //     GL bu slot'u okumayı bitirmeden Vulkan üzerine yazmasın.
-        if (gl_draw_fences_[pool_idx] && pfn_ClientWaitSync_) {
-            pfn_ClientWaitSync_(gl_draw_fences_[pool_idx],
+        // D5+K3: execute_copy'nin YAZACAĞI image'in (gl_signal_slot) GL-okuma fence'ini bekle —
+        //        GL o image'i okumayı bitirmeden Vulkan üzerine yazmasın (doğru image, off-by-one
+        //        düzeltildi). İlk kullanımda fence null → atlanır: o image hiç okunmamış, WAR yok (K5).
+        if (gl_draw_fences_[gl_signal_slot] && pfn_ClientWaitSync_) {
+            pfn_ClientWaitSync_(gl_draw_fences_[gl_signal_slot],
                                 GL_SYNC_FLUSH_COMMANDS_BIT, 1'000'000);
         }
         bool ok = copy_optimizer_->execute_copy(staging_vk, target_vk, w, h, pool_idx,
+                                           gl_signal_slot,
                                            &sem, &value, &result_target_image,
                                            gl_sync_sem, staging_mem);
         if (!ok) {

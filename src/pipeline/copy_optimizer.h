@@ -45,6 +45,9 @@ public:
                       uint32_t width,
                       uint32_t height,
                       uint32_t slot,                // I23: bridge pool slot (0..POOL_SIZE-1)
+                      uint32_t gl_signal_slot,      // K3: GL sync semaphore + slot_gl_signaled_ index =
+                                                    //     YAZILAN image ((slot+1)%POOL_SIZE). slot'tan ayrı:
+                                                    //     cmdbuf/timeline/layout slot'u, GL-signal yazdığı image'i.
                       VkSemaphore* out_timeline_semaphore,  // Caller polls this
                       uint64_t* out_timeline_value,         // Value to check
                       VkImage* out_target_image,            // Target image output

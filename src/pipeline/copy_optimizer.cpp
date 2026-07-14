@@ -133,6 +133,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
                                      uint32_t width,
                                      uint32_t height,
                                      uint32_t slot,
+                                     uint32_t gl_signal_slot,   // K3: GL-signal/flag index = yazılan image
                                      VkSemaphore* out_timeline_semaphore,
                                      uint64_t* out_timeline_value,
                                      VkImage* out_target_image,
@@ -153,6 +154,12 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
     // geçersiz slot per-slot dizilerinde (command_buffers_/layout/gl_signal) OOB olurdu.
     if (slot >= POOL_SIZE) {
         fprintf(stderr, "[GpuCopyOptimizer] Invalid slot %u (>= %u)\n", slot, POOL_SIZE);
+        return false;
+    }
+    // K3: gl_signal_slot = (slot+1)%POOL_SIZE (yazılan image); slot_gl_signaled_ dizisinde
+    // kullanılıyor — savunmacı sınır kontrolü (I23 deseni, OOB'a karşı).
+    if (gl_signal_slot >= POOL_SIZE) {
+        fprintf(stderr, "[GpuCopyOptimizer] Invalid gl_signal_slot %u (>= %u)\n", gl_signal_slot, POOL_SIZE);
         return false;
     }
 
@@ -330,11 +337,13 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
 
         VkSemaphore active_gl_sem = gl_sync_sem;  // VK_NULL_HANDLE → GL sync atlanır
 
-        // D12: binary semaphore re-signal koruması — GL henüz tüketmediyse signal atla
+        // D12: binary semaphore re-signal koruması — GL henüz tüketmediyse signal atla.
+        // K3: flag YAZILAN image (gl_signal_slot) ile anahtarlanır, cmdbuf slot'u ile değil —
+        // producer sem[gl_signal_slot] sinyaller, consumer render(gl_signal_slot) tüketir/temizler.
         bool will_signal_gl = false;
-        if (slot_gl_signaled_[slot].load(std::memory_order_acquire)) {
+        if (slot_gl_signaled_[gl_signal_slot].load(std::memory_order_acquire)) {
 #ifdef RJ_DEBUG_VERBOSE
-            fprintf(stderr, "[CopyOptimizer] slot %u: GL wait bekleniyor, signal atlandı\n", slot);
+            fprintf(stderr, "[CopyOptimizer] gl_signal_slot %u: GL wait bekleniyor, signal atlandı\n", gl_signal_slot);
             fflush(stderr);
 #endif
             active_gl_sem = VK_NULL_HANDLE;
@@ -406,7 +415,7 @@ bool GpuCopyOptimizer::execute_copy(VkImage d3d11_staging_vk,
         target_layouts_[slot]  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // D2: per-slot tracking
         staging_layouts_[slot] = VK_IMAGE_LAYOUT_UNDEFINED;
         if (will_signal_gl) {
-            slot_gl_signaled_[slot].store(true, std::memory_order_release);
+            slot_gl_signaled_[gl_signal_slot].store(true, std::memory_order_release);  // K3: yazılan image index
         }
         // I23: last_used_slot_/frame_counter_ kaldırıldı — slot dışarıdan yönetiliyor.
 
