@@ -1163,6 +1163,18 @@ en aza indirme) — "orta" tahmini bu karmaşıklığı içeriyor.
 
 ### 5. Kalibre edilmiş temel çizgi (statik eşikler yerine) (öncelik: orta, maliyet: orta-yüksek)
 
+**Durum: MVP implemente edildi (tek metrik — `memory_usage_pct`).**
+Sistem açılışta `CALIBRATION_WINDOW` (180s) boyunca `memory_usage_pct` ham
+örneklerini toplar; pencere bitince eşiği `ortalama + 3σ` olarak kalibre eder
+(`[50,95]` clamp). **Kullanıcıya görünen davranış değişikliği: bu metriğin eşiği
+artık dinamik** — CoPilot açıklaması kalibre eşiği gösterir ve "[kalibre]"
+etiketiyle işaretler (statik `rules.json` değeriyle karıştırılmasın). Stub/sabit
+kaynak (hiç değişmeyen metrik) veya yetersiz örnek → kalibrasyon iptal, statik
+varsayılan korunur (görünür loglanır). Kalıcılık yok: her oturumda yeniden
+kalibre edilir. Diğer 7 metriğe genişletme ve oturumlar-arası kalıcılık sonraki
+tur (MVP kapsamı dışı). Plumbing düzeltmesi: `memory_usage_pct` artık drainer'da
+`MemUsage` event'i olarak yayılıyor (eskiden `memory_pressure` kuralı ölüydü).
+
 **İçerik:** Sistem başlangıçta (ilk birkaç dakika) donanıma özgü normal
 bitrate/sıcaklık/fps aralığını öğrenip `rules.json`'daki sabit eşikleri
 buna göre otomatik kalibre etmek.
@@ -1223,7 +1235,8 @@ katmanda sunabiliriz:
   CoPilot aksiyon açıklaması).
 - **Kalıcı kayıt** — "Gelecek Özellikler" madde 3 (SQLite healing-log).
 - **Kalibrasyon** — "Gelecek Özellikler" madde 5 (kalibre edilmiş
-  eşikler).
+  eşikler). ✅ MVP implemente edildi (`memory_usage_pct`; dinamik eşik +
+  "[kalibre]" UI etiketi).
 
 **Neden farklılaştırıcı:** Rakiplerin "otomatik" özellikleri genelde tek
 bir if-else; Reji'de denetlenebilir, açıklanabilir bir karar zinciri var.

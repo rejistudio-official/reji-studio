@@ -624,11 +624,19 @@ QString formatActionExplanation(const RjActionEvent& ev) {
     }
     // Not: QString::arg en düşük numaralı %n'in TÜM geçişlerini değiştirir; %3
     // (birim) iki kez kullanılır → tek .arg(unit) çağrısı ikisini de doldurur.
-    return QObject::tr("%1: %2%3 (eşik %4%3)")
+    QString line = QObject::tr("%1: %2%3 (eşik %4%3)")
         .arg(name)
         .arg(ev.current_value)
         .arg(unit)
         .arg(ev.threshold_value);
+    // Özellik#5: eşik çalışma-zamanı kalibrasyonundan geliyorsa "[kalibre]" ekle.
+    // Kullanıcı `rules.json`'daki statik değeri (örn. 85) bilip açıklamada farklı
+    // bir eşik (örn. 83) görünce "yazılım yanlış mı söylüyor" şüphesine düşmesin —
+    // Özellik#1'in güven inşası amacı korunur (calibrated bayrağı FFI'dan gelir).
+    if (ev.calibrated != 0) {
+        line += QObject::tr(" [kalibre]");
+    }
+    return line;
 }
 } // namespace
 
