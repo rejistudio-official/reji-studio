@@ -75,10 +75,21 @@ kapsam daraltması — Faz 0 bulgusuna göre değerlendirilsin.
    `healing_log`'un kendisinden mi türetilecek? Donanım/ortam değişirse
    (farklı dock, farklı yük) bayat kalibrasyon riski nasıl ele alınacak.
 
-**Faz 0 çıktısı:** Yukarıdaki beş sorunun cevabı + önerilen MVP kapsamı
+6. **(Tasarım İlkesi kontrolü)** `docs/ROADMAP.md`'deki "Tasarım İlkesi —
+   Tek Merkezi Boru Hattı, Çok Tüketici" notunu oku. Bu özelliğin kendisi
+   zaten bu boru hattının bir tüketicisi (Faz 0 madde 1-2), ama ayrıca:
+   eğer `rules.json` şemasını değiştirme kararı verirsen (madde 4'teki
+   soru), bunun Farklılaşma Stratejisi sütun 3'ünü (paylaşılabilir kural
+   setleri) nasıl etkilediğini bir paragrafla değerlendir — bir kural
+   seti paylaşılırken donanıma özgü kalibrasyon verisi de mi taşınmalı,
+   yoksa yalnızca kural mantığı mı? Bu, şimdi karar verilecek bir şey
+   değil, yalnızca ileride çelişki yaratmayacak şekilde kayda geçirilsin.
+
+**Faz 0 çıktısı:** Yukarıdaki altı sorunun cevabı + önerilen MVP kapsamı
 (hangi metrik(ler) ile başlanacağı) + üç özellik-etkileşiminin nasıl ele
-alınacağına dair ilk değerlendirme. Onaya sun — bu özellik için Faz 0
-raporu diğerlerinden daha kapsamlı olabilir, acele etme.
+alınacağına dair ilk değerlendirme + kural-paylaşımı çapraz-etkisi notu.
+Onaya sun — bu özellik için Faz 0 raporu diğerlerinden daha kapsamlı
+olabilir, acele etme.
 
 ## Faz 1 — Tasarım (implementasyondan önce onaya sunulacak)
 

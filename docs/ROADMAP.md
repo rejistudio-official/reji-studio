@@ -1284,6 +1284,53 @@ daha düşük risk — JSON, çalıştırılabilir kod değil, mevcut `rj_reload
 
 ---
 
+## Tasarım İlkesi — Tek Merkezi Boru Hattı, Çok Tüketici
+
+Özellik #1 (CoPilot açıklaması), #2 (WS'e yayın), #3 (SQLite log) ve
+tasarım aşamasındaki #5 (kalibrasyon), aslında bağımsız dört özellik
+değil — hepsi **tek bir merkezi üretim noktasının** (`RuleEngine` →
+`Action` üretimi, `metric_id`/`current_value`/`threshold_value` üçlüsü)
+farklı tüketicileri:
+
+```
+RuleEngine (Action üretimi: rule_id, metric_id, current_value, threshold_value)
+    │
+    ├── Özellik #1: yerel GUI açıklaması
+    ├── Özellik #2: obs-websocket VendorEvent yayını
+    ├── Özellik #3: SQLite healing_log kaydı
+    └── Özellik #5: kalibrasyon girdisi (ileride)
+```
+
+**Neden önemli:** Özellik #1'de kurulan veri modeli, sonraki üç
+özelliğin üzerine sıfır ek maliyetle oturdu (Özellik #2 ve #3'ün ikisi
+de "ABI/FFI değişikliği yok, yalnızca mevcut event'i oku" diye
+kapandı). Bu, iyi bir merkezi veri modelinin kendini nasıl ödüllendirdiğinin
+somut kanıtı.
+
+**Kural — yeni healing-ilişkili özellikler eklenirken:** Yeni bir
+özellik (örn. "Gelecek Özellikler" madde 4, SRT/RTMP failover) bu boru
+hattının **dışında, bağımsız bir mekanizma** olarak tasarlanmamalı.
+Eğer bir karar `RuleEngine`'in bir `Action` tipi olarak modellenebiliyorsa
+(örn. failover kararı `RJ_ACTION_FAILOVER_TRANSPORT` gibi bir aksiyon
+tipi olarak), açıklama/yayın/log/kalibrasyon dördünü **otomatik ve bedava**
+miras alır — her biri için ayrı ayrı yeniden icat edilmez.
+
+**Gelecekte yeni bir healing-ilişkili özellik/talimat yazılırken Faz 0'a
+eklenecek standart soru:** "Bu karar mevcut `RuleEngine`/`Action`
+boru hattının bir parçası olarak mı modellenmeli, yoksa gerçekten ayrı
+bir mekanizma mı gerekiyor?" Varsayılan cevap "boru hattının parçası
+olmalı" — aksini kanıtlamak Faz 0'ın işi.
+
+**Bilinen çapraz-etkileşim (madde 5 tasarımına not düşüldü):** Özellik
+#5'in `rules.json` şemasını değiştirme ihtimali (mutlak eşik yerine
+kalibre edilebilir/göreli format), Farklılaşma Stratejisi sütun 3'ü
+(paylaşılabilir kural setleri) doğrudan etkiler — bir kural seti
+paylaşılırken donanıma özgü kalibrasyon verisi de mi taşınmalı, yoksa
+yalnızca kural mantığı mı? Bu soru, Özellik #5'in Faz 0 raporunda
+ayrıca ele alınacak.
+
+---
+
 ## Gelecek Fikir (henüz değerlendirilmedi, yüksek risk/belirsiz talep)
 
 ### Uzaktan/işbirlikli prodüksiyon

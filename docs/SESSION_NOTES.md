@@ -1,3 +1,116 @@
+## Oturum: 15 Temmuz 2026 — Özellik#5 kalibrasyon: rules.json şema-etkisi teyidi ✅
+
+Teyit edildi: Özellik#5 kalibrasyonu `rules.json` şemasına DOKUNMUYOR — override, bellek-içi
+`RuleEngine.calibration: Arc<Mutex<HashMap<String,i32>>>` tablosunda (`rules.rs:106/336`,
+`set_calibrated_threshold` yalnız insert, diske yazılmaz) `RuleEngine::evaluate`/açıklama
+yolunda `effective_threshold` ile şeffaf yapılıyor (`:110-115`; yorum `:103-105` "şema
+DEĞİŞMEZ, Faz 0 seçenek b"). **Sonuç:** paylaşılan kural seti yalnız statik kural mantığını
+taşır, donanıma özgü kalibrasyon dosyaya girmez → Farklılaşma Stratejisi sütun 3
+(paylaşılabilir kural setleri) üzerindeki etki şu an minimal. TALIMAT_OZELLIK5_KALIBRASYON
+arşive taşındı.
+
+---
+
+## Oturum: 15 Temmuz 2026 — GUI Kullanıcı Gözlemleri (CUT/FADE, Sahne Değişimi) ✅ KAPANDI
+
+TALIMAT_GUI_GOZLEM_ARASTIRMA: kullanıcının çalışan app'te yaptığı 5 canlı gözlem
+(ekran görüntülü). Madde 1 (metrikler canlı) doğru çalışıyor, kapsam dışı. Madde 6
+(Ayarlar penceresi genel eksikliği) UX konusu, kapsam dışı. Her madde kendi Faz 0'ı.
+
+### Madde 2 — CUT/FADE butonları ✅ KAPANDI (eksik özellik, bug DEĞİL — Faz 3 bekliyor)
+**Faz 0 zinciri (uçtan uca kanıtlı):** buton → slot → `program_widget_->beginTransition`
+→ shader. `onCutTransition` (`main_window.cpp:540`) ve sahne-tıklaması slot'u (`:271`)
+`beginTransition(Cut)` çağırıyor; `onFadeTransition` (`:547`) `beginTransition(Fade,300)`.
+Shader altyapısı **no-op değil** — gerçek GLSL kodu çalışıyor. **Kök neden:** aynı tek
+video kaynağı iki panele (preview+program) besleniyor → transition edilecek İKİNCİ içerik
+yok; geçiş tetikleniyor ama görsel fark üretmiyor (kaynak özdeş). Yani buton "kırık"
+değil, arkasında besleyecek çoklu-kaynak/kompozisyon mimarisi yok.
+**Sınıflandırma:** bug değil, **eksik özellik** — `ROADMAP.md` Faz 3 (ISource, Çoklu
+Kaynak Mimarisi) gelince içerik beslemesiyle çözülür. Shader'ı sıfırdan yazmak gerekmez;
+yalnız içerik beslemesi eksik. Bu turda kod değişikliği YOK (talimat kuralı: Faz 3
+bekleyen madde belgelenip kapatılır). **Doğrulama sınıfı:** kod incelemesi +
+find-references (çalıştırılan test yok — düzeltme yok).
+
+### Madde 3 — Sahne değişiminin görsel etkisi yok ✅ KAPANDI (eksik özellik, Faz 3 bekliyor)
+**Zincir (kanıtlı):** `scene_list_` `itemActivated` → slot (`main_window.cpp:265-274`):
+durum etiketi + `beginTransition(Cut)` + `rust_bridge_->sendSceneSwitchEvent(idx)` +
+`emit sceneActivated(idx)`. → `sendSceneSwitchEvent` → `rj_user_event_scene_switch`
+(`rust_bridge.cpp:38`). → Rust (`ffi.rs:1425-1432`) **YALNIZCA**
+`current_scene_idx.store(scene_id, Relaxed)` yapıyor (Madde 3 talimatındaki "bayat
+olabilir" uyarısına karşı güncel `master`'da yeniden doğrulandı — hâlâ tek satır store).
+**Asıl soru — kompozisyona bağlı mı? HAYIR:** `current_scene_idx`'in TÜM okuyucuları
+orchestrator tarafında — yalnız `ws_server.rs` (GetSceneList/GetCurrentProgramScene
+yanıtı, OBS-WS raporlama) + testler. Hiçbir capture/render/pipeline dosyası (C++/Zig)
+onu okumuyor (`grep current_scene_idx|active_scene|render_scene|compose_scene src/` →
+sıfır render-tarafı isabet). Ek: `emit sceneActivated(idx)` **hiçbir slot'a bağlı değil**
+(yalnız decl `main_window.h:71` + emit `:273`; connect yok) → boşluğa yayılıyor.
+**Sonuç:** sahne değişimi yalnız state/index takibi (OBS-WS raporlaması için) + Madde 2
+ile AYNI kökten bir CUT transition (geçiş edilecek ikinci içerik yok). Madde 2'nin
+ikizi: **çoklu-sahne kompozisyon mimarisi hiç yok** = Faz 3 (ISource). `ROADMAP.md:1200`
+bunu açıkça söylüyor: "Reji'nin 'sahne' kavramı arkasında gerçek bir kompozisyon
+mimarisi yok — Faz 3 (ISource) bunu inşa edecek." → bug değil, henüz yapılmamış iş.
+Talimat gereği kod değişikliği YOK, belgelenip kapatıldı (kullanıcı onayladı: "değişiklik
+yok, belgele/kapat"). Doğrulama sınıfı: kod incelemesi + find-references (düzeltme yok →
+çalıştırılan test yok).
+
+### Madde 4 — Healing modu değişiminin görsel etkisi ✅ KAPANDI (beklenen davranış, doğrulandı)
+Talimatın "muhtemelen tasarım gereği" hipotezi — **varsayılmadı, kanıtlandı.**
+**Wiring sağlam (I19/I20/I34 intact):** mod değişimi → `SettingsDialog` OK → `emit
+healingModeChanged` (`settings_dialog.cpp:256`) → `connect` (`main_window.cpp:76-83`) →
+`rj_set_healing_mode(mode)` + overlay. **Startup senkronu var (I19 dersi birebir
+uygulanmış):** `main_window.cpp:361-366`, yorumu "bu olmadan HEALING_MODE startup'ta 0
+(AutoPilot) kalır" diyor — açılışta bir kez push (I19'un düzelttiği hatanın hâlâ
+düzeltilmiş kaldığının çapraz kontrolü). Rust canlı okuyor: `HealingMode::current()`
+(`healing.rs:70-72`) her değerlendirmede `HEALING_MODE` atomic'inden okur; donmuş
+`self.mode` alanı I20'de kaldırılmış → UI değişikliği bir sonraki aksiyonda anında geçerli.
+**Davranış farkı gerçek VE headless test-kapsamlı (dört mod ayrı ayrı):**
+`test_manual_mode_evaluates_no_rules` (`:849`, Manual→hiç komut), `test_assist_runs_only_
+critical_actions` (`:832`, Assist→yalnız kritik), `test_requires_approval_only_copilot_
+manual_category` (`:864`, CoPilot→onay yalnız !category_auto), AutoPilot→doğrudan uygula.
+**Sonuç:** Wiring sağlam; mod farkı gerçekten davranışı değiştiriyor ama **yalnız bir
+healing aksiyonu tetiklendiğinde** görünür. Kullanıcı gözleminde aksiyon tetiklenmediği
+için Settings açıklama metni dışında görsel fark yok → **beklenen davranış, bug değil.**
+Kod değişikliği gerekmedi. **Doğrulama sınıfı:** kod incelemesi + find-references (wiring)
++ mevcut 3 birim testi (davranış farkı) — "wiring var" ötesinde "davranış farkı gerçekten
+var ve headless doğrulanabiliyor" ayrımı (talimatın istediği tam ayrım).
+
+### Madde 5 — CoPilot Aksiyon Ayarları checkbox'ları ✅ KAPANDI (beklenen davranış, doğrulandı)
+**Wiring + startup senkronu sağlam (I19/I33c):** üç checkbox → `syncAutoApproveToRust()`
+(`main_window.cpp:378-383`, `isBitrateAuto/isResolutionAuto/isFpsAuto` →
+`rj_set_action_auto_approve(RJ_ACTION_CAT_{BITRATE,RESOLUTION,FPS})`). **Çift çağrı
+noktası:** startup (`:369`) VE her SettingsDialog OK'i (`:84`) — I19 push dersi birebir.
+Rust: `rj_set_action_auto_approve` (`ffi.rs:1264`) `ACTION_AUTO_APPROVE` atomic bitmask'ını
+set/clear; `category_auto_approve` (`:334`) okur → `evaluate_rule_engine` (`healing.rs:581`)
+→ `requires_approval(mode, auto)`. Test-kapsamlı: `test_action_auto_approve_set_and_query`
+(`ffi.rs:1959`, bit set/query + kategori izolasyonu + geçersiz kategori reddi).
+**Önemli nüans:** `requires_approval = mode==CoPilot && !category_auto` → checkbox etkisi
+**yalnız CoPilot modunda** anlamlı (AutoPilot hep otomatik, Manual hiç, Assist yalnız
+kritik). Etki çift-kapılı: CoPilot modu + tetiklenen aksiyon.
+**Sonuç:** Wiring + startup senkronu sağlam; etki yalnız gelecekteki bir healing
+aksiyonunda görünür → **beklenen davranış, bug değil.** Kod değişikliği gerekmedi.
+**Doğrulama sınıfı:** kod incelemesi + find-references + mevcut birim testi.
+**Madde 6'ya girdi:** Ayarın etkisinin kullanıcıya hiç belirtilmemesi bir UX boşluğu
+(örn. checkbox değişince küçük onay/bildirim) — ayrı değerlendirilir.
+
+### Yan bulgu — repo kökü temizlik kalıntıları (kod dışı)
+Madde 2/3 sırasında görüldü, **dokunulmadı** (kapsam dışı, doğru refleks): repo kökünde
+kazara shell-redirect kalıntısı 3 anormal dosya adı hâlâ duruyor — `device())`,
+`physical_device())`, `selectRenderPath(pipeline_.display_vendor_id())` (0-35 byte).
+Ayrıca daha önce görülen `.tmp3` kalıntısı benzer bir artık. Kullanıcı bunları Todoist'e
+küçük temizlik maddesi olarak ekliyor (kaybolmasın). Bu turda silinmedi.
+
+### Tur özeti
+5 gözlemin 5'i işlendi: Madde 1 (metrikler canlı, kapsam dışı — doğru çalışıyor),
+Madde 2+3 (CUT/FADE + sahne değişimi — **eksik özellik, Faz 3/ISource bekliyor**, aynı
+kök: çoklu-kaynak kompozisyonu yok), Madde 4+5 (healing modu + CoPilot checkbox'ları —
+**beklenen davranış, doğrulandı**, wiring+startup senkronu sağlam, etki yalnız tetiklenen
+aksiyonda görünür). **Hiç kod değişikliği yok** — 2 madde Faz 3'e ertelendi, 2 madde
+doğrulanıp kapatıldı. Talimat `docs/talimatlar/` arşivine taşındı.
+**Açık kalan izler:** (a) repo kökü temizlik kalıntıları (Todoist'e kullanıcı ekliyor),
+(b) Madde 6 UX boşluğu — checkbox/mod değişiminde kullanıcıya geri bildirim yok (ayrı iş).
+
+---
+
 ## Oturum: 15 Temmuz 2026 — frame_drop_pct Plumbing Düzeltmesi ✅
 
 TALIMAT_FRAME_DROP_PLUMBING: `memory_usage_pct` düzeltmesinin (commit 1,
