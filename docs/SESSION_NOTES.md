@@ -1,3 +1,43 @@
+## Oturum: 15 Temmuz 2026 — Ayarlar zenginleştirme #1: "Kuralları Düzenle" + hot-reload wiring ✅ KAPANDI
+
+TALIMAT_KURALLARI_DUZENLE: Ayarlar araştırma turunun (bkz. `docs/talimatlar/
+TALIMAT_AYARLAR_ARASTIRMA.md`) önceliklendirdiği 3 kalemden **1.si**. İki UI elemanının
+ölü stub'ını gerçek işleve bağladı.
+
+**Faz 0 (kod incelemesiyle doğrulandı):** Her iki eleman da **(a) tamamen no-op** —
+`editRulesRequested` ve `autoReloadToggled` sinyalleri tüm `src/` içinde hiçbir slot'a
+`connect` edilmemişti; `isAutoReloadEnabled()` getter'ı hiç çağrılmıyordu; projede
+`QFileSystemWatcher` emsali yoktu. CUT/FADE ("bağlı ama etkisiz") deseninin 3. tekrarı.
+`rj_reload_rules` (I24) hazır ve güvenliydi → yeni FFI gerekmedi. Kanonik yol
+`%USERPROFILE%\.reji\rules.json` (`ffi.rs:509`), `paths.rs`'i KULLANMIYOR (ayrı konvansiyon).
+
+**Uygulama (3 commit, dal `feat/rules-edit-hotreload`):**
+- **C1 — Kuralları Düzenle → harici editör.** `QDesktopServices::openUrl`; dosya yoksa
+  gömülü şablondan (`:/config/rules.json.template`, AUTORCC/`rules_template.qrc` ile
+  `docs/config/rules.json.template`'ten derleme anında gömülür — runtime dosya bağımlılığı
+  YOK) tohumlanır. Açma/oluşturma hatası `QMessageBox` ile bildirilir (I10).
+- **C2 — Otomatik hot-reload.** `QFileSystemWatcher` (dosya + üst dizin: atomic-save
+  sil+yeniden-yaz'ı yakalar) + 300ms debounce + reload öncesi yolu yeniden ekleme
+  (atomic-save tuzağı: yoksa ilk kayıttan sonra susardı) → `rj_reload_rules(path)`.
+  Geri bildirim `lbl_status_`'tan AYRI kalıcı widget'ta (`lbl_rules_`) — genel mesajlarca
+  ezilmesin diye. **Hata yapışkan: yalnız sonraki BAŞARILI reload temizler, zaman aşımı
+  yok** (kullanıcı kararı). Durum `QSettings`'e yazılır, açılışta geri yüklenir.
+- **C3 — docs + etiket:** SettingsDialog etiketi "(JSON/TOML)" → "(JSON)" (reload yalnız
+  `rules.json`); bu not + ROADMAP + araştırma raporu çapraz referansı.
+
+**Doğrulama sınıfı:** kod incelemesi + **derleme/link doğrulandı** (MSVC/Release; `reji_ui`
+temiz, `reji_app` link → `rj_reload_rules` sembolü Rust lib'inden çözülüyor). **GUI görsel
+doğrulaması kullanıcıda** (Faz 3): buton editörü açıyor mu, kaydedince reload oluyor mu,
+bozuk JSON'da yapışkan hata görünüp düzeltince temizleniyor mu. **Tasarım sapması (onaylı):**
+geri bildirim Faz 1'de `lbl_status_` denmişti; yapışkan-hata gereksinimi için ayrı kalıcı
+widget'a geçildi (mevcut bitrate/fps/connection kalıcı-widget desenine uygun).
+
+**Kullanıcıya görünen değişiklik:** iki UI elemanı artık gerçekten çalışıyor (önceden
+sessizce hiçbir şey yapmıyordu). Araştırma raporundaki kalan 2 kalem (Video ayarları,
+Ses ayarları) ayrı talimatlar olarak bekliyor.
+
+---
+
 ## Oturum: 15 Temmuz 2026 — Özellik#5 kalibrasyon: rules.json şema-etkisi teyidi ✅
 
 Teyit edildi: Özellik#5 kalibrasyonu `rules.json` şemasına DOKUNMUYOR — override, bellek-içi

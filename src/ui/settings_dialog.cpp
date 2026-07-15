@@ -115,7 +115,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
             this, &SettingsDialog::onAutoReloadToggled);
     layout_hotreload->addWidget(d_->chk_auto_reload);
 
-    auto* lbl_rules_path = new QLabel(tr("Kurallar: ~/.reji/rules.json (JSON/TOML)"), this);
+    auto* lbl_rules_path = new QLabel(tr("Kurallar: ~/.reji/rules.json (JSON)"), this);
     lbl_rules_path->setStyleSheet("color:#888;font-size:11px;");
     layout_hotreload->addWidget(lbl_rules_path);
 

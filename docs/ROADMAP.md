@@ -1282,6 +1282,12 @@ daha düşük risk — JSON, çalıştırılabilir kod değil, mevcut `rj_reload
 
 **Bağımlılık:** Yok. Küçük-orta maliyetli, bağımsız bir özellik.
 
+> **Altyapı hazır (15 Tem 2026):** SettingsDialog'daki "Kuralları Düzenle" (harici
+> editörde `rules.json` açma + gömülü şablondan tohumlama) ve "Otomatik yeniden yükle"
+> (`QFileSystemWatcher` → `rj_reload_rules`) artık gerçekten bağlı (önceden ölü stub'tı).
+> Dışa/İçe aktar UI'ı bu düzenle+reload boru hattının üstüne oturabilir. Bkz.
+> `SESSION_NOTES.md` "Ayarlar zenginleştirme #1" ve `docs/talimatlar/TALIMAT_KURALLARI_DUZENLE.md`.
+
 ---
 
 ## Tasarım İlkesi — Tek Merkezi Boru Hattı, Çok Tüketici
