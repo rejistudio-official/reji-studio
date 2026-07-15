@@ -1113,7 +1113,19 @@ olgun altyapı.
 **Bağımlılık:** Yok (I8 ve I33 zaten tamamlandı). **Sinerji:** I8 + I33
 kesişimi.
 
-### 3. SQLite healing-log (öncelik: orta-yüksek, maliyet: orta)
+### 3. SQLite healing-log ✅ IMPLEMENTE EDİLDI (2026-07-15)
+
+> **Durum:** `feat/ozellik3-sqlite-healing-log` dalında tamamlandı (yalnız
+> yazma; sorgu/kalibrasyon = madde 5, ayrı). Bkz.
+> `docs/talimatlar/TALIMAT_OZELLIK3_SQLITE_HEALING_LOG.md` ve şema referansı
+> `docs/HEALING_LOG_SCHEMA.md` (madde 5 için hazır başlangıç).
+> **Not (Faz 0 çürütmesi):** Talimat "SQLite/rusqlite ekle" varsayıyordu; Faz 0
+> `redb`'nin zaten (kullanılmayan) bir bağımlılık + README'de ilan edildiğini
+> ortaya çıkardı. Kullanıcı kararıyla yine de `rusqlite` (`bundled`) seçildi —
+> ROADMAP'in "bir SQL sorgusuyla cevaplanabilir" değer önermesi ve ad-hoc debug
+> için SQL, KV'ye yeğ. Threading Faz 0'da netleşti: fan-out noktaları iki thread
+> bağlamına (tokio tick + C++ frame thread) yayıldığından senkron yazma elendi,
+> ayrı `std::thread` batch-writer kuruldu (aşağıdaki "Dikkat" reçetesi).
 
 **İçerik:** Her healing kararını (hangi kural, hangi metrik değeri, hangi
 aksiyon, ne zaman) kalıcı olarak SQLite'a kaydetmek.

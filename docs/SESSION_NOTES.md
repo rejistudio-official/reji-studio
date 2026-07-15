@@ -2665,3 +2665,44 @@ Characterization + GpuResourcePitch + SlotRing + yeni KeyedMutexTimeout) PASS.
   headless test edilemez. Düzeltmeler kod incelemesiyle doğrulandı; sahte seam
   testi uydurulmadı. Yeni `KeyedMutexTimeoutTest` yalnız boundedness invariant'ını
   (sabitlerin sonsuz'a geri dönmemesini) kilitler — runtime hang yolunu değil.
+
+## Oturum: 15 Temmuz 2026 — Özellik#3 SQLite Healing-Log (3 commit)
+
+Her healing kararını kalıcı SQLite'a yazan üçüncü fan-out (Özellik#1 UI +
+Özellik#2 WS yanına). Kapsam bilinçle dar: **yalnız yazma** — sorgu/kalibrasyon
+(ROADMAP madde 5) ayrı. Dal: `feat/ozellik3-sqlite-healing-log`.
+
+### Faz 0 çürütmeleri (talimatın varsayımlarına karşı)
+- **Bağımlılık:** Talimat "rusqlite ekle" varsayıyordu; `redb` zaten workspace
+  bağımlılığı + README'de orchestrator DB'si olarak ilan **ama kodda hiç
+  kullanılmıyor** (atıl). Kullanıcıya sunuldu → yine de `rusqlite` (`bundled`):
+  ROADMAP'in "SQL sorgusuyla cevaplanabilir" değer önermesi + ad-hoc debug SQL'i
+  KV'ye yeğ tuttu. `bundled` gerekçesi: MSVC/Zig/NMake üçlü-toolchain'de
+  kurulumda-sıfır-varsayım (saf-Rust I8 emsalinden bilinçli sapma).
+- **Threading (kritik):** Fan-out noktaları **iki thread bağlamına** yayılıyor —
+  applied/pending/sweep tokio tick'te, approve/reject/mode-change C++ frame
+  thread'inde (FFI). Senkron yazma → frame hitch riski → elendi. ROADMAP madde 3
+  zaten "hot-path'te olmamalı, J8 dersi" diyordu. Ayrı `std::thread` batch-writer
+  + lock-free ArrayQueue push (mevcut I15 drainer + ArrayQueue emsali).
+
+### Yapı
+- `healing_log.rs`: HealingLogRecord + şema/migration (idempotent, ts indeksli) +
+  batch INSERT (tek txn) + retention (30 gün, ayarlanabilir). WAL + NORMAL.
+  `rusqlite::Connection` `Sync` değil → tek-thread sahipliği (spawn_blocking değil).
+- Fan-out: applied (`evaluate_rule_engine`, tam üçlü), pending (`enqueue_pending`,
+  tam üçlü), applied-onaydan (`rj_action_approve`), rejected (`rj_action_reject`),
+  invalidated ×2 (`sweep_expired_pending` / `clear_pending_on_mode_change`).
+  Açıklamasız anlar için `log_action_outcome` (metric_id=None, action_id korelatör).
+- `docs/HEALING_LOG_SCHEMA.md` — madde 5 için hazır şema + örnek sorgular.
+
+### Doğrulama sınırı (dürüstlük)
+- **Test edildi:** 4 birim testi (şema idempotent, insert roundtrip, batch,
+  retention budama — `Connection::open_in_memory`). Regresyon: 123 orchestrator
+  testi PASS. rusqlite `bundled` MSVC'de derlenip linklendi.
+- **Kod incelemesiyle:** Fan-out wiring (6 nokta) — uçtan uca test global FFI_STATE
+  + writer thread gerektirir; mevcut test tasarımı (determinizm için) global
+  state'ten kaçınır, bu yüzden delegasyon compile + regresyon + DB-katman
+  roundtrip'iyle doğrulandı, sahte global-state testi uydurulmadı.
+- **Performans:** Yazma batch + ayrı thread olduğundan tick/frame'e gecikme
+  eklenmez (push = lock-free ArrayQueue). Runtime ms-ölçümü yapılmadı (yazma
+  zaten hot-path dışında; ölçülecek bir hot-path maliyeti yok).
