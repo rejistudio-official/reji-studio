@@ -1082,6 +1082,23 @@ gerekmez, mevcut event'e bir alan eklemek yeterli.
 
 ### 2. Self-healing durumunu obs-websocket üzerinden dışa açmak (öncelik: yüksek, maliyet: orta)
 
+> **Durum — Aşama A ✅ IMPLEMENTE EDİLDI (2026-07-15):**
+> `feature/healing-ws-vendor-events` dalında read-only healing yayını
+> tamamlandı. Healing event'leri obs-websocket **VendorEvent** (op 5) olarak
+> yayınlanıyor (`vendorName="reji-studio"`): `HealingModeChanged`,
+> `HealingActionApplied`, `HealingActionPending`, `HealingActionInvalidated`.
+> **Faz 0 bulgusu (talimat varsayımını düzeltti):** Vendor Event mekanizması
+> obs-websocket v5'te VAR ama bu projede op 5 Event altyapısı HİÇ kurulmamıştı;
+> "I8 zarfını genişlet" alternatifi çıkmaz sokaktı (op'suz metrik gövdesi
+> msgpack istemcilerine — Companion — ulaşmıyor). VendorEvent seçildi (protokol-
+> idiomatik + msgpack'e ulaşır). **ABI/FFI değişikliği YOK** (Özellik#1'in 6
+> katmanlı maliyetinin aksine — `RjActionEvent` yalnız okundu). Auth: yayın
+> yalnız doğrulanmış oturuma gider; bu, I8'den beri var olan metrik yayın
+> sızıntısını da kapattı ("tek düzeltme, iki kazanım"). **Aşama B (uzaktan
+> onay mutasyonu)** ayrı talimata bırakıldı (kademeli güvenlik). Bkz.
+> `docs/talimatlar/TALIMAT_OZELLIK2_HEALING_WS.md` + `FFI_CONTRACT.md` "WS Event
+> Yüzeyi".
+
 **İçerik:** Healing event'lerini (mod değişimi, pending onay belirdi,
 aksiyon uygulandı) WS event olarak yayınlamak — bir Stream Deck/Companion
 paneli healing durumunu gösterebilir veya kullanıcı kendi butonuyla

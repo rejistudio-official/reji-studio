@@ -456,3 +456,39 @@ Qt timer (200 ms)
 | 4 | `gpu_temp_c` / `cpu_temp_c` her zaman `0` — thermal query stub | Açık |
 | 5 | WS sunucusu yalnızca `127.0.0.1`'e bağlanır; uzak IP desteği yok | Açık |
 | 6 | `rj_ws_command_v2` ile programatik enjekte edilen komutlar WebSocket istemcisi log'una düşmez | Açık |
+
+---
+
+## WS Event Yüzeyi — Healing VendorEvent (Özellik#2, Aşama A)
+
+> Bu bölüm **FFI ABI'si DEĞİL** — WS tel yüzeyidir (obs-websocket v5). Yeni FFI
+> struct/fonksiyon yok; `RjActionEvent` (36B, Özellik#1) yalnız Rust-içi okunup
+> JSON'a çevrilir. Bkz. `docs/talimatlar/TALIMAT_I8_WS_AUTH.md` (auth) ve
+> `docs/talimatlar/TALIMAT_I33_I11.md` (event üretimi).
+
+Healing durumu obs-websocket **VendorEvent** (op 5 Event) olarak yayınlanır —
+protokolün üçüncü-taraf eklenti uzantı noktası. `vendorName = "reji-studio"`.
+Gövde tam `{op:5, d:{eventType:"VendorEvent", eventIntent:512, eventData:{...}}}`
+olduğundan **hem JSON hem msgpack** teline ulaşır (op'suz metrik gövdesinin
+aksine — o msgpack'e gitmez).
+
+| Vendor `eventType` | Üretim noktası (Rust) | `eventData` alanları |
+|---|---|---|
+| `HealingModeChanged` | `rj_set_healing_mode` (gerçek değişim) | `mode` (0-3), `modeName` (auto-pilot/co-pilot/assist/manual) |
+| `HealingActionApplied` | `enqueue_ui_event` (info) | `id`, `action`, `param1/2`, `requireApproval:false`, (metrik varsa) `metric`/`value`/`threshold` |
+| `HealingActionPending` | `enqueue_pending` (approval) | üstteki + `requireApproval:true` |
+| `HealingActionInvalidated` | `sweep_expired_pending` / `clear_pending_on_mode_change` / `rj_action_reject` | `id`, `action` |
+
+**Auth:** Yayın (metrik + VendorEvent) yalnız **doğrulanmış** oturuma gider
+(parola ayarlıyken). Parola yokken toleranslı (herkes alır — bugünkü davranış).
+Bu, I8'de gelen mesajlar auth-kapılıyken giden yayında var olan sızıntıyı da
+kapatır (Aşama A ile birlikte düzeltildi).
+
+**Bilinçli spec sapması (Aşama A, YAGNI):** Sunucu `eventSubscriptions`'ı
+FİLTRELEMEZ — `eventIntent` doğru (Vendors=512) yazılır, uyumlu istemci
+client-side filtreler. Bugün metrik de aboneliksiz gittiğinden bu tutarlıdır;
+gerçek talep doğrulanınca (Aşama A kullanıcı gözlemi) per-abonelik filtre
+eklenebilir. I8'in toleranslı-Identify felsefesiyle uyumlu.
+
+**Aşama B (uzaktan onay mutasyonu — `rj_action_approve`/`reject`'i
+`CallVendorRequest` ile açmak):** Bu talimatın kapsamı DIŞI; ayrı talimat.

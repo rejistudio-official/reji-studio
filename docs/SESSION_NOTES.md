@@ -1,3 +1,55 @@
+## Oturum: 15 Temmuz 2026 — Özellik#2: Healing durumunu obs-websocket'e açmak (Aşama A) ✅
+
+ROADMAP madde 2 (I8 + I33 kesişimi). Read-only healing yayını: mod değişimi,
+pending/uygulanan/geçersizleşen aksiyonlar obs-websocket **VendorEvent** (op 5)
+olarak dışa açıldı — Stream Deck/Companion paneli healing durumunu görebilsin.
+Kapsam yalnız **Aşama A** (yayın); Aşama B (uzaktan onay mutasyonu) ayrı talimata
+bırakıldı (kademeli güvenlik).
+
+### Faz 0 bulgusu (talimat varsayımını düzeltti — körü körüne kabul edilmedi)
+Talimatın "Vendor Event varsa onu kullan, yoksa I8 zarfını genişlet" ikilemi Faz
+0'da netleşti: **Vendor Event obs-websocket v5'te VAR**, ama bu projede op 5
+(Event) altyapısı HİÇ kurulmamıştı (yalnız op 0/1/2/6/7). Kritik bulgu: "I8
+zarfını genişlet" alternatifi **çıkmaz sokak** — mevcut metrik yayını op'suz
+legacy JSON ve `ws_server` msgpack teline op'suz gövdeyi YAZMIYOR (simpleobsws
+`KeyError('op')` bulgusu, Aşama 7). Yani Companion (msgpack) o yolla healing
+alamazdı. → VendorEvent seçildi (op 5 taşır, iki tele de ulaşır, protokol-idiomatik).
+
+### İkinci kritik bulgu — yayın auth sızıntısı (I8 tamamlandı)
+`process_client_msg` (gelen) auth-kapılıydı ama `handle_socket`'in broadcast dalı
+(`evt_rx.recv`) `session.authenticated`'ı kontrol etmiyordu → parola ayarlıyken bile
+sessiz doğrulanmamış bir bağlantı **metrikleri almaya devam ediyordu**. Healing'i
+aynı kanala koymak bunu healing'e de taşırdı. Tek satır guard (`if !authenticated
+{ continue; }`) hem yeni healing sızıntısını engelledi hem eski metrik sızıntısını
+kapattı — "tek düzeltme, iki kazanım" (I8'in "parola ayarlıysa kilitli" ruhu).
+
+### Maliyet — ABI/FFI değişikliği YOK (Özellik#1 ile dürüst kıyas)
+Özellik#1 6 katmanlı bir ABI değişikliğiydi (`RjActionEvent` 24B→36B, FFI_VERSION
+bump). Özellik#2 Aşama A ise tamamen Rust-içi + WS teli: `RjActionEvent` yalnız
+OKUNUP JSON'a çevrildi. cbindgen/C++/FFI_VERSION dokunulmadı — `ffi-safety-review`
+gerekmedi (yeni FFI yüzeyi yok).
+
+### Bilinçli spec sapması (kayıt altına alındı — YAGNI)
+Sunucu `eventSubscriptions`'ı FİLTRELEMEZ (per-abonelik Vendors-bit kapısı yok).
+`eventIntent` doğru (Vendors=512) yazılır; uyumlu istemci client-side filtreler.
+Bugün metrik de aboneliksiz gittiğinden tutarlı; Aşama A kullanıcı gözlemiyle
+doğrulanınca gerçek talep olursa eklenir. I8'in toleranslı-Identify felsefesiyle
+uyumlu. Reddetme ayrı `HealingActionRejected` tipi İCAT EDİLMEDİ → mevcut
+`Invalidated` yeniden kullanıldı (dinleyici tepkisi aynı: "UI'dan kaldır").
+
+### Test ve dürüstlük sınırı
+- **Kod testi (teli doğrular):** obs_protocol + ffi eşleme birim testleri; 3 yeni
+  Rust entegrasyon testi (JSON + msgpack VendorEvent teslimi + auth sızıntı
+  guard'ı) — tokio-tungstenite gerçek WS istemcisiyle. Tüm suite PASS (81 lib +
+  5 rules + 33 ws).
+- **KULLANICIDA (canlı app gözlemi):** `test_obs_client.py` (simpleobsws) +
+  `test_obs_websocket_js.js` (Companion'ın kütüphanesi) VendorEvent dinleyicisiyle
+  genişletildi; gerçek app'te mod değiştirip event'i gözlemlemek kullanıcıda kalır
+  (I8'in fiziksel Stream Deck doğrulaması emsali). Gerçek Stream Deck/Companion
+  donanım testi yapılmadı.
+
+---
+
 ## Oturum: 15 Temmuz 2026 — Özellik#1: CoPilot aksiyon açıklaması ✅
 
 ROADMAP madde 1 (en yüksek öncelik). Yeni özellik: pending/uygulanan bir healing
