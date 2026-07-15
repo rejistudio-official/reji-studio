@@ -27,9 +27,28 @@ pub(crate) mod op {
     pub(crate) const HELLO: u8 = 0;
     pub(crate) const IDENTIFY: u8 = 1;
     pub(crate) const IDENTIFIED: u8 = 2;
+    /// Özellik#2: sunucu → istemci olay bildirimi (VendorEvent bunun içinde taşınır).
+    pub(crate) const EVENT: u8 = 5;
     pub(crate) const REQUEST: u8 = 6;
     pub(crate) const REQUEST_RESPONSE: u8 = 7;
 }
+
+/// Özellik#2: obs-websocket v5 EventSubscription bayrakları — VendorEvent için
+/// gereken alt küme. Spec: `Vendors = 1 << 9`. `eventIntent` alanına yazılır ki
+/// uyumlu istemciler client-side filtreleyebilsin. NOT: Aşama A'da sunucu tarafı
+/// per-abonelik FİLTRELEME yapmaz (bugün metrik de aboneliksiz herkese gidiyor;
+/// yeni davranış mevcutla tutarlı, YAGNI). Bilinçli, belgelenmiş küçük spec
+/// sapması — I8'in toleranslı-Identify felsefesiyle uyumlu.
+pub(crate) mod event_subscription {
+    /// VendorEvent almak için gereken abonelik değeri (spec: 1 << 9). Varsayılan
+    /// `All`'a dahil DEĞİLDİR (opt-in).
+    pub(crate) const VENDORS: u32 = 1 << 9;
+}
+
+/// Özellik#2: Reji'nin obs-websocket vendor adı. Üçüncü-taraf eklenti verisi
+/// (healing durumu) bu ad altında yayınlanır; Stream Deck/Companion tarafı
+/// `vendorName == "reji-studio"` ile Reji event'lerini ayırır.
+pub(crate) const VENDOR_NAME: &str = "reji-studio";
 
 /// obs-websocket v5 WebSocketCloseCode (spec: obsproject/obs-websocket) — I8 auth
 /// için gereken alt küme. `pub(crate)`: iç protokol değerleri, FFI ABI'si değil.
@@ -90,6 +109,31 @@ pub fn identified() -> WsEnvelope {
         op: op::IDENTIFIED,
         d: json!({
             "negotiatedRpcVersion": RPC_VERSION,
+        }),
+    }
+}
+
+/// Özellik#2: obs-websocket v5 VendorEvent (op 5) zarfı. Üçüncü-taraf eklentilerin
+/// (bizde healing sistemi) standart event seti dışında özel veri yayınlaması için
+/// protokolün RESMİ yolu. `vendor_event_type` vendor'a özel event adı (ör.
+/// `"HealingActionPending"`), `data` vendor'a özel gövde. `eventIntent` daima
+/// `Vendors` (512) — uyumlu istemci client-side filtreleyebilir (sunucu tarafı
+/// filtre Aşama A'da yok, bkz. `event_subscription` notu).
+///
+/// Gövde tam `{op:5, d:...}` olduğundan hem JSON hem msgpack teline ulaşır
+/// (op'suz legacy metrik gövdesinin msgpack çıkmazı burada yok — ws_server op-var
+/// filtresi op 5'i geçirir).
+pub fn vendor_event(vendor_event_type: &str, data: Value) -> WsEnvelope {
+    WsEnvelope {
+        op: op::EVENT,
+        d: json!({
+            "eventType": "VendorEvent",
+            "eventIntent": event_subscription::VENDORS,
+            "eventData": {
+                "vendorName": VENDOR_NAME,
+                "eventType": vendor_event_type,
+                "eventData": data,
+            },
         }),
     }
 }
@@ -251,6 +295,32 @@ mod tests {
         assert_ne!(s1, s2, "çağrılar arası salt farklı");
         assert_ne!(c1, c2, "çağrılar arası challenge farklı");
         assert_eq!(s1.len(), 44, "32 rastgele bayt → base64 = 44 karakter");
+    }
+
+    #[test]
+    fn vendor_event_zarf_yapisi() {
+        // Özellik#2: VendorEvent (op 5) tam obs-websocket v5 iç içe yapısını üretmeli.
+        let env = vendor_event(
+            "HealingActionPending",
+            json!({ "id": 42, "action": "BitrateReduce" }),
+        );
+        assert_eq!(env.op, 5, "op EVENT olmalı");
+        assert_eq!(env.d["eventType"], "VendorEvent");
+        assert_eq!(env.d["eventIntent"], 512, "eventIntent Vendors (1<<9) olmalı");
+        let inner = &env.d["eventData"];
+        assert_eq!(inner["vendorName"], "reji-studio");
+        assert_eq!(inner["eventType"], "HealingActionPending", "vendor'a özel event tipi");
+        assert_eq!(inner["eventData"]["id"], 42);
+        assert_eq!(inner["eventData"]["action"], "BitrateReduce");
+    }
+
+    #[test]
+    fn vendor_event_op_var_msgpack_filtresini_gecer() {
+        // ws_server msgpack teli yalnız `op` alanı OLAN gövdeleri iletir. VendorEvent
+        // op 5 taşıdığından bu filtreyi geçmeli (op'suz metrik gövdesinin aksine).
+        let env = vendor_event("HealingModeChanged", json!({ "mode": 1 }));
+        let v = serde_json::to_value(&env).unwrap();
+        assert!(v.get("op").is_some(), "op alanı bulunmalı (msgpack filtresi geçsin)");
     }
 
     #[test]
