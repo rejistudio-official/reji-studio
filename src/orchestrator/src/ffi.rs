@@ -169,8 +169,14 @@ pub struct RjActionEvent {
     pub metric_id: RjMetricId,
     pub current_value: i32,
     pub threshold_value: i32,
+    /// Özellik#5: `threshold_value` çalışma-zamanı kalibrasyonundan mı geliyor?
+    /// 0 = statik (`rules.json`), 1 = kalibre. UI "[kalibre]" etiketi gösterir —
+    /// kullanıcı statik `rules.json` değeriyle dinamik eşiği karıştırmasın
+    /// (Özellik#1 güven amacı). Struct'ın SONUNA eklendi (ABI: 36B→40B,
+    /// `RJ_FFI_VERSION` 2.0→3.0). `metric_id == MetricNone` iken anlamsız (0).
+    pub calibrated: u32,
 }
-const _: () = assert!(core::mem::size_of::<RjActionEvent>() == 36);
+const _: () = assert!(core::mem::size_of::<RjActionEvent>() == 40);
 
 /// UI event türleri — `RjActionEvent::kind`. C++ tarafı `ffi_bridge.h`'de eşler.
 pub(crate) const RJ_ACTION_EVENT_NEW: u32 = 0;
@@ -190,6 +196,7 @@ impl RjActionEvent {
             metric_id: RjMetricId::from_raw(expl.metric_id),
             current_value: expl.current_value,
             threshold_value: expl.threshold_value,
+            calibrated: expl.calibrated as u32,
         }
     }
 
@@ -206,6 +213,7 @@ impl RjActionEvent {
             metric_id: RjMetricId::from_raw(expl.metric_id),
             current_value: expl.current_value,
             threshold_value: expl.threshold_value,
+            calibrated: expl.calibrated as u32,
         }
     }
 
@@ -224,6 +232,7 @@ impl RjActionEvent {
             metric_id: RjMetricId::MetricNone,
             current_value: 0,
             threshold_value: 0,
+            calibrated: 0,
         }
     }
 }
@@ -969,6 +978,9 @@ fn healing_vendor_event(ev: &RjActionEvent) -> crate::obs_protocol::WsEnvelope {
         data["metric"] = serde_json::json!(metric);
         data["value"] = serde_json::json!(ev.current_value);
         data["threshold"] = serde_json::json!(ev.threshold_value);
+        // Özellik#5: eşiğin kalibre mi statik mi olduğunu WS istemcisi de bilsin
+        // (web UI "[kalibre]" gösterebilsin — native UI ile tutarlı).
+        data["calibrated"] = serde_json::json!(ev.calibrated == 1);
     }
     crate::obs_protocol::vendor_event(vendor_type, data)
 }
@@ -1721,7 +1733,7 @@ mod tests {
             metric_id: crate::rules::metric_id::GPU_TEMP_C,
             current_value: 87,
             threshold_value: 85,
-            calibrated: false,
+            calibrated: true, // Özellik#5: kalibre bayrağının roundtrip'te korunduğunu doğrula
         };
         enqueue_ui_event(RjActionEvent::info_event(&src, &expl));
 
@@ -1729,6 +1741,7 @@ mod tests {
             id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0,
             require_approval: 9, kind: 9,
             metric_id: RjMetricId::MetricNone, current_value: 0, threshold_value: 0,
+            calibrated: 9,
         };
         // Kuyrukta başka testlerin event'i de olabilir (paralel/global state);
         // bizim event'imizi bulana kadar drenaj yap.
@@ -1742,6 +1755,7 @@ mod tests {
                 assert_eq!(out.metric_id, RjMetricId::GpuTempC, "metric_id roundtrip");
                 assert_eq!(out.current_value, 87, "current_value roundtrip");
                 assert_eq!(out.threshold_value, 85, "threshold_value roundtrip");
+                assert_eq!(out.calibrated, 1, "Özellik#5: calibrated bayrağı roundtrip'te korunmalı");
                 found = true;
                 break;
             }
@@ -1825,6 +1839,7 @@ mod tests {
             id: 0, action_type: RjActionType::LogOnly, param1: 0, param2: 0,
             require_approval: 0, kind: 0,
             metric_id: RjMetricId::MetricNone, current_value: 0, threshold_value: 0,
+            calibrated: 0,
         };
         let mut found = false;
         while rj_action_event_dequeue(&mut out as *mut _) == 1 {
@@ -1951,6 +1966,19 @@ mod tests {
         assert_eq!(d["metric"], "GpuTempC");
         assert_eq!(d["value"], 87);
         assert_eq!(d["threshold"], 85);
+        assert_eq!(d["calibrated"], false, "Özellik#5: statik eşik → calibrated=false");
+    }
+
+    #[test]
+    fn healing_vendor_event_calibrated_flag_in_json() {
+        // Özellik#5: kalibre eşikte WS JSON calibrated:true taşımalı (web UI etiketi).
+        let a = RjAction { id: 8, action_type: RjActionType::ScaleResolution, param1: 250, param2: 0, canary: 0 };
+        let expl = Explanation { metric_id: crate::rules::metric_id::MEMORY_USAGE_PCT, current_value: 88, threshold_value: 83, calibrated: true };
+        let env = healing_vendor_event(&RjActionEvent::info_event(&a, &expl));
+        let d = &env.d["eventData"]["eventData"];
+        assert_eq!(d["metric"], "MemoryUsagePct");
+        assert_eq!(d["threshold"], 83, "kalibre eşik (83) taşınmalı");
+        assert_eq!(d["calibrated"], true, "kalibre eşik → calibrated=true");
     }
 
     #[test]
