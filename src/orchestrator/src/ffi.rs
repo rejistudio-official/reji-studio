@@ -1721,6 +1721,7 @@ mod tests {
             metric_id: crate::rules::metric_id::GPU_TEMP_C,
             current_value: 87,
             threshold_value: 85,
+            calibrated: false,
         };
         enqueue_ui_event(RjActionEvent::info_event(&src, &expl));
 
@@ -1935,7 +1936,7 @@ mod tests {
         // Info event (New + require_approval=0 + gerçek metrik) → HealingActionApplied,
         // metric/value/threshold dahil.
         let a = RjAction { id: 7, action_type: RjActionType::BitrateReduce, param1: 3500, param2: 0, canary: 0 };
-        let expl = Explanation { metric_id: crate::rules::metric_id::GPU_TEMP_C, current_value: 87, threshold_value: 85 };
+        let expl = Explanation { metric_id: crate::rules::metric_id::GPU_TEMP_C, current_value: 87, threshold_value: 85, calibrated: false };
         let env = healing_vendor_event(&RjActionEvent::info_event(&a, &expl));
 
         assert_eq!(env.op, 5);
@@ -1956,7 +1957,7 @@ mod tests {
     fn healing_vendor_event_pending_onay_bayragi() {
         // Approval event (New + require_approval=1) → HealingActionPending, requireApproval:true.
         let a = mk_action(11);
-        let expl = Explanation { metric_id: crate::rules::metric_id::FRAME_DROP_PCT, current_value: 12, threshold_value: 10 };
+        let expl = Explanation { metric_id: crate::rules::metric_id::FRAME_DROP_PCT, current_value: 12, threshold_value: 10, calibrated: false };
         let env = healing_vendor_event(&RjActionEvent::approval_event(&a, &expl));
         let inner = &env.d["eventData"];
         assert_eq!(inner["eventType"], "HealingActionPending");

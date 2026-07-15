@@ -83,12 +83,34 @@ pub struct Explanation {
     pub metric_id: u32,
     pub current_value: i32,
     pub threshold_value: i32,
+    /// Özellik#5: `threshold_value` `rules.json`'daki statik değer mi yoksa
+    /// çalışma-zamanı kalibrasyonundan mı geliyor? UI bunu "[kalibre]" etiketiyle
+    /// gösterir — kullanıcı, `rules.json`'da 85 yazdığını bilip açıklamada 83
+    /// görünce "yazılım yanlış mı söylüyor" şüphesine düşmesin (Özellik#1'in
+    /// güven inşası amacı korunur). Kalibre eşik yoksa `false`.
+    pub calibrated: bool,
 }
 
 impl Explanation {
     /// Açıklanamayan aksiyon (LogOnly / koşul parse edilemedi).
     pub fn none() -> Self {
-        Self { metric_id: metric_id::NONE, current_value: 0, threshold_value: 0 }
+        Self { metric_id: metric_id::NONE, current_value: 0, threshold_value: 0, calibrated: false }
+    }
+}
+
+/// Özellik#5: metrik adı → çalışma-zamanı kalibre edilmiş eşik. `RuleEngine`,
+/// değerlendirme ve açıklama yolunda condition'daki literal eşiğin YERİNE bu
+/// değeri kullanır. `rules.json` şeması DEĞİŞMEZ (Faz 0 seçenek b — şeffaf
+/// override): kullanıcının kuralları aynı kalır, eşik anlamı çalışma-zamanında
+/// donanıma göre kayar.
+pub type CalibrationTable = HashMap<String, i32>;
+
+/// Bir yaprağın efektif eşiği: metrik kalibre edildiyse override değeri, yoksa
+/// condition'daki literal. `(threshold, calibrated)` döner — açıklama bayrağı için.
+fn effective_threshold(metric_name: &str, literal: i32, calib: &CalibrationTable) -> (i32, bool) {
+    match calib.get(metric_name) {
+        Some(&t) => (t, true),
+        None => (literal, false),
     }
 }
 
@@ -146,11 +168,22 @@ pub struct Rule {
 /// Operatör önceliği (düşükten yükseğe): || → && → tek koşul.
 /// Bilinmeyen metrik veya parse hatasında `false` döner.
 pub fn eval_condition(condition: &str, metrics: &RuleMetrics) -> bool {
+    eval_condition_calibrated(condition, metrics, &CalibrationTable::new())
+}
+
+/// Özellik#5: `eval_condition`'ın kalibrasyon-farkında hali. `calib`'te bulunan
+/// metriklerin eşiği override edilir (`RuleEngine::evaluate` bunu kullanır); public
+/// `eval_condition` boş tabloyla çağırıp eski davranışı (yalnız literal) korur.
+pub fn eval_condition_calibrated(
+    condition: &str,
+    metrics: &RuleMetrics,
+    calib: &CalibrationTable,
+) -> bool {
     let condition = condition.trim();
 
     if condition.contains("||") {
         for part in condition.split("||") {
-            if eval_condition(part.trim(), metrics) {
+            if eval_condition_calibrated(part.trim(), metrics, calib) {
                 return true;
             }
         }
@@ -159,14 +192,14 @@ pub fn eval_condition(condition: &str, metrics: &RuleMetrics) -> bool {
 
     if condition.contains("&&") {
         for part in condition.split("&&") {
-            if !eval_condition(part.trim(), metrics) {
+            if !eval_condition_calibrated(part.trim(), metrics, calib) {
                 return false;
             }
         }
         return true;
     }
 
-    eval_single_condition(condition, metrics).unwrap_or(false)
+    eval_single_condition(condition, metrics, calib).unwrap_or(false)
 }
 
 /// Metrik adını (`RuleMetrics`) o anki değere + FFI metrik-id'sine çevirir.
@@ -222,16 +255,27 @@ fn first_leaf(condition: &str) -> &str {
 /// (`metric_value_and_id`). Metrik bilinmiyor veya koşul parse edilemiyorsa
 /// `Explanation::none()` (UI açıklama satırını atlar). Saf fonksiyon — test edilebilir.
 pub fn explanation_for(condition: &str, metrics: &RuleMetrics) -> Explanation {
+    explanation_for_calibrated(condition, metrics, &CalibrationTable::new())
+}
+
+/// Özellik#5: `explanation_for`'un kalibrasyon-farkında hali. Kalibre eşik varsa
+/// `threshold_value` onu yansıtır ve `calibrated=true` olur (UI "[kalibre]" etiketi).
+/// Böylece açıklama, RuleEngine'in gerçekten kullandığı eşiği gösterir — statik
+/// `rules.json` değeriyle çelişmez (Özellik#1 güven amacı).
+pub fn explanation_for_calibrated(
+    condition: &str,
+    metrics: &RuleMetrics,
+    calib: &CalibrationTable,
+) -> Explanation {
     let leaf = first_leaf(condition);
-    let Some((metric_name, threshold)) = parse_leaf(leaf) else {
+    let Some((metric_name, literal)) = parse_leaf(leaf) else {
         return Explanation::none();
     };
     match metric_value_and_id(metric_name, metrics) {
-        Some((current_value, metric_id)) => Explanation {
-            metric_id,
-            current_value,
-            threshold_value: threshold,
-        },
+        Some((current_value, metric_id)) => {
+            let (threshold_value, calibrated) = effective_threshold(metric_name, literal, calib);
+            Explanation { metric_id, current_value, threshold_value, calibrated }
+        }
         None => Explanation::none(),
     }
 }
@@ -239,17 +283,21 @@ pub fn explanation_for(condition: &str, metrics: &RuleMetrics) -> Explanation {
 fn eval_single_condition(
     cond: &str,
     metrics: &RuleMetrics,
+    calib: &CalibrationTable,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     for op in &[">=", "<=", ">", "<", "=="] {
         if let Some(idx) = cond.find(op) {
             let metric_name = cond[..idx].trim();
             let threshold_str = cond[idx + op.len()..].trim();
-            let threshold = threshold_str
+            let literal = threshold_str
                 .parse::<i32>()
                 .map_err(|_| format!("Invalid threshold: {}", threshold_str))?;
 
             let (metric_value, _id) = metric_value_and_id(metric_name, metrics)
                 .ok_or_else(|| format!("Unknown metric: {}", metric_name))?;
+
+            // Özellik#5: kalibre metrikte literal yerine override eşik kullanılır.
+            let (threshold, _calibrated) = effective_threshold(metric_name, literal, calib);
 
             let result = match *op {
                 ">"  => metric_value > threshold,
@@ -281,6 +329,11 @@ pub struct RuleEngine {
     /// (aksi halde ~1s tick'te yeniden üretilip kullanıcıyı spamler). Hysteresis
     /// ile aynı mekanizma ailesindendir, ayrı harita ile izlenir.
     cooldown_until: Arc<Mutex<HashMap<String, Instant>>>,
+    /// Özellik#5: metrik adı → kalibre edilmiş eşik. `HealingMonitor` kalibrasyon
+    /// penceresi bitince `set_calibrated_threshold` ile doldurur; `evaluate` ve
+    /// açıklama yolu bu tablodan okuyup literal eşiği override eder. Boşken (kalibre
+    /// edilmemiş / iptal) davranış birebir eskisi gibidir (yalnız `rules.json`).
+    calibration: Arc<Mutex<CalibrationTable>>,
 }
 
 impl RuleEngine {
@@ -296,10 +349,21 @@ impl RuleEngine {
             hysteresis_ms: Arc::new(Mutex::new(0)),
             last_trigger: Arc::new(Mutex::new(HashMap::new())),
             cooldown_until: Arc::new(Mutex::new(HashMap::new())),
+            calibration: Arc::new(Mutex::new(CalibrationTable::new())),
         };
 
         engine.hot_reload()?;
         Ok(engine)
+    }
+
+    /// Özellik#5: bir metriğin çalışma-zamanı eşiğini kalibre değere ayarlar.
+    /// `HealingMonitor`, kalibrasyon penceresi başarıyla tamamlanınca çağırır.
+    /// Sonraki `evaluate`'ler bu metrik için literal yerine `threshold` kullanır.
+    pub fn set_calibrated_threshold(&self, metric: &str, threshold: i32) {
+        self.calibration
+            .lock()
+            .unwrap()
+            .insert(metric.to_string(), threshold);
     }
 
     /// Dosyayı diskten yeniden yükler. Validation + rollback on error.
@@ -372,6 +436,9 @@ impl RuleEngine {
         let rules = self.rules.lock().unwrap();
         let hysteresis_ms = *self.hysteresis_ms.lock().unwrap();
         let mut last_trigger = self.last_trigger.lock().unwrap();
+        // Özellik#5: kalibrasyon tablosunun tick-yerel kopyası — kilit tek yerde
+        // kısa tutulur, döngü boyunca tutarlı bir görünüm kullanılır.
+        let calib = self.calibration.lock().unwrap().clone();
         let mut actions = Vec::new();
         let now = Instant::now();
 
@@ -416,9 +483,9 @@ impl RuleEngine {
                 continue;
             }
 
-            // Condition evaluation
-            if eval_condition(&rule.condition, metrics) {
-                let action = self.create_action(&rule, metrics)?;
+            // Condition evaluation (Özellik#5: kalibre eşiklerle)
+            if eval_condition_calibrated(&rule.condition, metrics, &calib) {
+                let action = self.create_action(&rule, metrics, &calib)?;
                 last_trigger.insert(rule.id.clone(), now);
                 actions.push(action);
             }
@@ -444,6 +511,7 @@ impl RuleEngine {
         &self,
         rule: &Rule,
         metrics: &RuleMetrics,
+        calib: &CalibrationTable,
     ) -> Result<Action, Box<dyn std::error::Error>> {
         let action_type = match rule.action.as_str() {
             "bitrate_reduce" => ActionType::BitrateReduce,
@@ -491,7 +559,8 @@ impl RuleEngine {
         // Özellik#1: aksiyonu tetikleyen metrik/değer/eşik üçlüsünü ÜRETİM ANINDA
         // yakala — koşul + o anki metrikler burada elde. LogOnly'de koşul metrik
         // taşımayabilir; explanation_for parse edemezse Explanation::none() döner.
-        let explanation = explanation_for(&rule.condition, metrics);
+        // Özellik#5: kalibre eşik varsa açıklama onu (+ calibrated bayrağı) yansıtır.
+        let explanation = explanation_for_calibrated(&rule.condition, metrics, calib);
 
         Ok(Action {
             rule_id: rule.id.clone(),
@@ -583,6 +652,7 @@ impl RuleEngine {
             hysteresis_ms: Arc::new(Mutex::new(hysteresis_ms)),
             last_trigger: Arc::new(Mutex::new(HashMap::new())),
             cooldown_until: Arc::new(Mutex::new(HashMap::new())),
+            calibration: Arc::new(Mutex::new(CalibrationTable::new())),
         }
     }
 }
@@ -641,6 +711,7 @@ mod tests {
             hysteresis_ms: Arc::new(Mutex::new(0)),
             last_trigger: Arc::new(Mutex::new(HashMap::new())),
             cooldown_until: Arc::new(Mutex::new(HashMap::new())),
+            calibration: Arc::new(Mutex::new(CalibrationTable::new())),
         };
 
         let mut params = HashMap::new();
@@ -656,7 +727,7 @@ mod tests {
         };
 
         let action = engine
-            .create_action(&rule, &RuleMetrics::default())
+            .create_action(&rule, &RuleMetrics::default(), &CalibrationTable::new())
             .unwrap();
 
         assert_eq!(action.rule_id, "test_reduce");
@@ -742,10 +813,91 @@ mod tests {
             modes: vec!["co-pilot".to_string()],
         };
         let metrics = RuleMetrics { gpu_temp_c: 90, ..Default::default() };
-        let action = engine.create_action(&rule, &metrics).unwrap();
+        let action = engine.create_action(&rule, &metrics, &CalibrationTable::new()).unwrap();
         assert_eq!(action.explanation.metric_id, metric_id::GPU_TEMP_C);
         assert_eq!(action.explanation.current_value, 90);
         assert_eq!(action.explanation.threshold_value, 85);
+    }
+
+    // ===== Özellik#5: kalibre eşik override + açıklama bayrağı =====
+
+    fn mem_rule() -> Rule {
+        let mut params = HashMap::new();
+        params.insert("scale_factor".to_string(), serde_json::json!(0.25));
+        Rule {
+            id: "memory_pressure".to_string(),
+            description: String::new(),
+            condition: "memory_usage_pct > 85".to_string(),
+            action: "scale_resolution".to_string(),
+            params,
+            modes: vec!["auto-pilot".to_string()],
+        }
+    }
+
+    #[test]
+    fn calibrated_threshold_overrides_literal_in_eval() {
+        // Kural literal eşiği 85; kalibrasyon 70'e çeker. mem=75 → literal ile
+        // tetiklenmez (75<85), kalibre ile tetiklenir (75>70).
+        let engine = RuleEngine::new_test(vec![mem_rule()], 0);
+        let m = RuleMetrics { memory_usage_pct: 75, ..Default::default() };
+
+        assert_eq!(
+            engine.evaluate(&m, "auto-pilot").unwrap().len(),
+            0,
+            "kalibrasyon öncesi literal 85 ile 75 tetiklememeli"
+        );
+
+        engine.set_calibrated_threshold("memory_usage_pct", 70);
+        assert_eq!(
+            engine.evaluate(&m, "auto-pilot").unwrap().len(),
+            1,
+            "kalibre eşik 70 ile 75 tetiklemeli"
+        );
+    }
+
+    #[test]
+    fn uncalibrated_metric_uses_literal_threshold() {
+        // Kalibrasyon yokken davranış birebir eski: literal 85 geçerli.
+        let engine = RuleEngine::new_test(vec![mem_rule()], 0);
+        let below = RuleMetrics { memory_usage_pct: 80, ..Default::default() };
+        let above = RuleMetrics { memory_usage_pct: 90, ..Default::default() };
+        assert_eq!(engine.evaluate(&below, "auto-pilot").unwrap().len(), 0);
+        assert_eq!(engine.evaluate(&above, "auto-pilot").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn explanation_reflects_calibrated_threshold_and_flag() {
+        // Özellik#1×#5: kalibre eşik açıklamaya yansır + calibrated=true.
+        let metrics = RuleMetrics { memory_usage_pct: 88, ..Default::default() };
+        let mut calib = CalibrationTable::new();
+        calib.insert("memory_usage_pct".to_string(), 83);
+        let expl = explanation_for_calibrated("memory_usage_pct > 85", &metrics, &calib);
+        assert_eq!(expl.metric_id, metric_id::MEMORY_USAGE_PCT);
+        assert_eq!(expl.current_value, 88);
+        assert_eq!(expl.threshold_value, 83, "statik 85 değil kalibre 83 gösterilmeli");
+        assert!(expl.calibrated, "kalibre eşikte bayrak set edilmeli");
+    }
+
+    #[test]
+    fn explanation_uncalibrated_flag_is_false() {
+        // Kalibrasyon yoksa literal eşik + calibrated=false.
+        let metrics = RuleMetrics { memory_usage_pct: 88, ..Default::default() };
+        let expl = explanation_for("memory_usage_pct > 85", &metrics);
+        assert_eq!(expl.threshold_value, 85);
+        assert!(!expl.calibrated);
+    }
+
+    #[test]
+    fn create_action_carries_calibrated_explanation() {
+        // evaluate → create_action yolunda üretilen aksiyonun açıklaması kalibre
+        // eşiği + bayrağı taşımalı (UI event'ine buradan geçer).
+        let engine = RuleEngine::new_test(vec![mem_rule()], 0);
+        engine.set_calibrated_threshold("memory_usage_pct", 70);
+        let m = RuleMetrics { memory_usage_pct: 75, ..Default::default() };
+        let actions = engine.evaluate(&m, "auto-pilot").unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].explanation.threshold_value, 70);
+        assert!(actions[0].explanation.calibrated);
     }
 
     #[test]
@@ -764,7 +916,7 @@ mod tests {
             params: scale_params,
             modes: vec!["auto-pilot".to_string()],
         };
-        let a = engine.create_action(&scale_rule, &RuleMetrics::default()).unwrap();
+        let a = engine.create_action(&scale_rule, &RuleMetrics::default(), &CalibrationTable::new()).unwrap();
         assert_eq!(a.action_type, ActionType::ScaleResolution);
         assert_eq!(a.param1, 250, "scale_factor 0.25 → param1 250 (×1000)");
 
@@ -777,7 +929,7 @@ mod tests {
             params: HashMap::new(),
             modes: vec!["auto-pilot".to_string()],
         };
-        let r = engine.create_action(&restore_rule, &RuleMetrics::default()).unwrap();
+        let r = engine.create_action(&restore_rule, &RuleMetrics::default(), &CalibrationTable::new()).unwrap();
         assert_eq!(r.action_type, ActionType::RestoreResolution);
         assert_eq!(r.param1, 1000, "boş params → scale 1.0 → param1 1000");
     }
