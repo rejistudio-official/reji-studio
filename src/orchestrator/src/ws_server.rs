@@ -565,6 +565,17 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
             // KeyError('op') ile öldürüyor, sonraki tüm request'ler timeout oluyor.
             // (Log yok: metrik akışı ~saniyelik, stderr'i boğardı.)
             evt = evt_rx.recv() => {
+                // Özellik#2: Yayın (metrik + healing VendorEvent) yalnız DOĞRULANMIŞ
+                // oturuma gider. Parola YOKken `authenticated` vacuously true →
+                // bugünkü toleranslı davranış birebir korunur. Parola AYARLIYKEN bu
+                // guard, healing event'lerinin sızmasını engellediği gibi ESKİDEN
+                // beri var olan metrik sızıntısını da kapatır: gelen mesajlar
+                // (process_client_msg) auth-kapılıydı ama giden yayın değildi —
+                // sessiz doğrulanmamış bir bağlantı metrikleri almaya devam ediyordu.
+                // Tek düzeltme, iki kazanım (I8'in "parola ayarlıysa kilitli" ruhu).
+                if !session.authenticated {
+                    continue;
+                }
                 if let Ok(data) = evt {
                     let msg = match wire_mode {
                         WireMode::Json => Some(Message::Text(data.into())),

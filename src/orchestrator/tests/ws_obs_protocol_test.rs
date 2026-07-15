@@ -1003,3 +1003,162 @@ async fn auth_dogrulanmis_sonra_request_calisir() {
     assert_eq!(resp["op"], 7);
     assert_eq!(resp["d"]["requestStatus"]["code"], 100, "doğrulanmış oturumda Request çalışır");
 }
+
+// ===== Özellik#2: healing VendorEvent yayını (Aşama A) =====
+
+/// Üretimdeki `ffi::emit_healing_event`'in ürettiği zarfın AYNISINI kurar
+/// (obs_protocol::vendor_event) ve JSON string'e çevirir — testi gerçek üretim
+/// çıktısına bağlar (elle JSON yazmak yerine).
+fn vendor_event_json(vendor_event_type: &str, data: Value) -> String {
+    let env = reji_orchestrator::obs_protocol::vendor_event(vendor_event_type, data);
+    serde_json::to_string(&env).expect("vendor event JSON")
+}
+
+#[tokio::test]
+async fn vendor_event_json_teline_ulasir() {
+    // Aşama A: healing VendorEvent (op 5), JSON telinde istemciye ulaşmalı.
+    // Parola yok → toleranslı (authenticated vacuously true), Identify gerekmez.
+    let (state, _cmd_rx, evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+
+    // subscribe race'ini aşmak için tekrar yayınla (mevcut event testleri deseni).
+    let payload = vendor_event_json(
+        "HealingActionPending",
+        json!({ "id": 42, "action": "BitrateReduce", "requireApproval": true,
+                "metric": "GpuTempC", "value": 87, "threshold": 85 }),
+    );
+    let publisher = tokio::spawn(async move {
+        for _ in 0..40 {
+            let _ = evt_tx.send(payload.clone());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+    let got = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let v = next_json(&mut ws).await;
+            if v["op"] == 5 {
+                return v;
+            }
+        }
+    })
+    .await
+    .expect("VendorEvent (op 5) 2sn içinde gelmeli");
+
+    assert_eq!(got["d"]["eventType"], "VendorEvent");
+    assert_eq!(got["d"]["eventIntent"], 512, "Vendors (1<<9)");
+    let inner = &got["d"]["eventData"];
+    assert_eq!(inner["vendorName"], "reji-studio");
+    assert_eq!(inner["eventType"], "HealingActionPending");
+    assert_eq!(inner["eventData"]["id"], 42);
+    assert_eq!(inner["eventData"]["metric"], "GpuTempC");
+    assert_eq!(inner["eventData"]["value"], 87);
+    publisher.abort();
+}
+
+#[tokio::test]
+async fn vendor_event_msgpack_teline_ulasir() {
+    // KRİTİK: op'suz metrik gövdesinin aksine, VendorEvent op 5 taşıdığından msgpack
+    // teline de ulaşır (ws_server op-var filtresini geçer). Companion msgpack kullanır.
+    let (state, _cmd_rx, evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let (mut ws, sel) = connect_with_subprotocol(port, "obswebsocket.msgpack").await;
+    assert_eq!(sel.as_deref(), Some("obswebsocket.msgpack"));
+    let _hello = next_binary(&mut ws).await;
+
+    let payload = vendor_event_json("HealingModeChanged", json!({ "mode": 1, "modeName": "co-pilot" }));
+    let publisher = tokio::spawn(async move {
+        for _ in 0..40 {
+            let _ = evt_tx.send(payload.clone());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+
+    let got = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let v = msgpack_decode(&next_binary(&mut ws).await);
+            if v["op"] == 5 {
+                return v;
+            }
+        }
+    })
+    .await
+    .expect("VendorEvent msgpack telinde 2sn içinde gelmeli");
+
+    assert_eq!(got["d"]["eventData"]["vendorName"], "reji-studio");
+    assert_eq!(got["d"]["eventData"]["eventType"], "HealingModeChanged");
+    assert_eq!(got["d"]["eventData"]["eventData"]["modeName"], "co-pilot");
+    publisher.abort();
+}
+
+#[tokio::test]
+async fn yayin_dogrulanmamis_oturuma_gitmez_ama_dogrulanmisa_gider() {
+    // Aşama A auth kararı + ESKİ metrik sızıntısının kapanışı: parola AYARLIYKEN
+    // doğrulanmamış (Identify'sız) bağlantı hiçbir yayın (VendorEvent/metrik) ALMAMALI;
+    // doğrulanmış bağlantı almalı. "Tek düzeltme, iki kazanım" (I8 kilit ruhu).
+    let (state, _cmd_rx, evt_tx) = make_state();
+    *state.password.write().unwrap() = Some("s3cret".to_string());
+    let port = free_port();
+    spawn_server(port, state);
+
+    let payload = vendor_event_json("HealingActionApplied", json!({ "id": 1, "action": "LogOnly" }));
+    {
+        let evt_tx = evt_tx.clone();
+        let payload = payload.clone();
+        tokio::spawn(async move {
+            for _ in 0..60 {
+                let _ = evt_tx.send(payload.clone());
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+    }
+
+    // 1) Doğrulanmamış bağlantı: Hello alır, Identify GÖNDERMEZ → yayın gelmemeli.
+    let mut unauth = connect(port).await;
+    let hello = next_json(&mut unauth).await;
+    assert_eq!(hello["op"], 0);
+    assert!(hello["d"].get("authentication").is_some(), "parola ayarlı → Hello auth taşır");
+
+    let leaked = tokio::time::timeout(Duration::from_millis(800), async {
+        loop {
+            match unauth.next().await {
+                Some(Ok(Message::Text(t))) => return Some(t.to_string()),
+                Some(Ok(Message::Binary(_))) => return Some("<binary>".to_string()),
+                Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => continue,
+                _ => return None,
+            }
+        }
+    })
+    .await;
+    assert!(
+        matches!(leaked, Err(_)),
+        "doğrulanmamış oturuma yayın SIZMAMALI (gelen: {:?})",
+        leaked
+    );
+
+    // 2) Doğrulanmış bağlantı: aynı yayını almalı (broadcast'in çalıştığının kanıtı).
+    let mut auth = connect(port).await;
+    let hello2 = next_json(&mut auth).await;
+    let salt = hello2["d"]["authentication"]["salt"].as_str().unwrap();
+    let challenge = hello2["d"]["authentication"]["challenge"].as_str().unwrap();
+    let a = client_auth("s3cret", salt, challenge);
+    send_text(&mut auth, json!({"op": 1, "d": {"rpcVersion": 1, "authentication": a}})).await;
+
+    let got = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let v = next_json(&mut auth).await;
+            if v["op"] == 5 {
+                return v;
+            }
+        }
+    })
+    .await
+    .expect("doğrulanmış oturum VendorEvent almalı");
+    assert_eq!(got["d"]["eventData"]["eventType"], "HealingActionApplied");
+}
