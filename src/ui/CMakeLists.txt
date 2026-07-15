@@ -23,6 +23,7 @@ if(Qt6_FOUND)
         shader_cache.cpp
         vulkan_render_path.cpp
         qrhi_window_wrapper.cpp
+        rules_template.qrc   # AUTORCC — kural şablonunu gömer (Kuralları Düzenle tohumlama)
     )
 
     # AUTOMOC/AUTOUIC per-target — avoids polluting parent scope.

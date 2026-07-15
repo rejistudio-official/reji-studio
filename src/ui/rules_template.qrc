@@ -1,0 +1,11 @@
+<!--
+  Kural şablonu — "Kuralları Düzenle" ile ~/.reji/rules.json henüz yoksa
+  buradan tohumlanır. Tek kaynak: docs/config/rules.json.template (kopya
+  tutulmaz, DRY). AUTORCC (src/ui/CMakeLists.txt) derleme anında gömer;
+  runtime yolu ":/config/rules.json.template".
+-->
+<RCC>
+  <qresource prefix="/config">
+    <file alias="rules.json.template">../../docs/config/rules.json.template</file>
+  </qresource>
+</RCC>

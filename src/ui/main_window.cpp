@@ -16,6 +16,10 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -31,6 +35,7 @@
 #include <QThread>
 #include <QDateTime>
 #include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
 
 // ---------------------------------------------------------------------------
@@ -84,6 +89,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
         syncWsPasswordToRust();   // V8/I8: WS parolasını da senkronla
     });
+    // "Kuralları Düzenle" — rules.json'u harici editörde aç (Commit 1).
+    connect(settings_dialog_, &reji::SettingsDialog::editRulesRequested,
+            this, &MainWindow::openRulesInEditor);
     if (healing_overlay_) {
         healing_overlay_->setSettingsDialog(settings_dialog_);
     }
@@ -576,9 +584,57 @@ void MainWindow::onSettingsClicked() {
             syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
             syncWsPasswordToRust();   // V8/I8: WS parolasını da senkronla
         });
+        connect(settings_dialog_, &reji::SettingsDialog::editRulesRequested,
+                this, &MainWindow::openRulesInEditor);
         if (healing_overlay_) healing_overlay_->setSettingsDialog(settings_dialog_);
     }
     settings_dialog_->exec();
+}
+
+// ---------------------------------------------------------------------------
+// Kural dosyası — kanonik yol + gömülü şablondan tohumlama + editörde açma.
+// ---------------------------------------------------------------------------
+QString MainWindow::rulesFilePath() const {
+    // QDir::homePath() Windows'ta USERPROFILE'ı döner; Rust tarafı da
+    // (ffi.rs) %USERPROFILE%\.reji\rules.json kullanır — birebir eşleşir.
+    return QDir::homePath() + QStringLiteral("/.reji/rules.json");
+}
+
+bool MainWindow::seedRulesFromTemplate(const QString& targetPath) {
+    QFile tpl(QStringLiteral(":/config/rules.json.template"));
+    if (!tpl.open(QIODevice::ReadOnly)) return false;
+    const QByteArray content = tpl.readAll();
+    tpl.close();
+
+    // Üst dizin (~/.reji) yoksa oluştur.
+    const QDir parent = QFileInfo(targetPath).dir();
+    if (!parent.exists() && !parent.mkpath(QStringLiteral("."))) return false;
+
+    QFile out(targetPath);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    const qint64 written = out.write(content);
+    out.close();
+    return written == content.size();
+}
+
+void MainWindow::openRulesInEditor() {
+    const QString path = rulesFilePath();
+
+    // Dosya yoksa gömülü şablondan tohumla (kullanıcı çalışır bir başlangıç
+    // dosyası bulur — Faz 1 kararı).
+    if (!QFileInfo::exists(path)) {
+        if (!seedRulesFromTemplate(path)) {
+            QMessageBox::warning(this, tr("Kuralları Düzenle"),
+                tr("Kural dosyası oluşturulamadı:\n%1").arg(path));
+            return;
+        }
+    }
+
+    // QDesktopServices başarısızlığı sessizce yutulmaz (I10 dersi).
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
+        QMessageBox::warning(this, tr("Kuralları Düzenle"),
+            tr("Dosya varsayılan editörde açılamadı:\n%1").arg(path));
+    }
 }
 
 // ---------------------------------------------------------------------------

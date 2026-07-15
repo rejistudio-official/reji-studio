@@ -88,6 +88,9 @@ private slots:
     void removeScene();
     /// Opens Settings dialog
     void onSettingsClicked();
+    /// SettingsDialog::editRulesRequested → rules.json'u sistemin varsayılan
+    /// editöründe açar. Dosya yoksa gömülü şablondan tohumlar (Commit 1).
+    void openRulesInEditor();
     /// 200 ms poll: V8/I33 — drains rj_action_event_dequeue (UI event kuyruğu,
     /// aktüatörden ayrı) and feeds HealingOverlay.
     void pollHealingActions();
@@ -100,6 +103,13 @@ private:
     void buildMenuBar();
     void buildCentralWidget();
     void buildStatusBar();
+    /// Kural dosyasının kanonik yolu: %USERPROFILE%\.reji\rules.json.
+    /// QDir::homePath() Windows'ta USERPROFILE döner — Rust tarafındaki
+    /// yol hesabıyla (ffi.rs) birebir eşleşir.
+    QString rulesFilePath() const;
+    /// Gömülü şablonu (:/config/rules.json.template) hedef yola yazar.
+    /// Üst dizini gerekirse oluşturur. Başarıda true.
+    bool seedRulesFromTemplate(const QString& targetPath);
     /// Sahne isimlerini Rust'a (rj_push_scene_names) bildirir — GetSceneList için.
     void pushSceneNamesToRust();
     void saveWindowState();
