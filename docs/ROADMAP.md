@@ -1174,6 +1174,91 @@ parçası ama eklenmedi):** Plugin sandbox (Extism/WASM) — gerçek
 düşük öncelik, bağımsız, veri kaynağı (`MetricState`) zaten hazır ama acil
 değil; istenirse ayrı eklenebilir.
 
+---
+
+## Farklılaşma Stratejisi — Diğer Yayıncılık Yazılımlarına Karşı
+
+Bu bölüm, tekil özellik maddelerinden farklı: **stratejik konumlandırma**
+soruları. Amaç "OBS'in yaptığını doğru yap" değil, "OBS'in yapmadığı/
+yapamayacağı neyi yapabiliriz" sorusuna cevap aramak. Üç sütun +
+düşük-öncelikli bir gelecek fikri.
+
+### Sütun 1 — "Stream'inizin kara kutusu" (şeffaflık, düşük risk)
+
+**Tez:** Diğer yayın yazılımlarının otomatik özellikleri kara kutu —
+bir şey değiştiğinde kullanıcı genelde *neden* olduğunu bilmez. Reji'nin
+gerçek bir kural motoru (`RuleEngine`) olduğundan, bu şeffaflığı üç
+katmanda sunabiliriz:
+
+- **Anlık açıklama** — ✅ implemente edildi ("Gelecek Özellikler" madde 1,
+  CoPilot aksiyon açıklaması).
+- **Kalıcı kayıt** — "Gelecek Özellikler" madde 3 (SQLite healing-log).
+- **Kalibrasyon** — "Gelecek Özellikler" madde 5 (kalibre edilmiş
+  eşikler).
+
+**Neden farklılaştırıcı:** Rakiplerin "otomatik" özellikleri genelde tek
+bir if-else; Reji'de denetlenebilir, açıklanabilir bir karar zinciri var.
+Bu üç madde zaten roadmap'te — bu sütun onları tek bir marka/vizyon
+altında birleştiriyor, yeni bir mühendislik maddesi eklemiyor.
+
+### Sütun 2 — Hibrit-GPU laptop niş konumlandırması (pazarlama + doğrulama)
+
+**Tez:** WGC/DXGI keşfi, keyed-mutex senkronizasyonu, K1-K7 Vulkan/GL
+interop turu — bunların hepsi özellikle **AMD iGPU + NVIDIA dGPU'lu
+gaming laptop'lar** (ROG/Legion/Predator vb.) için optimize edilmiş
+mühendislik. Bu, "genel amaçlı yayın yazılımı" olarak OBS'le rekabet
+etmek yerine, **"hibrit-GPU laptop'ta en düşük gecikmeli/en az kare
+düşüren yayın yazılımı"** iddiasıyla net bir niş kullanıcı segmentine
+hitap edebilir.
+
+**Somut adımlar (mühendislik değil, ölçüm/mesajlaşma):**
+- Aynı donanımda Reji vs OBS karşılaştırmalı kare-düşürme/gecikme
+  ölçümü (mevcut `MetricState`/`FrameProfiler` altyapısı zaten bu veriyi
+  topluyor — yeni bir ölçüm sistemi gerekmez).
+- Bu ölçümlerin belgelenmesi (README/marketing materyali) — mühendislik
+  kapsamı dışı, ayrı bir görev.
+
+**Öncelik:** Düşük-orta — mühendislik tarafı zaten yapılmış durumda
+(I23, K1-K7), yalnızca ölçüm+mesajlaşma eksik.
+
+### Sütun 3 — Paylaşılabilir kural setleri (yeni, somut özellik)
+
+**Tez:** `rules.json` zaten insan-okunur, versiyonlanabilir bir format.
+Diğer yazılımlarda "otomatik ayarlar" GUI checkbox'larıdır — versiyonlanamaz,
+paylaşılamaz. Reji'nin kural setleri teorik olarak:
+- Git'te versiyonlanabilir,
+- Topluluk arasında paylaşılabilir ("3070 dizüstü için optimize edilmiş
+  kural seti"),
+- "Infrastructure as code" mantığının yayıncılığa uygulanması olabilir.
+
+**Somut özellik:** Kural setleri için basit bir dışa aktar/içe aktar
+UI'ı (SettingsDialog'a "Kural Setini Paylaş/İçe Aktar" gibi bir seçenek).
+
+**Risk notu:** Plugin sandbox fikrinden (arşivde) temelde farklı ve çok
+daha düşük risk — JSON, çalıştırılabilir kod değil, mevcut `rj_reload_rules`
+(I24'te sertleştirilmiş) yolunu zaten kullanabilir.
+
+**Bağımlılık:** Yok. Küçük-orta maliyetli, bağımsız bir özellik.
+
+---
+
+## Gelecek Fikir (henüz değerlendirilmedi, yüksek risk/belirsiz talep)
+
+### Uzaktan/işbirlikli prodüksiyon
+
+**Fikir:** "Gelecek Özellikler" madde 2'nin (healing durumunu
+obs-websocket'e açmak) bir adım ötesi — bir prodüktörün, yayıncının
+fiziksel olarak yanında olmadan, healing pending'lerini uzaktan
+izleyip onaylayabildiği bir web dashboard.
+
+**Neden şimdi değil:** OBS/vMix gibi araçlar tek-operatörlü; küçük
+prodüksiyon ekipleri (biri kamerada, biri teknik izlemede) için gerçek
+bir boşluk olabilir — ama gerçek talep doğrulanmadı. Güvenlik yüzeyi
+büyük (I8'deki WS auth işinin genişletilmesi, dışa açık bir dashboard).
+
+**Durum:** Yalnızca fikrin kaybolmaması için kayda geçirildi — aktif
+değerlendirme yok, önkoşul yok, taahhüt yok.
+
 ## Faz 5 — Zig Global State Tam Çözümü
 
 - [ ] external_memory_bridge.zig — state'i instance-level struct'a taşı
