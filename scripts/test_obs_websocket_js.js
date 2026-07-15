@@ -16,10 +16,21 @@
 // ÇALIŞIR (msgpack Aşama 7'de eklendi; Aşama 6'da msgpack FAIL idi). Bu script iki modu da dener.
 
 const URL = process.argv[2] || 'ws://127.0.0.1:7071/ws';
+// Özellik#2: 'listen' argümanı verilirse her modda birkaç saniye healing
+// VendorEvent dinlenir (canlı app'te mod değiştirince gözlemlenir). Verilmezse
+// mevcut hızlı test akışı değişmez.
+const LISTEN_MS = process.argv.includes('listen') ? 6000 : 0;
 
 async function tryMode(modulePath, label) {
   const { OBSWebSocket } = require(modulePath);
   const obs = new OBSWebSocket();
+  // Özellik#2: healing VendorEvent'i (op 5) — Reji vendorName "reji-studio" ile
+  // yayınlar. Reji aboneliği yoksaydığından bu event varsayılan abonelikle gelir.
+  obs.on('VendorEvent', (ev) => {
+    if (ev.vendorName === 'reji-studio') {
+      console.log(`[${label}] VendorEvent ${ev.eventType}: ${JSON.stringify(ev.eventData)}`);
+    }
+  });
   try {
     const { obsWebSocketVersion, negotiatedRpcVersion } = await obs.connect(URL);
     console.log(`[${label}] OK — Identify başarılı: ${obsWebSocketVersion} rpc=${negotiatedRpcVersion}`);
@@ -29,6 +40,10 @@ async function tryMode(modulePath, label) {
       console.log(`   sceneIndex=${s.sceneIndex}  sceneName=${JSON.stringify(s.sceneName)}`);
     }
     console.log(`[${label}] currentProgramSceneName: ${JSON.stringify(sl.currentProgramSceneName)}`);
+    if (LISTEN_MS > 0) {
+      console.log(`[${label}] VendorEvent dinleniyor (${LISTEN_MS}ms) — app'te healing tetikleyin (ör. mod değiştir)...`);
+      await new Promise((r) => setTimeout(r, LISTEN_MS));
+    }
     await obs.disconnect();
     return true;
   } catch (err) {

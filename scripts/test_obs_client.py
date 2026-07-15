@@ -47,9 +47,30 @@ def dump(title, resp):
     print("responseData:", resp.responseData)
 
 
+def on_vendor_event(eventData):
+    """Özellik#2 (Aşama A): Reji healing VendorEvent'lerini yazdırır.
+
+    obs-websocket VendorEvent eventData'sı: {vendorName, eventType, eventData}.
+    Reji'nin yaydığı eventType'lar: HealingModeChanged, HealingActionApplied,
+    HealingActionPending, HealingActionInvalidated. Bunları GÖRMEK için app'te
+    healing tetiklenmeli (ör. Settings'ten mod değiştir → HealingModeChanged;
+    veya kural motoru bir aksiyon üretsin). Bu, I8'in fiziksel-donanım
+    doğrulaması gibi CANLI app gözlemidir — Rust entegrasyon testi teli doğrular,
+    bu script gerçek simpleobsws istemcisiyle uçtan uca teyit içindir.
+    """
+    if eventData.get("vendorName") == "reji-studio":
+        print(f"[VendorEvent] {eventData.get('eventType')}: {eventData.get('eventData')}")
+
+
 async def main():
     ws, url = await detect_ws()
     print(f"[connected + identified] {url}")
+
+    # Özellik#2: healing VendorEvent'lerini dinle (Reji aboneliği yoksaydığından
+    # herhangi bir eventSubscriptions ile gelir; simpleobsws op-5 event'i callback'e
+    # dağıtır). Script çalışırken app'te mod değiştirince satır düşmeli.
+    ws.register_event_callback(on_vendor_event, "VendorEvent")
+    print("[listening] VendorEvent (healing) — app'te healing tetikleyin (ör. mod değiştir)")
 
     dump("GetVersion", await ws.call(simpleobsws.Request("GetVersion")))
 
