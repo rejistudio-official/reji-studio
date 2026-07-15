@@ -356,6 +356,44 @@ pub extern "C" fn rj_start_monitor() {
     });
 }
 
+/// Bir video `MetricSample`'ından türetilen sistem-metrik event'leri (saf, test
+/// edilebilir). Metric drainer bu listeyi `event_bus.system`'e iletir; ayrıca
+/// kare-kaybı ayrı bir `MediaEvent` olduğundan drainer'da inline kalır.
+///
+/// Özellik#5 (plumbing): `MemUsage` eskiden HİÇ yayılmıyordu — `memory_usage_pct`
+/// C++ tarafında gerçek (`GlobalMemoryStatusEx`) doldurulmasına rağmen drainer onu
+/// SystemEvent'e çevirmiyordu, dolayısıyla `RuleMetrics.memory_usage_pct` hep 0
+/// kalıp `memory_pressure` kuralı ölü kalıyordu. Artık yayılıyor.
+///
+/// "0 = veri yok" konvansiyonu (Healing Plumbing dersi): `gpu_load`/`memory`/
+/// `network` yalnız 0-dışıyken yayılır (0, sahte "her şey yolunda" sinyali
+/// üretmesin). `CpuUsage` tarihsel olarak koşulsuz yayılır — mevcut davranış korunur.
+fn system_events_for_sample(sample: &MetricSample) -> Vec<SystemEvent> {
+    let mut events = Vec::new();
+
+    events.push(SystemEvent::CpuUsage {
+        ratio: sample.cpu_percent / 100.0,
+    });
+    if sample.gpu_load_pct > 0 {
+        events.push(SystemEvent::GpuUsage {
+            ratio: sample.gpu_load_pct as f32 / 100.0,
+        });
+    }
+    if sample.memory_usage_pct > 0 {
+        events.push(SystemEvent::MemUsage {
+            ratio: sample.memory_usage_pct as f32 / 100.0,
+        });
+    }
+    if sample.network_rtt_ms > 0 || sample.network_loss_pct > 0 {
+        events.push(SystemEvent::NetworkStats {
+            rtt_ms: sample.network_rtt_ms as u32,
+            loss_pct: sample.network_loss_pct as f32,
+        });
+    }
+
+    events
+}
+
 fn rj_start_monitor_impl() {
     FFI_STATE.get_or_init(|| {
         let runtime = Runtime::new().expect("Tokio runtime olusturulamadi");
@@ -414,23 +452,15 @@ fn rj_start_monitor_impl() {
                             );
                             let _ = evt_tx.send(json_buf.clone());
                         }
-                        let _ = bus_system.send(SystemEvent::CpuUsage {
-                            ratio: sample.cpu_percent / 100.0,
-                        });
-                        if sample.gpu_load_pct > 0 {
-                            let _ = bus_system.send(SystemEvent::GpuUsage {
-                                ratio: sample.gpu_load_pct as f32 / 100.0,
-                            });
+                        // Özellik#5: sistem-metrik event türetimi saf fonksiyonda
+                        // (test edilebilir); `MemUsage` artık burada yayılıyor.
+                        for evt in system_events_for_sample(&sample) {
+                            let _ = bus_system.send(evt);
                         }
+                        // Kare-kaybı ayrı MediaEvent — inline kalır.
                         if sample.frame_drops > 0 {
                             let _ = bus_media.send(MediaEvent::FrameDropped {
                                 count: sample.frame_drops,
-                            });
-                        }
-                        if sample.network_rtt_ms > 0 || sample.network_loss_pct > 0 {
-                            let _ = bus_system.send(SystemEvent::NetworkStats {
-                                rtt_ms: sample.network_rtt_ms as u32,
-                                loss_pct: sample.network_loss_pct as f32,
                             });
                         }
                     }
@@ -1383,6 +1413,83 @@ mod tests {
     #[test]
     fn test_push_null_does_not_crash() {
         rj_metrics_push(std::ptr::null());
+    }
+
+    // --- Özellik#5: sistem-metrik event türetimi (plumbing) ---
+
+    fn sample_for_events() -> MetricSample {
+        MetricSample {
+            magic_head:       MetricSample::MAGIC,
+            timestamp_us:     0,
+            bitrate_kbps:     6000,
+            fps_actual:       60.0,
+            cpu_percent:      40.0,
+            frame_drops:      0,
+            frame_drop_pct:   0,
+            gpu_temp_c:       0,
+            cpu_temp_c:       0,
+            memory_usage_pct: 0,
+            cpu_load_pct:     0,
+            gpu_load_pct:     0,
+            network_rtt_ms:   0,
+            network_loss_pct: 0,
+            source_id:        0,
+            magic_tail:       MetricSample::MAGIC,
+        }
+    }
+
+    #[test]
+    fn mem_usage_event_emitted_when_real() {
+        // Özellik#5 plumbing: gerçek memory_usage_pct → MemUsage yayılmalı
+        // (eskiden hiç yayılmıyordu → memory_pressure kuralı ölüydü).
+        let mut s = sample_for_events();
+        s.memory_usage_pct = 82;
+        let events = system_events_for_sample(&s);
+        let ratio = events.iter().find_map(|e| match e {
+            SystemEvent::MemUsage { ratio } => Some(*ratio),
+            _ => None,
+        });
+        assert!(ratio.is_some(), "gerçek bellek metriğinde MemUsage yayılmalı");
+        assert!((ratio.unwrap() - 0.82).abs() < 0.001, "ratio = pct/100");
+    }
+
+    #[test]
+    fn mem_usage_event_skipped_when_zero() {
+        // "0 = veri yok" (Healing Plumbing dersi) → MemUsage yayılmaz.
+        let mut s = sample_for_events();
+        s.memory_usage_pct = 0;
+        let events = system_events_for_sample(&s);
+        assert!(
+            !events.iter().any(|e| matches!(e, SystemEvent::MemUsage { .. })),
+            "sıfır bellek metriği sahte MemUsage üretmemeli"
+        );
+    }
+
+    #[test]
+    fn cpu_usage_always_emitted_others_guarded() {
+        // Regresyon: CpuUsage koşulsuz; gpu/mem/network 0 iken yayılmaz.
+        let mut s = sample_for_events();
+        s.cpu_percent = 55.0;
+        let events = system_events_for_sample(&s);
+        assert_eq!(events.len(), 1, "yalnız CpuUsage kalmalı (diğerleri 0)");
+        match &events[0] {
+            SystemEvent::CpuUsage { ratio } => assert!((ratio - 0.55).abs() < 0.001),
+            other => panic!("ilk event CpuUsage olmalı, alınan: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn all_system_events_emitted_when_present() {
+        // gpu/mem/network hepsi 0-dışı → dördü de yayılır (Cpu + Gpu + Mem + Net).
+        let mut s = sample_for_events();
+        s.gpu_load_pct = 70;
+        s.memory_usage_pct = 60;
+        s.network_rtt_ms = 15;
+        let events = system_events_for_sample(&s);
+        assert!(events.iter().any(|e| matches!(e, SystemEvent::CpuUsage { .. })));
+        assert!(events.iter().any(|e| matches!(e, SystemEvent::GpuUsage { .. })));
+        assert!(events.iter().any(|e| matches!(e, SystemEvent::MemUsage { .. })));
+        assert!(events.iter().any(|e| matches!(e, SystemEvent::NetworkStats { .. })));
     }
 
     // --- I24: cstr_bounded sınırlı okuma ---
