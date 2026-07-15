@@ -263,9 +263,12 @@ struct FfiState {
     media_tx:          broadcast::Sender<MediaEvent>,
     rule_engine:       Arc<Mutex<Option<RuleEngine>>>, // v0.4+ Hot-reload
     _ws_state:         Arc<WsState>,                   // WebSocket sunucu durumu
-    // V8/I15: ws_evt_tx + ws_json_buf kaldırıldı — JSON formatlama/broadcast
-    // hot-path'ten (rj_metrics_push) 16ms drainer task'ına taşındı. Broadcast
-    // Sender'ı artık drainer + WsState.evt_rx içinde yaşar (kanal canlı kalır).
+    // V8/I15: metrik JSON formatlama/broadcast hot-path'ten (rj_metrics_push) 16ms
+    // drainer task'ına taşındı; Sender drainer + WsState.evt_rx içinde yaşar.
+    // Özellik#2: healing VendorEvent'lerini AYNI broadcast kanalına yaymak için
+    // Sender'ın bir clone'u burada tutulur (enqueue_ui_event / rj_action_reject /
+    // rj_set_healing_mode kullanır). Metrik ile aynı kanal — yeni kanal icat edilmez.
+    ws_evt_tx:         broadcast::Sender<String>,
 }
 
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
@@ -566,6 +569,8 @@ fn rj_start_monitor_impl() {
             media_tx: event_bus.media.clone(),
             rule_engine,
             _ws_state: ws_state,
+            // Özellik#2: drainer/WsState ile AYNI broadcast kanalı (metrik ile ortak).
+            ws_evt_tx,
         }
     });
 }
@@ -839,6 +844,125 @@ pub fn enqueue_action(action: RjAction) -> bool {
     }
 }
 
+/// Özellik#2: RjActionType → obs vendor eventData'da taşınan kararlı ad.
+/// `healing.rs::convert_action_type` deseniyle mekanik; WS teli için stabil
+/// string kimlik (Stream Deck/Companion tarafı bu ada göre ayrım yapabilir).
+fn action_type_name(t: RjActionType) -> &'static str {
+    match t {
+        RjActionType::BitrateReduce     => "BitrateReduce",
+        RjActionType::BitrateRecover    => "BitrateRecover",
+        RjActionType::ScaleResolution   => "ScaleResolution",
+        RjActionType::RestoreResolution => "RestoreResolution",
+        RjActionType::CapFps            => "CapFps",
+        RjActionType::RestoreFps        => "RestoreFps",
+        RjActionType::LogOnly           => "LogOnly",
+    }
+}
+
+/// Özellik#2: RjMetricId → obs vendor eventData ad. `MetricNone` → `None`
+/// (açıklama taşınmaz; metric/value/threshold alanları atlanır).
+fn metric_id_name(m: RjMetricId) -> Option<&'static str> {
+    match m {
+        RjMetricId::FrameDropPct   => Some("FrameDropPct"),
+        RjMetricId::GpuTempC       => Some("GpuTempC"),
+        RjMetricId::CpuTempC       => Some("CpuTempC"),
+        RjMetricId::MemoryUsagePct => Some("MemoryUsagePct"),
+        RjMetricId::CpuLoadPct     => Some("CpuLoadPct"),
+        RjMetricId::GpuLoadPct     => Some("GpuLoadPct"),
+        RjMetricId::NetworkRttMs   => Some("NetworkRttMs"),
+        RjMetricId::NetworkLossPct => Some("NetworkLossPct"),
+        RjMetricId::MetricNone     => None,
+    }
+}
+
+/// Özellik#2: 0..=3 mod kodunu rules.json şablonundaki tireli ada çevirir
+/// (`healing.rs`'deki `mode_str` ile birebir). Aralık dışı → "co-pilot"
+/// (savunmacı; `rj_set_healing_mode` zaten >3'ü reddeder).
+fn healing_mode_name(mode: u32) -> &'static str {
+    match mode {
+        0 => "auto-pilot",
+        1 => "co-pilot",
+        2 => "assist",
+        3 => "manual",
+        _ => "co-pilot",
+    }
+}
+
+/// Özellik#2: Bir `RjActionEvent`'i obs-websocket VendorEvent olarak WS broadcast
+/// kanalına yayar (JSON + msgpack teli — op 5 taşıdığından ikisi de alır).
+/// Aynı `ws_evt_tx` kanalı metrikle ortak. Abonesi yoksa `send` Err döner, yutulur.
+///
+/// eventType eşlemesi (mevcut kind/require_approval alanlarından türetilir, yeni
+/// alan/mimari yok): Invalidated → `HealingActionInvalidated`; New+onay →
+/// `HealingActionPending`; New+otomatik → `HealingActionApplied`. Böylece
+/// enqueue_ui_event'ten geçen üç event tipi (info/approval/invalidated) tek
+/// noktadan yayınlanır. `rj_action_reject` de bu yolu (Invalidated) kullanır.
+fn emit_healing_event(ev: &RjActionEvent) {
+    let Some(state) = FFI_STATE.get() else { return; };
+    send_vendor_event(state, &healing_vendor_event(ev), "healing VendorEvent");
+}
+
+/// Özellik#2 (saf, test edilebilir): `RjActionEvent`'i obs-websocket VendorEvent
+/// zarfına eşler — global state / kanal dokunmaz. `emit_healing_event` bunu kurup
+/// yayar. eventType eşlemesi: Invalidated → `HealingActionInvalidated`; New+onay →
+/// `HealingActionPending`; New+otomatik → `HealingActionApplied`.
+fn healing_vendor_event(ev: &RjActionEvent) -> crate::obs_protocol::WsEnvelope {
+    if ev.kind == RJ_ACTION_EVENT_INVALIDATED {
+        // Invalidated: dinleyicinin tek ihtiyacı "bu id'yi UI'dan kaldır".
+        return crate::obs_protocol::vendor_event(
+            "HealingActionInvalidated",
+            serde_json::json!({
+                "id": ev.id,
+                "action": action_type_name(ev.action_type),
+            }),
+        );
+    }
+    let vendor_type = if ev.require_approval == 1 {
+        "HealingActionPending"
+    } else {
+        "HealingActionApplied"
+    };
+    let mut data = serde_json::json!({
+        "id": ev.id,
+        "action": action_type_name(ev.action_type),
+        "param1": ev.param1,
+        "param2": ev.param2,
+        "requireApproval": ev.require_approval == 1,
+    });
+    // Özellik#1 açıklaması yalnız anlamlıysa (MetricNone değil) taşınır.
+    if let Some(metric) = metric_id_name(ev.metric_id) {
+        data["metric"] = serde_json::json!(metric);
+        data["value"] = serde_json::json!(ev.current_value);
+        data["threshold"] = serde_json::json!(ev.threshold_value);
+    }
+    crate::obs_protocol::vendor_event(vendor_type, data)
+}
+
+/// Özellik#2: Healing mod değişimini obs VendorEvent (`HealingModeChanged`) olarak
+/// WS broadcast kanalına yayar. `rj_set_healing_mode` yalnız GERÇEK değişimde çağırır.
+fn emit_mode_changed(mode: u32) {
+    let Some(state) = FFI_STATE.get() else { return; };
+    send_vendor_event(state, &mode_changed_vendor_event(mode), "HealingModeChanged");
+}
+
+/// Özellik#2 (saf, test edilebilir): mod değişimi VendorEvent zarfını kurar.
+fn mode_changed_vendor_event(mode: u32) -> crate::obs_protocol::WsEnvelope {
+    crate::obs_protocol::vendor_event(
+        "HealingModeChanged",
+        serde_json::json!({ "mode": mode, "modeName": healing_mode_name(mode) }),
+    )
+}
+
+/// Özellik#2: Zarfı JSON'a kodlayıp WS broadcast kanalına (metrikle ortak
+/// `ws_evt_tx`) gönderir. Abonesi yoksa `send` Err döner, yutulur (metrik deseni).
+/// op 5 taşıdığından hem JSON hem msgpack teline ulaşır.
+fn send_vendor_event(state: &FfiState, env: &crate::obs_protocol::WsEnvelope, what: &str) {
+    match serde_json::to_string(env) {
+        Ok(s) => { let _ = state.ws_evt_tx.send(s); }
+        Err(e) => eprintln!("[WS] {} kodlanamadı: {}", what, e),
+    }
+}
+
 /// V8/I33 (I11): UI event kuyruğuna it. **Ring semantiği**: kuyruk doluysa
 /// (UI kapalı/donmuş) EN ESKİ event `force_push` ile düşürülür + sayaç/warn.
 /// Gerekçe: info-event kaybı zararsız; approval-event kaybı da pending deposu +
@@ -850,6 +974,9 @@ pub fn enqueue_ui_event(event: RjActionEvent) {
         eprintln!("[FFI] WARNING: FFI_STATE not initialized — enqueue_ui_event ignored");
         return;
     };
+    // Özellik#2: C++ UI kuyruğuyla AYNI event'i WS'e de yay (VendorEvent). Fan-out;
+    // force_push event'i taşıdığından ondan ÖNCE (referansla) yayınlanır.
+    emit_healing_event(&event);
     if let Some(evicted) = state.ui_event_queue.force_push(event) {
         let total = DROPPED_UI_EVENTS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         eprintln!(
@@ -977,6 +1104,13 @@ pub extern "C" fn rj_action_reject(action_id: u32) -> i32 {
                         engine.apply_cooldown(&entry.rule_id, REJECT_COOLDOWN);
                     }
                 }
+                // Özellik#2: WS dinleyicisine (Stream Deck/Companion) bu pending'in
+                // artık geçerli olmadığını bildir. Reddetme ile TTL/mod-değişimi
+                // sebebi farklı olsa da dinleyicinin tepkisi aynı ("UI'dan kaldır"),
+                // bu yüzden ayrı `HealingActionRejected` tipi İCAT EDİLMEZ — mevcut
+                // Invalidated yeniden kullanılır. Yalnız WS'e yayılır; C++ UI zaten
+                // reddi kendi başlattı, ui_event_queue'ya itilmez (çift işleme yok).
+                emit_healing_event(&RjActionEvent::invalidated_event(&entry.action));
                 1
             }
             None => 0,
@@ -999,6 +1133,9 @@ pub extern "C" fn rj_set_healing_mode(mode: u32) -> bool {
         let prev = HEALING_MODE.swap(mode, Ordering::SeqCst);
         if prev != mode {
             clear_pending_on_mode_change();
+            // Özellik#2: mod değişimini WS'e yay (VendorEvent HealingModeChanged).
+            // Yalnız gerçek değişimde — startup senkronu / no-op set spam üretmez.
+            emit_mode_changed(mode);
         }
         true
     }))
@@ -1638,6 +1775,83 @@ mod tests {
             7,
             "scene_switch(7) sonrası 7 olmalı"
         );
+    }
+
+    // ===== Özellik#2: healing → obs VendorEvent eşlemesi (saf, global-state'siz) =====
+
+    #[test]
+    fn healing_vendor_event_applied_aciklama_tasir() {
+        // Info event (New + require_approval=0 + gerçek metrik) → HealingActionApplied,
+        // metric/value/threshold dahil.
+        let a = RjAction { id: 7, action_type: RjActionType::BitrateReduce, param1: 3500, param2: 0, canary: 0 };
+        let expl = Explanation { metric_id: crate::rules::metric_id::GPU_TEMP_C, current_value: 87, threshold_value: 85 };
+        let env = healing_vendor_event(&RjActionEvent::info_event(&a, &expl));
+
+        assert_eq!(env.op, 5);
+        let inner = &env.d["eventData"];
+        assert_eq!(inner["vendorName"], "reji-studio");
+        assert_eq!(inner["eventType"], "HealingActionApplied");
+        let d = &inner["eventData"];
+        assert_eq!(d["id"], 7);
+        assert_eq!(d["action"], "BitrateReduce");
+        assert_eq!(d["param1"], 3500);
+        assert_eq!(d["requireApproval"], false);
+        assert_eq!(d["metric"], "GpuTempC");
+        assert_eq!(d["value"], 87);
+        assert_eq!(d["threshold"], 85);
+    }
+
+    #[test]
+    fn healing_vendor_event_pending_onay_bayragi() {
+        // Approval event (New + require_approval=1) → HealingActionPending, requireApproval:true.
+        let a = mk_action(11);
+        let expl = Explanation { metric_id: crate::rules::metric_id::FRAME_DROP_PCT, current_value: 12, threshold_value: 10 };
+        let env = healing_vendor_event(&RjActionEvent::approval_event(&a, &expl));
+        let inner = &env.d["eventData"];
+        assert_eq!(inner["eventType"], "HealingActionPending");
+        assert_eq!(inner["eventData"]["requireApproval"], true);
+        assert_eq!(inner["eventData"]["metric"], "FrameDropPct");
+    }
+
+    #[test]
+    fn healing_vendor_event_invalidated_sade() {
+        // Invalidated → HealingActionInvalidated; yalnız id+action, açıklama YOK.
+        let a = mk_action(13);
+        let env = healing_vendor_event(&RjActionEvent::invalidated_event(&a));
+        let inner = &env.d["eventData"];
+        assert_eq!(inner["eventType"], "HealingActionInvalidated");
+        let d = &inner["eventData"];
+        assert_eq!(d["id"], 13);
+        assert_eq!(d["action"], "BitrateReduce");
+        assert!(d.get("metric").is_none(), "invalidated açıklama taşımamalı");
+        assert!(d.get("requireApproval").is_none(), "invalidated onay alanı taşımamalı");
+    }
+
+    #[test]
+    fn healing_vendor_event_metric_none_alan_atlar() {
+        // metric_id == MetricNone → metric/value/threshold alanları atlanır (Özellik#1).
+        let a = mk_action(15);
+        let env = healing_vendor_event(&RjActionEvent::info_event(&a, &Explanation::none()));
+        let inner = &env.d["eventData"];
+        assert_eq!(inner["eventType"], "HealingActionApplied");
+        let d = &inner["eventData"];
+        assert_eq!(d["id"], 15, "id yine taşınır");
+        assert!(d.get("metric").is_none(), "MetricNone → metric alanı olmamalı");
+        assert!(d.get("value").is_none());
+        assert!(d.get("threshold").is_none());
+    }
+
+    #[test]
+    fn mode_changed_vendor_event_ad_ve_kod() {
+        // Mod değişimi → HealingModeChanged, mode kodu + tireli ad.
+        let env = mode_changed_vendor_event(1);
+        let inner = &env.d["eventData"];
+        assert_eq!(inner["eventType"], "HealingModeChanged");
+        assert_eq!(inner["eventData"]["mode"], 1);
+        assert_eq!(inner["eventData"]["modeName"], "co-pilot");
+        // Diğer kodlar
+        assert_eq!(mode_changed_vendor_event(0).d["eventData"]["eventData"]["modeName"], "auto-pilot");
+        assert_eq!(mode_changed_vendor_event(3).d["eventData"]["eventData"]["modeName"], "manual");
     }
 
     #[test]
