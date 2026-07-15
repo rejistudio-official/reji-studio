@@ -368,6 +368,11 @@ fn rj_start_monitor_impl() {
         let event_bus     = EventBus::new();
         let metric_state  = MetricState::new();
 
+        // Özellik#3: healing-log yazma thread'ini başlat (ayrı std::thread, DB
+        // bağlantısını sahiplenir). Fan-out noktaları `healing_log::log_healing`
+        // ile yalnız lock-free kuyruğa push eder — hot-path/frame-thread bloklanmaz.
+        crate::healing_log::start_writer(crate::paths::db_path("healing_log.sqlite"));
+
         // V8/I15: WS metrik broadcast kanalı — drainer'a taşınan JSON/broadcast
         // işi için drainer spawn'ından ÖNCE oluşturulur. Eskiden WsState kendi
         // kanalını kurup FfiState.ws_evt_tx onu klonluyordu; artık TEK Sender

@@ -25,6 +25,13 @@ pub fn log_path(filename: &str) -> PathBuf {
     log_dir().join(filename)
 }
 
+/// Özellik#3: Veritabanı dosyaları için tam yol — log dosyalarıyla AYNI kök
+/// (`%LOCALAPPDATA%\reji-studio\`). Ayrı bir isim (`db_path`) niyeti netleştirir
+/// (log değil kalıcı veri), ama yeni bir dizin mekanizması icat etmez.
+pub fn db_path(filename: &str) -> PathBuf {
+    log_dir().join(filename)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

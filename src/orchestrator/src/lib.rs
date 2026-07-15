@@ -2,6 +2,7 @@ pub mod constants;
 pub mod event_bus;
 pub mod ffi;
 pub mod healing;
+pub mod healing_log;
 pub mod metrics;
 pub mod obs_protocol;
 pub mod paths;

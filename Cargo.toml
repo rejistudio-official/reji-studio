@@ -21,6 +21,11 @@ toml        = { version = "0.8" }
 redb        = { version = "2" }
 axum        = { version = "0.7" }
 tracing     = { version = "0.1" }
+# Özellik#3 healing-log: gömülü SQLite. `bundled` — SQLite C kaynağı crate içinde
+# derlenir (sistem libsqlite3 varsayımı yok → MSVC/Zig/NMake üçlü-toolchain'de
+# deterministik build). Saf-Rust I8 emsalinden bilinçli sapma; takas dağıtılabilir
+# masaüstü için kurulumda-sıfır-varsayım kazancıyla gerekçelendirildi. Tek-amaçlı.
+rusqlite    = { version = "0.40", features = ["bundled"] }
 # V8/I8 WS auth (obs-websocket challenge/salt): minimal, audited (RustCrypto)
 sha2        = { version = "0.10" }  # SHA-256 (spec zorunlu)
 base64      = { version = "0.22" }  # challenge/salt/auth base64 zinciri
