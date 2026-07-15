@@ -20,6 +20,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -92,6 +93,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // "Kuralları Düzenle" — rules.json'u harici editörde aç (Commit 1).
     connect(settings_dialog_, &reji::SettingsDialog::editRulesRequested,
             this, &MainWindow::openRulesInEditor);
+    // "Otomatik yeniden yükle" — dosya izleme + hot-reload (Commit 2).
+    connect(settings_dialog_, &reji::SettingsDialog::autoReloadToggled,
+            this, &MainWindow::onAutoReloadToggled);
+    // Kalıcı durum: açılışta önceki oturumdaki tercihi geri yükle. setChecked
+    // stateChanged → autoReloadToggled zincirini tetikler, izleme kurulur.
+    if (settings_.value(QStringLiteral("rules/auto_reload"), false).toBool()) {
+        settings_dialog_->setAutoReloadEnabled(true);
+    }
     if (healing_overlay_) {
         healing_overlay_->setSettingsDialog(settings_dialog_);
     }
@@ -456,6 +465,8 @@ void MainWindow::buildStatusBar() {
     lbl_fps_        = new QLabel("-- fps",  this);
     lbl_connection_ = new QLabel(tr("● Bağlantı yok"), this);
     lbl_connection_->setStyleSheet("color:#888888;");
+    lbl_rules_ = new QLabel(this);   // auto-reload açılana dek gizli
+    lbl_rules_->hide();
 
     auto make_sep = [this]() -> QFrame* {
         auto* f = new QFrame(this);
@@ -470,6 +481,8 @@ void MainWindow::buildStatusBar() {
     statusBar()->addPermanentWidget(lbl_fps_);
     statusBar()->addPermanentWidget(make_sep());
     statusBar()->addPermanentWidget(lbl_connection_);
+    statusBar()->addPermanentWidget(make_sep());
+    statusBar()->addPermanentWidget(lbl_rules_);
     lbl_status_->setText(tr("Hazır"));
 }
 
@@ -586,6 +599,8 @@ void MainWindow::onSettingsClicked() {
         });
         connect(settings_dialog_, &reji::SettingsDialog::editRulesRequested,
                 this, &MainWindow::openRulesInEditor);
+        connect(settings_dialog_, &reji::SettingsDialog::autoReloadToggled,
+                this, &MainWindow::onAutoReloadToggled);
         if (healing_overlay_) healing_overlay_->setSettingsDialog(settings_dialog_);
     }
     settings_dialog_->exec();
@@ -634,6 +649,100 @@ void MainWindow::openRulesInEditor() {
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
         QMessageBox::warning(this, tr("Kuralları Düzenle"),
             tr("Dosya varsayılan editörde açılamadı:\n%1").arg(path));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Otomatik yeniden yükleme (hot-reload) — QFileSystemWatcher + debounce.
+// ---------------------------------------------------------------------------
+namespace {
+// Editörler tek kayıtta birden çok dosya-sistemi olayı üretir; bu pencere
+// içindeki olaylar tek bir reload'a birleştirilir.
+constexpr int kRulesReloadDebounceMs = 300;
+}
+
+void MainWindow::ensureRulesWatcher() {
+    if (!rules_watcher_) {
+        rules_watcher_ = new QFileSystemWatcher(this);
+        connect(rules_watcher_, &QFileSystemWatcher::fileChanged,
+                this, &MainWindow::onRulesPathChanged);
+        connect(rules_watcher_, &QFileSystemWatcher::directoryChanged,
+                this, &MainWindow::onRulesPathChanged);
+    }
+    if (!rules_reload_debounce_) {
+        rules_reload_debounce_ = new QTimer(this);
+        rules_reload_debounce_->setSingleShot(true);
+        rules_reload_debounce_->setInterval(kRulesReloadDebounceMs);
+        connect(rules_reload_debounce_, &QTimer::timeout,
+                this, &MainWindow::reloadRulesNow);
+    }
+}
+
+void MainWindow::armRulesWatch() {
+    if (!rules_watcher_) return;
+    const QString path = rulesFilePath();
+    const QString dir  = QFileInfo(path).absolutePath();
+
+    // Üst dizin: atomic-save (sil+yeniden-yaz) ve dosya-oluşturma olaylarını
+    // yakalar — dosyanın kendisi geçici olarak yok olsa bile.
+    if (QFileInfo::exists(dir) && !rules_watcher_->directories().contains(dir)) {
+        rules_watcher_->addPath(dir);
+    }
+    // Dosya: yalnızca varsa izlenebilir (QFileSystemWatcher yok olan yolu almaz).
+    if (QFileInfo::exists(path) && !rules_watcher_->files().contains(path)) {
+        rules_watcher_->addPath(path);
+    }
+}
+
+void MainWindow::onAutoReloadToggled(bool enabled) {
+    settings_.setValue(QStringLiteral("rules/auto_reload"), enabled);  // kalıcılık
+
+    if (!enabled) {
+        if (rules_watcher_) {
+            const QStringList files = rules_watcher_->files();
+            const QStringList dirs  = rules_watcher_->directories();
+            if (!files.isEmpty()) rules_watcher_->removePaths(files);
+            if (!dirs.isEmpty())  rules_watcher_->removePaths(dirs);
+        }
+        if (rules_reload_debounce_) rules_reload_debounce_->stop();
+        if (lbl_rules_) { lbl_rules_->clear(); lbl_rules_->hide(); }
+        return;
+    }
+
+    ensureRulesWatcher();
+    armRulesWatch();
+    if (lbl_rules_) {
+        lbl_rules_->setStyleSheet(QString());   // nötr
+        lbl_rules_->setText(tr("Kurallar: izleniyor"));
+        lbl_rules_->show();
+    }
+}
+
+void MainWindow::onRulesPathChanged(const QString& /*path*/) {
+    // Yalnızca debounce'u (yeniden) başlat — gerçek reload reloadRulesNow'da.
+    if (rules_reload_debounce_) rules_reload_debounce_->start();
+}
+
+void MainWindow::reloadRulesNow() {
+    // Atomic-save tuzağı: editör dosyayı sil+yeniden-yaz ile kaydettiyse yol
+    // watcher'dan düşmüştür — yeniden ekle, yoksa ilk kayıttan sonra susar.
+    armRulesWatch();
+
+    const QString    path = rulesFilePath();
+    const QByteArray path_utf8 = path.toUtf8();
+    const int32_t    rv = rj_reload_rules(path_utf8.constData());
+
+    if (!lbl_rules_) return;
+    if (rv == 1) {
+        // Başarı önceki (yapışkan) hatayı da temizler.
+        lbl_rules_->setStyleSheet(QString());
+        lbl_rules_->setText(tr("Kurallar: yeniden yüklendi %1")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"))));
+    } else {
+        // Hata sessizce yutulmaz (I10). Yapışkan: yalnızca sonraki BAŞARILI
+        // reload temizler — zaman aşımıyla kaybolmaz.
+        lbl_rules_->setStyleSheet(QStringLiteral("color:#E53935;"));
+        lbl_rules_->setText(tr("Kurallar: YÜKLEME HATASI — eski kurallar korunuyor (JSON?)"));
     }
 }
 

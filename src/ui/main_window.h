@@ -14,6 +14,7 @@
 #include <QSettings>
 
 class QCloseEvent;
+class QFileSystemWatcher;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
@@ -91,6 +92,15 @@ private slots:
     /// SettingsDialog::editRulesRequested → rules.json'u sistemin varsayılan
     /// editöründe açar. Dosya yoksa gömülü şablondan tohumlar (Commit 1).
     void openRulesInEditor();
+    /// SettingsDialog::autoReloadToggled → dosya izlemeyi aç/kapat + durumu
+    /// QSettings'e yaz. Açıkken rules.json değişince rj_reload_rules çağrılır.
+    void onAutoReloadToggled(bool enabled);
+    /// Watcher (file/directory)Changed → debounce zamanlayıcısını (yeniden)
+    /// başlatır; tek kayıt birden çok olay üretir, birleştirilir.
+    void onRulesPathChanged(const QString& path);
+    /// Debounce dolunca: yolu (atomic-save sonrası) yeniden ekler ve
+    /// rj_reload_rules çağırıp sonucu lbl_rules_'a yazar.
+    void reloadRulesNow();
     /// 200 ms poll: V8/I33 — drains rj_action_event_dequeue (UI event kuyruğu,
     /// aktüatörden ayrı) and feeds HealingOverlay.
     void pollHealingActions();
@@ -110,6 +120,11 @@ private:
     /// Gömülü şablonu (:/config/rules.json.template) hedef yola yazar.
     /// Üst dizini gerekirse oluşturur. Başarıda true.
     bool seedRulesFromTemplate(const QString& targetPath);
+    /// rules_watcher_ + debounce zamanlayıcısını tembel (lazy) oluşturur.
+    void ensureRulesWatcher();
+    /// rules.json'u (varsa) ve üst dizinini watcher'a ekler. Üst-dizin izlemesi
+    /// atomic-save (sil+yeniden-yaz) ve dosya-oluşturma olaylarını yakalar.
+    void armRulesWatch();
     /// Sahne isimlerini Rust'a (rj_push_scene_names) bildirir — GetSceneList için.
     void pushSceneNamesToRust();
     void saveWindowState();
@@ -136,6 +151,14 @@ private:
     QLabel* lbl_bitrate_{nullptr};
     QLabel* lbl_fps_{nullptr};
     QLabel* lbl_connection_{nullptr};
+    /// Kural yeniden-yükleme durumu — lbl_status_'tan AYRI kalıcı widget.
+    /// Genel durum mesajlarınca ezilmez; hata mesajı yalnızca sonraki başarılı
+    /// reload ile temizlenir (yapışkan). Auto-reload kapalıyken gizli.
+    QLabel* lbl_rules_{nullptr};
+
+    // ── Kural hot-reload (auto-reload açıkken) ──────────────────────────────
+    QFileSystemWatcher* rules_watcher_{nullptr};
+    QTimer*             rules_reload_debounce_{nullptr};
 
     // ── Rust bridge + self-healing overlay ─────────────────────────────────
     reji::RustBridge*     rust_bridge_{nullptr};
