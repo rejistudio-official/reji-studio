@@ -16,10 +16,16 @@ use tracing::{debug, error, info, warn};
 use std::sync::{Arc, Mutex};
 use crate::constants;
 
+use crate::calibration::{BaselineCalibrator, CalibrationOutcome, CancelReason, CALIBRATION_WINDOW};
 use crate::event_bus::{HealingEvent, MediaEvent, SystemEvent};
 use crate::ffi::{enqueue_action, next_action_id, RjAction, RjActionType};
 use crate::metrics::MetricState;
 use crate::rules::{ActionType, Explanation, RuleEngine, RuleMetrics};
+
+/// Özellik#5 MVP: kalibrasyon yalnız `memory_usage_pct` metriğine uygulanır
+/// (gerçek kaynağı olan, plumbing'i uçtan uca kurulan tek metrik). `rules.json`'daki
+/// metrik adıyla birebir eşleşmeli — RuleEngine override tablosunun anahtarı budur.
+const CALIBRATED_METRIC: &str = "memory_usage_pct";
 
 /// Self-healing katmanları.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +241,15 @@ pub struct HealingMonitor {
     /// V8/I1: kullanıcı-yapılandırılabilir kural motoru. FfiState ile AYNI Arc
     /// (hot-reload `rj_reload_rules` monitörün gördüğü motoru da günceller).
     rule_engine: Arc<Mutex<Option<RuleEngine>>>,
+    /// Özellik#5: kalibrasyon penceresi boyunca `memory_usage_pct` ham örneklerini
+    /// toplayan online toplayıcı. Pencere bitince `finalize` edilip RuleEngine'e
+    /// uygulanır (veya iptal → statik varsayılan).
+    calibrator: BaselineCalibrator,
+    /// Kalibrasyon penceresinin başlangıcı (monitör kurulunca). Pencere süresi
+    /// `CALIBRATION_WINDOW`; dolunca kalibrasyon bir kez sonuçlandırılır.
+    calibration_started: Instant,
+    /// Kalibrasyon sonuçlandırıldı mı (bir kez; tekrar örnekleme/finalize yok).
+    calibration_done: bool,
 }
 
 impl HealingMonitor {
@@ -259,6 +274,9 @@ impl HealingMonitor {
             metric_state,
             current_metrics: RuleMetrics::default(),
             rule_engine,
+            calibrator: BaselineCalibrator::new(),
+            calibration_started: Instant::now(),
+            calibration_done: false,
         }
     }
 
@@ -396,9 +414,68 @@ impl HealingMonitor {
     /// tek periyot içinde tutarlı bir görünüm sağlar ve alt fonksiyonları
     /// (evaluate_*) global'e bağımlı olmadan test edilebilir kılar.
     fn on_periodic(&mut self, mode: HealingMode) {
+        // Özellik#5: kalibrasyon penceresini bu tick'te ilerlet (kural
+        // değerlendirmesinden önce — pencere bitmişse eşik bu tick'ten itibaren
+        // kalibre değeri kullanır).
+        let elapsed = self.calibration_started.elapsed();
+        let mem = self.current_metrics.memory_usage_pct;
+        self.calibration_tick(mem, elapsed);
+
         self.evaluate_predictive();
         self.evaluate_adaptive(mode);
         self.evaluate_rule_engine(mode);
+    }
+
+    /// Özellik#5: kalibrasyon penceresini tek tick ilerletir (saf/test edilebilir —
+    /// saat parametre olarak `elapsed`'ten gelir). Pencere boyunca 0-dışı
+    /// `memory_usage_pct` örneklerini toplar ("0 = veri yok" → atlanır, sahte
+    /// temel çizgi öğrenilmez). Pencere dolunca bir kez sonuçlandırır.
+    fn calibration_tick(&mut self, mem_pct: u32, elapsed: Duration) {
+        if self.calibration_done {
+            return;
+        }
+        if mem_pct > 0 {
+            self.calibrator.observe(mem_pct);
+        }
+        if elapsed >= CALIBRATION_WINDOW {
+            self.finalize_calibration();
+            self.calibration_done = true;
+        }
+    }
+
+    /// Özellik#5: toplanan pencereyi sonuçlandırır ve RuleEngine'e uygular.
+    /// Başarılı → `set_calibrated_threshold` (eşik dinamikleşir). İptal → statik
+    /// varsayılan korunur; her iki durum da kullanıcı-görünür loglanır (Healing
+    /// Plumbing dersi: sessizce atlanmaz).
+    fn finalize_calibration(&self) {
+        match self.calibrator.finalize() {
+            CalibrationOutcome::Calibrated { threshold } => {
+                if let Ok(guard) = self.rule_engine.lock() {
+                    if let Some(engine) = guard.as_ref() {
+                        engine.set_calibrated_threshold(CALIBRATED_METRIC, threshold);
+                    }
+                }
+                info!(
+                    metric = CALIBRATED_METRIC,
+                    threshold,
+                    samples = self.calibrator.sample_count(),
+                    mean = self.calibrator.mean(),
+                    "kalibrasyon tamamlandı — dinamik eşik uygulandı"
+                );
+            }
+            CalibrationOutcome::Cancelled(reason) => {
+                let reason_str = match reason {
+                    CancelReason::ConstantValue => "sabit/stub metrik (hiç değişmedi)",
+                    CancelReason::InsufficientSamples => "yetersiz örnek",
+                };
+                warn!(
+                    metric = CALIBRATED_METRIC,
+                    reason = reason_str,
+                    samples = self.calibrator.sample_count(),
+                    "kalibrasyon iptal — statik varsayılan korunuyor"
+                );
+            }
+        }
     }
 
     /// V8/I1: kural motorunu değerlendirip üretilen aksiyonları RjAction'a
@@ -787,5 +864,79 @@ mod tests {
         assert!(matches!(convert_action_type(ActionType::BitrateReduce), RjActionType::BitrateReduce));
         assert!(matches!(convert_action_type(ActionType::ScaleResolution), RjActionType::ScaleResolution));
         assert!(matches!(convert_action_type(ActionType::LogOnly), RjActionType::LogOnly));
+    }
+
+    // ===== Özellik#5: kalibrasyon sürücüsü (HealingMonitor) =====
+
+    fn mem_pressure_rule() -> Rule {
+        // memory_usage_pct > 85; kritik aksiyon (AutoPilot'ta doğrudan üretilir).
+        make_rule("memory_pressure", "memory_usage_pct > 85", "bitrate_reduce", 500, &["auto-pilot"])
+    }
+
+    fn action_count(monitor: &HealingMonitor, mem: u32) -> usize {
+        let m = RuleMetrics { memory_usage_pct: mem, ..Default::default() };
+        let guard = monitor.rule_engine.lock().unwrap();
+        let engine = guard.as_ref().unwrap();
+        engine.evaluate(&m, "auto-pilot").unwrap().len()
+    }
+
+    #[test]
+    fn calibration_applies_dynamic_threshold_after_window() {
+        let engine = RuleEngine::new_test(vec![mem_pressure_rule()], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+
+        // Pencere içi örnekler: alternatif 57/63 → ortalama 60, sigma 3 → eşik 69.
+        for _ in 0..40 {
+            monitor.calibration_tick(57, Duration::from_secs(1));
+            monitor.calibration_tick(63, Duration::from_secs(1));
+        }
+        // Kalibrasyon öncesi: literal 85 → mem=72 tetiklemez.
+        assert_eq!(action_count(&monitor, 72), 0, "kalibrasyon öncesi literal 85 geçerli");
+
+        // Pencere dolar → finalize → dinamik eşik 69.
+        monitor.calibration_tick(60, CALIBRATION_WINDOW);
+        assert!(monitor.calibration_done, "pencere dolunca sonuçlanmalı");
+        assert_eq!(action_count(&monitor, 72), 1, "kalibre eşik 69 ile mem=72 tetiklemeli");
+    }
+
+    #[test]
+    fn calibration_skips_zero_and_cancels_on_stub() {
+        // "0 = veri yok" → örnek toplanmaz; pencere sonunda yetersiz-örnek iptali,
+        // statik varsayılan korunur (stub kaynak sahte temel çizgi öğretmez).
+        let engine = RuleEngine::new_test(vec![mem_pressure_rule()], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+
+        for _ in 0..200 {
+            monitor.calibration_tick(0, Duration::from_secs(1));
+        }
+        assert_eq!(monitor.calibrator.sample_count(), 0, "sıfır örnekler atlanmalı");
+
+        monitor.calibration_tick(0, CALIBRATION_WINDOW);
+        assert!(monitor.calibration_done);
+        // Statik 85 korunur: mem=72 → yok, mem=90 → var.
+        assert_eq!(action_count(&monitor, 72), 0, "iptal sonrası literal 85 korunmalı");
+        assert_eq!(action_count(&monitor, 90), 1);
+    }
+
+    #[test]
+    fn calibration_finalizes_only_once() {
+        let engine = RuleEngine::new_test(vec![mem_pressure_rule()], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+
+        for _ in 0..80 {
+            monitor.calibration_tick(60, Duration::from_secs(1));
+        }
+        monitor.calibration_tick(60, CALIBRATION_WINDOW);
+        assert!(monitor.calibration_done);
+        let count_after_finalize = monitor.calibrator.sample_count();
+
+        // Sonraki tick'ler ne örnekler ne yeniden finalize eder.
+        monitor.calibration_tick(99, CALIBRATION_WINDOW);
+        assert!(monitor.calibration_done);
+        assert_eq!(
+            monitor.calibrator.sample_count(),
+            count_after_finalize,
+            "finalize sonrası ek örnek alınmamalı"
+        );
     }
 }
