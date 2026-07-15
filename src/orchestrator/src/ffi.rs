@@ -403,6 +403,31 @@ fn system_events_for_sample(sample: &MetricSample) -> Vec<SystemEvent> {
     events
 }
 
+/// TALIMAT_FRAME_DROP_PLUMBING: `MetricSample`'dan medya event'lerini türetir
+/// (saf/test edilebilir — `system_events_for_sample`'ın mirror'ı).
+///
+/// KRİTİK FARK (memory'nin `> 0` guard'ından): `frame_drop_pct` KOŞULSUZ
+/// yayılır — %0 dahil. `frame_drop_pct` `u32` ve C++ kontratınca `[0,100]`
+/// (canary `is_valid()` bütünlüğü drainer'da zaten doğrulanmış), dolayısıyla
+/// filtrelenecek "geçersiz" değer yok; %0 gerçek/arzu edilen durum ve
+/// `frame_drop_recovery` kuralı (`< 5`) 0'da tetiklenmeli. Clamp tüketici
+/// sınırında (`handle_media`) yapılır.
+///
+/// Ham `frame_drops` sayacı ise yalnız `> 0` iken yayılır (mevcut davranış korunur):
+/// `FrameDropped` ile `FrameDropPct` AYRI event'ler — gate paylaşmazlar.
+fn media_events_for_sample(sample: &MetricSample) -> Vec<MediaEvent> {
+    let mut events = Vec::new();
+    events.push(MediaEvent::FrameDropPct {
+        pct: sample.frame_drop_pct,
+    });
+    if sample.frame_drops > 0 {
+        events.push(MediaEvent::FrameDropped {
+            count: sample.frame_drops,
+        });
+    }
+    events
+}
+
 fn rj_start_monitor_impl() {
     FFI_STATE.get_or_init(|| {
         let runtime = Runtime::new().expect("Tokio runtime olusturulamadi");
@@ -466,11 +491,12 @@ fn rj_start_monitor_impl() {
                         for evt in system_events_for_sample(&sample) {
                             let _ = bus_system.send(evt);
                         }
-                        // Kare-kaybı ayrı MediaEvent — inline kalır.
-                        if sample.frame_drops > 0 {
-                            let _ = bus_media.send(MediaEvent::FrameDropped {
-                                count: sample.frame_drops,
-                            });
+                        // TALIMAT_FRAME_DROP_PLUMBING: medya event türetimi saf
+                        // fonksiyonda (test edilebilir). `FrameDropPct` artık burada
+                        // KOŞULSUZ yayılıyor (eskiden hiç yayılmıyordu → üç
+                        // frame_drop kuralı current_metrics'e erişemiyordu).
+                        for evt in media_events_for_sample(&sample) {
+                            let _ = bus_media.send(evt);
                         }
                     }
                 }
@@ -1502,6 +1528,60 @@ mod tests {
         assert!(events.iter().any(|e| matches!(e, SystemEvent::GpuUsage { .. })));
         assert!(events.iter().any(|e| matches!(e, SystemEvent::MemUsage { .. })));
         assert!(events.iter().any(|e| matches!(e, SystemEvent::NetworkStats { .. })));
+    }
+
+    // --- TALIMAT_FRAME_DROP_PLUMBING: medya-metrik event türetimi ---
+
+    #[test]
+    fn frame_drop_pct_emitted_unconditionally_including_zero() {
+        // KRİTİK FARK (memory'den): frame_drop_pct KOŞULSUZ yayılır — %0 dahil.
+        // %0 geçerli/arzu edilen durum; `> 0` guard'ı BURAYA kopyalanmamalı
+        // (recovery kuralı `< 5` 0'da tetiklenmeli).
+        let mut s = sample_for_events();
+        s.frame_drop_pct = 0;
+        s.frame_drops = 0;
+        let events = media_events_for_sample(&s);
+        assert!(
+            events.iter().any(|e| matches!(e, MediaEvent::FrameDropPct { pct: 0 })),
+            "sıfır kare-kaybı yüzdesi de yayılmalı (filtrelenmemeli)"
+        );
+    }
+
+    #[test]
+    fn frame_drop_pct_carries_real_value() {
+        let mut s = sample_for_events();
+        s.frame_drop_pct = 12;
+        let events = media_events_for_sample(&s);
+        let pct = events.iter().find_map(|e| match e {
+            MediaEvent::FrameDropPct { pct } => Some(*pct),
+            _ => None,
+        });
+        assert_eq!(pct, Some(12), "gerçek frame_drop_pct birebir taşınmalı");
+    }
+
+    #[test]
+    fn frame_dropped_still_gated_on_count() {
+        // Regresyon: ham FrameDropped sayacı yalnız > 0 iken yayılır (mevcut davranış);
+        // ama FrameDropPct her hâlükârda yayılır → iki event ayrı, gate paylaşmaz.
+        let mut s = sample_for_events();
+        s.frame_drops = 0;
+        s.frame_drop_pct = 3;
+        let events = media_events_for_sample(&s);
+        assert!(
+            !events.iter().any(|e| matches!(e, MediaEvent::FrameDropped { .. })),
+            "frame_drops == 0 iken FrameDropped yayılmamalı"
+        );
+        assert!(
+            events.iter().any(|e| matches!(e, MediaEvent::FrameDropPct { .. })),
+            "FrameDropped gate'li olsa da FrameDropPct yayılmalı"
+        );
+
+        s.frame_drops = 7;
+        let events = media_events_for_sample(&s);
+        assert!(
+            events.iter().any(|e| matches!(e, MediaEvent::FrameDropped { count: 7 })),
+            "frame_drops > 0 iken FrameDropped yayılmalı"
+        );
     }
 
     // --- I24: cstr_bounded sınırlı okuma ---

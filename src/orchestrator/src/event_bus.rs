@@ -10,8 +10,14 @@ pub enum MediaEvent {
     SourceDisconnected { source_id: u32 },
     /// Kaynak yeniden bağlandı
     SourceReconnected  { source_id: u32 },
-    /// Kare düştü
+    /// Kare düştü (ham sayaç — yalnız > 0 iken yayılır)
     FrameDropped       { count: u32 },
+    /// Anlık kare-kayıp yüzdesi [0,100] (KOŞULSUZ yayılır, %0 dahil).
+    /// TALIMAT_FRAME_DROP_PLUMBING: memory'nin `> 0` guard'ından KRİTİK fark —
+    /// %0 geçerli/arzu edilen bir durum, `frame_drop_recovery` kuralı (`< 5`)
+    /// 0'da tetiklenmeli, dolayısıyla filtrelenmez. `FrameDropped`'tan AYRI event
+    /// (o gate'li ham sayaç; bu koşulsuz yüzde) — gate paylaşılmaz.
+    FrameDropPct       { pct: u32 },
     /// Encode hatası
     EncodeError        { code: i32 },
 }

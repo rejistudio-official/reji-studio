@@ -400,6 +400,17 @@ impl HealingMonitor {
                     self.cooldown.record(HealingLayer::Reactive);
                 }
             }
+            // TALIMAT_FRAME_DROP_PLUMBING: `memory_usage_pct`'in `handle_system`'deki
+            // set'inin birebir mirror'ı — anlık kare-kayıp yüzdesini kural motorunun
+            // gördüğü `current_metrics`'e akıt. Bu satır olmadan `frame_drop_pct`
+            // daima 0'da kalıyor, üç frame_drop kuralı ölü/sahte-tetikleniyordu.
+            // KRİTİK: %0 GERÇEK değerdir (recovery kuralı `< 5` 0'da tetiklenmeli) —
+            // filtre YOK, yalnız savunmacı `.min(100)` clamp (I14 ile tutarlı).
+            MediaEvent::FrameDropPct { pct } => {
+                let pct = pct.min(100);
+                debug!(pct, "frame drop pct metric");
+                self.current_metrics.frame_drop_pct = pct;
+            }
             MediaEvent::EncodeError { code } => {
                 error!(code, "encode error reported");
                 if self.cooldown.can_fire(HealingLayer::Reactive) {
@@ -937,6 +948,96 @@ mod tests {
             monitor.calibrator.sample_count(),
             count_after_finalize,
             "finalize sonrası ek örnek alınmamalı"
+        );
+    }
+
+    // ===== frame_drop_pct plumbing (TALIMAT_FRAME_DROP_PLUMBING) =====
+    //
+    // `memory_usage_pct`'in `handle_system`'de yaptığının birebir mirror'ı:
+    // `handle_media`, yeni `MediaEvent::FrameDropPct` event'ini alıp
+    // `current_metrics.frame_drop_pct`'i günceller. KRİTİK FARK: %0 GERÇEK bir
+    // değerdir (sağlıklı sistem) ve filtrelenmez — `frame_drop_recovery` kuralı
+    // (`< 5`) tam da 0'da tetiklenmeli.
+
+    /// TALIMAT'taki üç kuralın gerçek koşulları (rules.json.template ile birebir).
+    fn frame_drop_rules() -> Vec<Rule> {
+        vec![
+            make_rule("frame_drop_mild", "frame_drop_pct > 5 && frame_drop_pct <= 10",
+                "bitrate_reduce", 250, &["auto-pilot"]),
+            make_rule("frame_drop_high", "frame_drop_pct > 10",
+                "bitrate_reduce", 500, &["auto-pilot"]),
+            make_rule("frame_drop_recovery", "frame_drop_pct < 5",
+                "bitrate_recover", 250, &["auto-pilot"]),
+        ]
+    }
+
+    #[test]
+    fn frame_drop_pct_event_updates_current_metrics() {
+        // Plumbing: FrameDropPct event'i current_metrics'e akmalı (eskiden hiç
+        // set edilmiyordu → üç kural veriye erişemiyordu).
+        let mut monitor = make_monitor(Arc::new(Mutex::new(None)));
+        monitor.handle_media(MediaEvent::FrameDropPct { pct: 12 });
+        assert_eq!(monitor.current_metrics.frame_drop_pct, 12);
+    }
+
+    #[test]
+    fn frame_drop_pct_event_clamps_above_100() {
+        // Savunmacı sınırlama (I14 MetricState ile tutarlı) — filtre değil, clamp.
+        let mut monitor = make_monitor(Arc::new(Mutex::new(None)));
+        monitor.handle_media(MediaEvent::FrameDropPct { pct: 250 });
+        assert_eq!(monitor.current_metrics.frame_drop_pct, 100);
+    }
+
+    #[test]
+    fn three_frame_drop_rules_fire_across_pct_range() {
+        // Sentetik senaryo: mild/high/recovery üçü de doğru eşiklerde tetiklenmeli.
+        let engine = RuleEngine::new_test(frame_drop_rules(), 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+
+        // high (> 10) → bitrate_reduce 500
+        monitor.handle_media(MediaEvent::FrameDropPct { pct: 12 });
+        let high = monitor.collect_rule_actions(HealingMode::AutoPilot);
+        assert_eq!(high.len(), 1, "12%'de yalnız high tetiklenmeli");
+        assert!(matches!(high[0].rj.action_type, RjActionType::BitrateReduce));
+        assert_eq!(high[0].rj.param1, 500, "high → step_kbps 500");
+
+        // mild (> 5 && <= 10) → bitrate_reduce 250
+        monitor.handle_media(MediaEvent::FrameDropPct { pct: 8 });
+        let mild = monitor.collect_rule_actions(HealingMode::AutoPilot);
+        assert_eq!(mild.len(), 1, "8%'de yalnız mild tetiklenmeli");
+        assert!(matches!(mild[0].rj.action_type, RjActionType::BitrateReduce));
+        assert_eq!(mild[0].rj.param1, 250, "mild → step_kbps 250");
+
+        // recovery (< 5) → bitrate_recover 250
+        monitor.handle_media(MediaEvent::FrameDropPct { pct: 2 });
+        let recovery = monitor.collect_rule_actions(HealingMode::AutoPilot);
+        assert_eq!(recovery.len(), 1, "2%'de yalnız recovery tetiklenmeli");
+        assert!(matches!(recovery[0].rj.action_type, RjActionType::BitrateRecover));
+    }
+
+    #[test]
+    fn zero_pct_not_filtered_enables_recovery() {
+        // KRİTİK regresyon testi: memory'nin `> 0` guard'ı BURAYA kopyalansaydı
+        // gerçek %0, current_metrics'e ulaşmaz; bir tepe sonrası değer takılı kalır
+        // → recovery hiç, high sonsuza dek tetiklenirdi. Guard'sız iletim bunu önler.
+        let engine = RuleEngine::new_test(frame_drop_rules(), 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+
+        // Tepe: high tetiklenir, current_metrics 12'yi yansıtır.
+        monitor.handle_media(MediaEvent::FrameDropPct { pct: 12 });
+        assert_eq!(monitor.current_metrics.frame_drop_pct, 12);
+
+        // Sistem toparlanır — gerçek %0 gelir; FİLTRELENMEMELİ.
+        monitor.handle_media(MediaEvent::FrameDropPct { pct: 0 });
+        assert_eq!(
+            monitor.current_metrics.frame_drop_pct, 0,
+            "gerçek %0 current_metrics'e yansımalı (guard kopyalanmış olsaydı 12'de takılırdı)"
+        );
+        let recovery = monitor.collect_rule_actions(HealingMode::AutoPilot);
+        assert_eq!(recovery.len(), 1, "%0'da recovery tetiklenmeli");
+        assert!(
+            matches!(recovery[0].rj.action_type, RjActionType::BitrateRecover),
+            "%0'da tetiklenen kural recovery (bitrate_recover) olmalı"
         );
     }
 }

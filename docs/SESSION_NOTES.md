@@ -1,3 +1,67 @@
+## Oturum: 15 Temmuz 2026 — frame_drop_pct Plumbing Düzeltmesi ✅
+
+TALIMAT_FRAME_DROP_PLUMBING: `memory_usage_pct` düzeltmesinin (commit 1,
+`system_events_for_sample`) birebir aynı desende ikinci uygulaması. `rules.json`'da
+en çok referans verilen metriğin (`frame_drop_pct`) `RuleEngine` yolunda daima 0
+kalması → üç kural (`frame_drop_mild/high/recovery`) üretimde çalışmıyordu.
+
+### Faz 0 bulgusu (talimat öncülünü düzeltti — körü körüne kabul edilmedi)
+- **Kök neden:** `MetricSample.frame_drop_pct` (gerçek 30s rolling-window verisi)
+  yalnız I14 yoluyla `MetricState`→UI'ya akıyordu; drainer bu yüzdeyi HİÇBİR
+  event'e koymuyordu (yalnız `frame_drops > 0` iken ham sayaçlı `FrameDropped`).
+  `handle_media` de `current_metrics.frame_drop_pct`'i hiç set etmiyordu →
+  `RuleMetrics.frame_drop_pct` `Default` 0'da sabit. "Bir tüketiciye ulaşıyor,
+  diğerine ulaşmıyor" — memory'nin birebir aynısı.
+- **Öncül düzeltmesi (ciddiyet talimatın tahmininden yüksek):** Talimat "üç kural
+  ölü" diyordu. Kesin durum: `mild`(`>5&&<=10`) ve `high`(`>10`) ölü (0'da hiç),
+  ama `recovery`(`<5`) **ölü değil, sahte-tetikleniyordu** — değer sürekli 0
+  olduğundan koşul her ~10s (hysteresis) TRUE → anlamsız `bitrate_recover(250)`.
+  Yani bitrate sürekli yukarı sürünüyor, mild/high hiç kısamıyordu: pasif değil,
+  **aktif yanlış davranan bir healing döngüsü**.
+
+### KRİTİK guard kararı — memory'nin `> 0` guard'ı KOPYALANMADI
+`frame_drop_recovery` koşulu `frame_drop_pct < 5` → **0'da TRUE**. Guard
+kopyalansaydı, sistem sağlıklıyken üretilen gerçek %0 event olarak bastırılır,
+`current_metrics.frame_drop_pct` bir tepe sonrası (örn. 12) takılı kalır →
+recovery hiç, high sonsuza dek tetiklenirdi. Teorik uyarı → **doğrulanmış
+regresyon** (somut kanıt: `< 5` koşulu). Karar: guard YOK, koşulsuz iletim
+(%0 dahil). Gerekçe: `frame_drop_pct` `u32`/`[0,100]` (NaN/negatif tip düzeyinde
+imkânsız), canary `is_valid()` bütünlüğü drainer'da zaten yapılıyor → filtrelenecek
+"geçersiz" değer yok. Tek ek: tüketici sınırında (`handle_media`) savunmacı
+`.min(100)` clamp (filtre değil, I14 ile tutarlılık).
+
+### Uygulama (memory deseninin birebir mirror'ı)
+- `event_bus.rs`: yeni `MediaEvent::FrameDropPct { pct }` — `FrameDropped`'tan
+  AYRI (o gate'li ham sayaç; bu koşulsuz yüzde), gate paylaşmaz.
+- `ffi.rs`: saf `media_events_for_sample()` (`system_events_for_sample` mirror'ı),
+  drainer inline emisyonu bununla değiştirildi; `FrameDropPct` koşulsuz yayılıyor.
+- `healing.rs`: `handle_media`'ya arm — `current_metrics.frame_drop_pct = pct.min(100)`
+  (Manual-gate'in ardından, memory'nin `handle_system`'deki set'iyle simetrik).
+
+### Kullanıcıya görünen davranış değişikliği
+`frame_drop_mild/high/recovery` kuralları artık **gerçekten** tetiklenebilir —
+önceden mild/high hiç çalışmıyor, recovery sahte-tetikleniyordu. Bu bir davranış
+değişikliğidir (bilinçli, düzeltme amaçlı).
+
+### Test ve dürüstlük sınırı
+- **Kod testi (PASS):** 7 yeni birim/entegrasyon testi — plumbing (event→
+  current_metrics), clamp, üç kuralın eşik aralığında doğru tetiklenmesi ve
+  **kritik regresyon** (`zero_pct_not_filtered_enables_recovery`: guard kopyası
+  olsaydı yakalanacak senaryo). Tüm suite PASS (114 lib + 5 + 33 entegrasyon).
+- **Çalıştırılmadı (kod incelemesiyle doğrulandı):** C++ `PipelineCharacterization`
+  — değişiklik tamamen Rust-içi; `MetricSample` ABI'si ve `extern "C"` imzaları
+  dokunulmadı, `MediaEvent` iç enum (repr(C) değil, cbindgen'de yok) → C++ suite
+  yapıca etkilenemez. Yeniden derlenip çalıştırılmadı.
+
+### Kapsam dışı — kayıtlı kalsın (kural-tasarım kusuru, gelecek minik düzeltme)
+`frame_drop_pct == 5` tam değeri **hiçbir** kurala uymuyor: `recovery` `< 5`
+(0-4), `mild` `> 5 && <= 10` (6-10), `high` `> 10` (11+) → **5 sınır boşluğu**.
+Küçük ama gerçek; bu turda değiştirilmedi (kapsam dışı). İleride ayrı bir mini
+düzeltme adayı (örn. `recovery` `< 6` veya `mild` `>= 5`). Ayrıca `frame_drop_pct`'in
+kalibrasyona (Özellik#5) genişletilmesi de ayrı gelecek iş.
+
+---
+
 ## Oturum: 15 Temmuz 2026 — Özellik#2: Healing durumunu obs-websocket'e açmak (Aşama A) ✅
 
 ROADMAP madde 2 (I8 + I33 kesişimi). Read-only healing yayını: mod değişimi,
