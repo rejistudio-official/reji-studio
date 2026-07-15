@@ -991,6 +991,24 @@ pub fn enqueue_ui_event(event: RjActionEvent) {
     }
 }
 
+/// Özellik#3: Açıklamasız outcome'ları (approve/reject/invalidated anları — o an
+/// yalnız `RjAction` bilinir, üçlü açıklama yok) healing-log'a yazar. `metric_id`
+/// None(8), değerler 0; `rule_id`/`mode` çağrandan. Yalnız lock-free kuyruğa
+/// non-blocking push — disk/kilit yok, çağıran thread (tokio tick veya C++ frame
+/// thread) asla bloklanmaz.
+fn log_action_outcome(a: &RjAction, rule_id: &str, outcome: u32) {
+    crate::healing_log::log_healing(crate::healing_log::HealingLogRecord::now(
+        a.id,
+        rule_id.to_string(),
+        crate::rules::metric_id::NONE,
+        0,
+        0,
+        a.action_type as u32,
+        outcome,
+        HEALING_MODE.load(Ordering::Relaxed),
+    ));
+}
+
 /// V8/I33a: CoPilot'ta onay bekleyen aksiyonu depola + UI'a approval event
 /// gönder. Pending deposu kaynak-of-truth; UI event'i yalnız bildirim (kaybı
 /// TTL/re-üretim ile telafi edilir).
@@ -1000,6 +1018,17 @@ pub fn enqueue_pending(action: RjAction, rule_id: String, explanation: Explanati
         return;
     };
     let event = RjActionEvent::approval_event(&action, &explanation);
+    // Özellik#3: pending outcome — tam üçlü (metric/value/threshold) mevcut.
+    crate::healing_log::log_healing(crate::healing_log::HealingLogRecord::now(
+        action.id,
+        rule_id.clone(),
+        explanation.metric_id,
+        explanation.current_value,
+        explanation.threshold_value,
+        action.action_type as u32,
+        crate::healing_log::OUTCOME_PENDING,
+        HEALING_MODE.load(Ordering::Relaxed),
+    ));
     {
         let mut pending = state.pending_actions.lock().unwrap();
         pending.insert(
@@ -1016,7 +1045,7 @@ pub fn enqueue_pending(action: RjAction, rule_id: String, explanation: Explanati
 pub fn sweep_expired_pending() {
     let Some(state) = FFI_STATE.get() else { return; };
     let now = Instant::now();
-    let expired: Vec<RjAction> = {
+    let expired: Vec<(RjAction, String)> = {
         let mut pending = state.pending_actions.lock().unwrap();
         let ids: Vec<u32> = pending
             .iter()
@@ -1024,12 +1053,14 @@ pub fn sweep_expired_pending() {
             .map(|(id, _)| *id)
             .collect();
         ids.into_iter()
-            .filter_map(|id| pending.remove(&id).map(|e| e.action))
+            .filter_map(|id| pending.remove(&id).map(|e| (e.action, e.rule_id)))
             .collect()
     };
-    for action in expired {
+    for (action, rule_id) in expired {
         eprintln!("[Pending] TTL doldu, aksiyon iptal edildi: id={}", action.id);
         enqueue_ui_event(RjActionEvent::invalidated_event(&action));
+        // Özellik#3: TTL geçersizleşmesini healing-log'a yaz.
+        log_action_outcome(&action, &rule_id, crate::healing_log::OUTCOME_INVALIDATED);
     }
 }
 
@@ -1039,12 +1070,14 @@ pub fn sweep_expired_pending() {
 /// sonraki tick zaten yeniden üretir.
 fn clear_pending_on_mode_change() {
     let Some(state) = FFI_STATE.get() else { return; };
-    let drained: Vec<RjAction> = {
+    let drained: Vec<(RjAction, String)> = {
         let mut pending = state.pending_actions.lock().unwrap();
-        pending.drain().map(|(_, e)| e.action).collect()
+        pending.drain().map(|(_, e)| (e.action, e.rule_id)).collect()
     };
-    for action in drained {
+    for (action, rule_id) in drained {
         enqueue_ui_event(RjActionEvent::invalidated_event(&action));
+        // Özellik#3: mod değişimiyle geçersizleşmeyi healing-log'a yaz.
+        log_action_outcome(&action, &rule_id, crate::healing_log::OUTCOME_INVALIDATED);
     }
 }
 
@@ -1063,7 +1096,11 @@ pub extern "C" fn rj_action_approve(action_id: u32) -> i32 {
             return 0;
         };
         match state.action_queue.push(entry.action) {
-            Ok(_) => 1,
+            Ok(_) => {
+                // Özellik#3: onaylanıp aktüatöre giden aksiyonu applied olarak yaz.
+                log_action_outcome(&entry.action, &entry.rule_id, crate::healing_log::OUTCOME_APPLIED);
+                1
+            }
             Err(returned) => {
                 // Aktüatör kuyruğu dolu (cap 64'te pratikte olmaz): sessiz drop
                 // YOK — aksiyonu pending'de TUT, `0` dön. Bir sonraki approve/TTL
@@ -1116,6 +1153,8 @@ pub extern "C" fn rj_action_reject(action_id: u32) -> i32 {
                 // Invalidated yeniden kullanılır. Yalnız WS'e yayılır; C++ UI zaten
                 // reddi kendi başlattı, ui_event_queue'ya itilmez (çift işleme yok).
                 emit_healing_event(&RjActionEvent::invalidated_event(&entry.action));
+                // Özellik#3: reddedilen aksiyonu healing-log'a yaz.
+                log_action_outcome(&entry.action, &entry.rule_id, crate::healing_log::OUTCOME_REJECTED);
                 1
             }
             None => 0,

@@ -488,10 +488,12 @@ impl HealingMonitor {
     /// - CoPilot-manuel-kategori → pending deposu + approval-event (aktüatöre
     ///   GİTMEZ; yalnız `rj_action_approve` sonrası taşınır).
     fn evaluate_rule_engine(&self, mode: HealingMode) {
+        let mode_code = mode as u32; // Özellik#3: healing-log `mode` sütunu (0..3)
         for routed in self.collect_rule_actions(mode) {
             let auto = crate::ffi::category_auto_approve(routed.rj.action_type);
             if requires_approval(mode, auto) {
                 // CoPilot manuel-kategori: pending + approval event.
+                // Özellik#3: pending outcome enqueue_pending içinde loglanır.
                 crate::ffi::enqueue_pending(routed.rj, routed.rule_id, routed.explanation);
             } else {
                 // Otomatik: aktüatör + info event.
@@ -500,6 +502,18 @@ impl HealingMonitor {
                 if !enqueue_action(routed.rj) {
                     warn!(action_id = id, "rule action enqueue failed, kuyruk dolu");
                 }
+                // Özellik#3: otomatik uygulanan aksiyonu healing-log'a yaz (üçüncü
+                // fan-out). Tam üçlü (metric/value/threshold) üretim anında mevcut.
+                crate::healing_log::log_healing(crate::healing_log::HealingLogRecord::now(
+                    id,
+                    routed.rule_id,
+                    routed.explanation.metric_id,
+                    routed.explanation.current_value,
+                    routed.explanation.threshold_value,
+                    routed.rj.action_type as u32,
+                    crate::healing_log::OUTCOME_APPLIED,
+                    mode_code,
+                ));
             }
         }
     }
