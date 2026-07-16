@@ -380,8 +380,11 @@ pub extern "C" fn rj_start_monitor() {
 fn system_events_for_sample(sample: &MetricSample) -> Vec<SystemEvent> {
     let mut events = Vec::new();
 
+    // cpu_load_pct: C++ PDH sistem yükü (offset +44); cpu_percent (offset +24)
+    // burada OKUNMAZ — o alan MetricState/UI snapshot yoluna (rj_metrics_poll)
+    // aittir. RuleEngine cpu_load_high kuralını cpu_load_pct üzerinden çalıştırır.
     events.push(SystemEvent::CpuUsage {
-        ratio: sample.cpu_percent / 100.0,
+        ratio: sample.cpu_load_pct as f32 / 100.0,
     });
     if sample.gpu_load_pct > 0 {
         events.push(SystemEvent::GpuUsage {
@@ -1507,13 +1510,48 @@ mod tests {
     fn cpu_usage_always_emitted_others_guarded() {
         // Regresyon: CpuUsage koşulsuz; gpu/mem/network 0 iken yayılmaz.
         let mut s = sample_for_events();
-        s.cpu_percent = 55.0;
+        s.cpu_load_pct = 55;
         let events = system_events_for_sample(&s);
         assert_eq!(events.len(), 1, "yalnız CpuUsage kalmalı (diğerleri 0)");
         match &events[0] {
             SystemEvent::CpuUsage { ratio } => assert!((ratio - 0.55).abs() < 0.001),
             other => panic!("ilk event CpuUsage olmalı, alınan: {:?}", other),
         }
+    }
+
+    #[test]
+    fn cpu_usage_reads_cpu_load_pct_not_cpu_percent() {
+        // Pozitif kontrol: cpu_load_pct (PDH sistem yükü) CpuUsage ratio'sunu besler.
+        let mut s = sample_for_events();
+        s.cpu_load_pct = 91;
+        let events = system_events_for_sample(&s);
+        let ratio = events.iter().find_map(|e| match e {
+            SystemEvent::CpuUsage { ratio } => Some(*ratio),
+            _ => None,
+        });
+        assert!(ratio.is_some(), "CpuUsage her zaman yayılmalı");
+        assert!((ratio.unwrap() - 0.91).abs() < 0.001, "cpu_load_pct/100 = 0.91");
+    }
+
+    #[test]
+    fn cpu_usage_ignores_cpu_percent_field() {
+        // Negatif kontrol: cpu_percent farklı değerde olsa bile CpuUsage,
+        // cpu_load_pct'yi yansıtır. "Yanlışlıkla eski alanı okuyor" regresyonunu
+        // doğrudan yakalar — cpu_percent=10.0 ise ratio 0.10 çıkar, 0.91 değil.
+        let mut s = sample_for_events();
+        s.cpu_load_pct = 91;
+        s.cpu_percent  = 10.0;  // farklı kaynak — burası okunmamalı
+        let events = system_events_for_sample(&s);
+        let ratio = events.iter().find_map(|e| match e {
+            SystemEvent::CpuUsage { ratio } => Some(*ratio),
+            _ => None,
+        });
+        assert!(ratio.is_some(), "CpuUsage her zaman yayılmalı");
+        assert!(
+            (ratio.unwrap() - 0.91).abs() < 0.001,
+            "cpu_load_pct=91 → ratio=0.91 beklendi, alınan: {:?}",
+            ratio.unwrap()
+        );
     }
 
     #[test]
