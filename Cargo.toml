@@ -18,7 +18,6 @@ serde       = { version = "1",   features = ["derive"] }
 serde_json  = { version = "1" }
 rmp-serde   = { version = "1" }
 toml        = { version = "0.8" }
-redb        = { version = "2" }
 axum        = { version = "0.7" }
 tracing     = { version = "0.1" }
 # Özellik#3 healing-log: gömülü SQLite. `bundled` — SQLite C kaynağı crate içinde
