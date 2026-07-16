@@ -21,6 +21,18 @@ getrandom   = { workspace = true }
 subtle      = { workspace = true }
 rusqlite    = { workspace = true }  # Özellik#3 healing-log (bundled SQLite)
 
+# GetStats (obs-websocket): memoryUsage/availableDiskSpace için anlık OS sorgusu.
+# Yalnız Windows hedefinde linklenir (proje Windows-only; sys_stats non-Windows'ta 0.0
+# döndürür). Makro-suz, hafif — yalnız gereken 4 alt-modül feature'ı. windows-sys 0.61
+# zaten transitive bağımlılık (Cargo.lock) → yeni sürüm ağacı getirmez.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-tungstenite  = "0.24"

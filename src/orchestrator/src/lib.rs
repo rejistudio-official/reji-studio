@@ -8,4 +8,5 @@ pub mod metrics;
 pub mod obs_protocol;
 pub mod paths;
 pub mod rules;
+pub mod sys_stats;
 pub mod ws_server;
