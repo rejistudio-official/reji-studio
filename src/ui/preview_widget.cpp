@@ -138,6 +138,7 @@ void PreviewWidget::setCopyOptimizer(GpuCopyOptimizer* optimizer) {
 }
 
 void PreviewWidget::selectRenderPath(uint32_t vendor_id) {
+    (void)vendor_id;
     const RenderProfile profile = CapabilityDetector::detect();
     d_->render_path = profile.path;
     fprintf(stderr, "[PreviewWidget] render path: %s (vendor=0x%04X)\n",

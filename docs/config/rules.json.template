@@ -3,7 +3,7 @@
     {
       "id": "frame_drop_mild",
       "description": "Frame drop < 10%, mild reduction",
-      "condition": "frame_drop_pct > 5 && frame_drop_pct <= 10",
+      "condition": "frame_drop_pct >= 5 && frame_drop_pct <= 10",
       "action": "bitrate_reduce",
       "params": {
         "step_kbps": 250
