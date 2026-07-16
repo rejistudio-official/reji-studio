@@ -121,6 +121,8 @@ fn dispatch_request(
     request_id: &str,
     request_data: &Value,
     state: &WsState,
+    ws_incoming: u64,
+    ws_outgoing: u64,
 ) -> obs_protocol::WsEnvelope {
     use obs_protocol::{request_response_err, request_response_ok, request_status};
     match request_type {
@@ -134,6 +136,42 @@ fn dispatch_request(
                 "rejiStudioVersion": env!("CARGO_PKG_VERSION"),
             }),
         ),
+        "GetStats" => {
+            // obs-websocket v5 GetStats — tam 11 alan. Dürüstlük ilkesi (GetStreamStatus ile
+            // aynı): gerçek kaynak varsa doldurulur, yoksa 0/0.0 (tahmini değer üretilmez).
+            //   MetricState (zaten var):
+            //     cpuUsage           ← cpu() = cpu_percent (UI metrik barıyla AYNI kaynak;
+            //                          PDH sistem yükü cpu_load_pct RuleEngine'e özel, MetricState'te
+            //                          tutulmaz — bkz. commit 224c4af).
+            //     activeFps          ← fps()
+            //     outputSkippedFrames← frame_drops() (GetStreamStatus ile aynı)
+            //   Anlık OS sorgusu (sys_stats — streaming telemetri değil, sorgu-anı gerçeği):
+            //     memoryUsage        ← process working-set MB
+            //     availableDiskSpace ← çalışma dizini sürücüsü boş alan MB
+            //   Oturum sayaçları (bağlantı-yerel):
+            //     webSocketSessionIncoming/OutgoingMessages ← ws_incoming/ws_outgoing
+            //   Bilinçli 0 (Reji mimarisinde karşılığı yok / FFI ABI gerektirir — MVP sınırı,
+            //   Faz 0 onayı): averageFrameRenderTime, renderSkippedFrames, renderTotalFrames
+            //   (WGC zero-copy'de render-thread kavramı yok), outputTotalFrames (C++ total_frames
+            //   FFI'da taşınmıyor → ertelendi).
+            request_response_ok(
+                request_type,
+                request_id,
+                json!({
+                    "cpuUsage": state.metric_state.cpu() as f64,
+                    "memoryUsage": crate::sys_stats::process_memory_mb(),
+                    "availableDiskSpace": crate::sys_stats::available_disk_mb(),
+                    "activeFps": state.metric_state.fps() as f64,
+                    "averageFrameRenderTime": 0.0,
+                    "renderSkippedFrames": 0,
+                    "renderTotalFrames": 0,
+                    "outputSkippedFrames": state.metric_state.frame_drops(),
+                    "outputTotalFrames": 0,
+                    "webSocketSessionIncomingMessages": ws_incoming,
+                    "webSocketSessionOutgoingMessages": ws_outgoing,
+                }),
+            )
+        }
         "StartStream" => {
             // Legacy yolla aynı kanal; streaming_active tüketici tarafında güncellenir.
             let _ = state.cmd_tx.send("stream_start".to_string());
@@ -406,6 +444,14 @@ struct Session {
     /// Identify DIŞI her mesaj 4007 ile reddedilir (aşağıdaki guard).
     authenticated: bool,
     auth: Option<PendingAuth>,
+    /// GetStats `webSocketSessionIncomingMessages`: bu bağlantıda sınıflandırılan istemci
+    /// protokol mesajı sayısı. Bağlantı-yerel (paylaşılmaz). Her `process_client_msg`
+    /// girişinde +1 (reddedilen mesajlar da sayılır — gerçekten ALINDILAR).
+    incoming_messages: u64,
+    /// GetStats `webSocketSessionOutgoingMessages`: bu bağlantıya gönderilen protokol
+    /// mesajı sayısı (Hello + Identified + RequestResponse + event). Kurucularda 1 ile
+    /// başlar (açılışta gönderilen Hello). Close kontrol-frame'leri sayılmaz (terminal).
+    outgoing_messages: u64,
 }
 
 struct PendingAuth {
@@ -426,6 +472,9 @@ async fn process_client_msg(
     state: &WsState,
     raw_text: Option<&str>,
 ) -> bool {
+    // GetStats sayacı: her sınıflandırılan istemci mesajı bir "incoming"dir — ret
+    // (4007 guard) öncesinde sayılır çünkü mesaj gerçekten alındı.
+    session.incoming_messages += 1;
     // V8/I8: Parola ayarlıyken (authenticated=false) doğrulanmamış oturumdan
     // Identify DIŞI HER mesaj (obs Request VE legacy `{cmd}` VE diğer obs op'ları)
     // 4007 ile reddedilir — I8'in asıl açığı legacy `{cmd}` yoluydu ve o da bu tek
@@ -475,6 +524,7 @@ async fn process_client_msg(
             if !send_env(socket, wire_mode, &obs_protocol::identified()).await {
                 return false;
             }
+            session.outgoing_messages += 1; // Identified gönderildi
             session.identified = true;
             eprintln!("[WS] obs-websocket istemcisi identified");
             true
@@ -488,8 +538,21 @@ async fn process_client_msg(
                     request_type
                 );
             }
-            let resp = dispatch_request(&request_type, &request_id, &request_data, state);
-            send_env(socket, wire_mode, &resp).await
+            // Sayaç snapshot'ı: incoming bu isteği DE içerir (üstte +1 edildi); outgoing
+            // henüz bu yanıtı içermez (aşağıda gönderilecek) — GetStats için doğru anlık.
+            let resp = dispatch_request(
+                &request_type,
+                &request_id,
+                &request_data,
+                state,
+                session.incoming_messages,
+                session.outgoing_messages,
+            );
+            let sent = send_env(socket, wire_mode, &resp).await;
+            if sent {
+                session.outgoing_messages += 1; // RequestResponse gönderildi
+            }
+            sent
         }
         // Identify/Request dışı obs mesajları yalnızca log'lanır
         ClientMsg::Obs => {
@@ -535,6 +598,8 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                 identified: false,
                 authenticated: false,
                 auth: Some(PendingAuth { salt, challenge, password: pw.clone() }),
+                incoming_messages: 0,
+                outgoing_messages: 1, // az önce gönderilen Hello (auth'lu)
             }
         }
         None => {
@@ -542,7 +607,13 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                 return;
             }
             // Parola yok → authenticated vacuously true (gating kapalı, bugünkü davranış).
-            Session { identified: false, authenticated: true, auth: None }
+            Session {
+                identified: false,
+                authenticated: true,
+                auth: None,
+                incoming_messages: 0,
+                outgoing_messages: 1, // az önce gönderilen Hello
+            }
         }
     };
 
@@ -589,6 +660,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                         if socket.send(m).await.is_err() {
                             break;
                         }
+                        session.outgoing_messages += 1; // event (metrik/VendorEvent) gönderildi
                     }
                 }
             }

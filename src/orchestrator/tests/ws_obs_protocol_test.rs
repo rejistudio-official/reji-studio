@@ -508,6 +508,93 @@ async fn frame_drops_metric_state_uzerinden_yansir() {
     );
 }
 
+// ── GetStats: tam alan seti + MetricState/OS/oturum kaynakları ─────────────────
+
+/// GetStats'ın responseData'sını döndürür (handshake tamamlanmış istemcide).
+async fn get_stats(ws: &mut Client) -> Value {
+    send_request(ws, "GetStats", "gs").await;
+    let r = next_json(ws).await;
+    r["d"]["responseData"].clone()
+}
+
+#[tokio::test]
+async fn get_stats_tam_alan_seti_ve_tipler() {
+    // Regresyon guard'ı: obs-websocket v5 GetStats'ın 11 alanı da (isim + tip) yanıtta olmalı.
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    let data = get_stats(&mut ws).await;
+
+    // MetricState / OS kaynaklı sayısal alanlar
+    assert!(data["cpuUsage"].is_number(), "cpuUsage number olmalı");
+    assert!(data["memoryUsage"].is_number(), "memoryUsage number olmalı");
+    assert!(data["availableDiskSpace"].is_number(), "availableDiskSpace number olmalı");
+    assert!(data["activeFps"].is_number(), "activeFps number olmalı");
+    assert!(data["outputSkippedFrames"].is_u64(), "outputSkippedFrames number olmalı");
+    // Oturum sayaçları
+    assert!(data["webSocketSessionIncomingMessages"].is_u64(), "incoming number olmalı");
+    assert!(data["webSocketSessionOutgoingMessages"].is_u64(), "outgoing number olmalı");
+    // Bilinçli 0 alanlar (MVP sınırı — Reji'de karşılığı yok / FFI ABI gerektirir)
+    assert_eq!(data["averageFrameRenderTime"], 0.0, "render-thread kavramı yok → 0.0");
+    assert_eq!(data["renderSkippedFrames"], 0, "render skip kavramı yok → 0");
+    assert_eq!(data["renderTotalFrames"], 0, "render total kavramı yok → 0");
+    assert_eq!(data["outputTotalFrames"], 0, "toplam kare sayacı FFI'da yok → 0 (ertelendi)");
+
+    // Non-negatiflik / sonluluk (dürüstlük + JSON güvenliği)
+    assert!(data["memoryUsage"].as_f64().unwrap() >= 0.0);
+    assert!(data["availableDiskSpace"].as_f64().unwrap() >= 0.0);
+
+    // Oturum sayaçları: en az Hello (+Identified) gitti; en az bu GetStats isteği geldi.
+    assert!(
+        data["webSocketSessionIncomingMessages"].as_u64().unwrap() >= 1,
+        "en az GetStats isteği incoming sayılmalı"
+    );
+    assert!(
+        data["webSocketSessionOutgoingMessages"].as_u64().unwrap() >= 2,
+        "en az Hello + Identified outgoing sayılmalı"
+    );
+}
+
+#[tokio::test]
+async fn get_stats_metric_state_degerlerini_yansitir() {
+    // MetricState'e fps/cpu/frame_drops yaz; GetStats bunları birebir okumalı (handler'ın
+    // doğru kaynağı okuduğunu doğrular — mimari ilke: yeni toplama yolu yok, MetricState tüketicisi).
+    let (state, _cmd_rx, _evt_tx) = make_state();
+    let observer = state.clone(); // aynı Arc — sunucunun okuduğu MetricState ile birebir
+    observer.metric_state.fps_actual.store((59.94 * 100.0) as u32, Ordering::Relaxed);
+    observer.metric_state.cpu_percent.store((32.5 * 100.0) as u32, Ordering::Relaxed);
+    observer.metric_state.frame_drops.store(7, Ordering::Relaxed);
+
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let _hello = next_json(&mut ws).await;
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let _identified = next_json(&mut ws).await;
+
+    let data = get_stats(&mut ws).await;
+
+    assert!(
+        (data["activeFps"].as_f64().unwrap() - 59.94).abs() < 0.01,
+        "activeFps MetricState.fps()'i yansıtmalı, alınan: {}", data["activeFps"]
+    );
+    assert!(
+        (data["cpuUsage"].as_f64().unwrap() - 32.5).abs() < 0.01,
+        "cpuUsage MetricState.cpu()'yu yansıtmalı, alınan: {}", data["cpuUsage"]
+    );
+    assert_eq!(
+        data["outputSkippedFrames"], 7,
+        "outputSkippedFrames MetricState.frame_drops'u yansıtmalı"
+    );
+}
+
 // ── Faz 1 Aşama 5: GetSceneList / SetCurrentProgramScene ───────────────────────
 
 /// GetSceneList isteyip responseData'yı döndürür (handshake tamamlanmış istemcide).
