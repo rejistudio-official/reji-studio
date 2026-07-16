@@ -101,6 +101,11 @@ private slots:
     /// Debounce dolunca: yolu (atomic-save sonrası) yeniden ekler ve
     /// rj_reload_rules çağırıp sonucu lbl_rules_'a yazar.
     void reloadRulesNow();
+    /// Mevcut rules.json'ı kullanıcının seçtiği konuma kopyalar.
+    void exportRules();
+    /// Seçilen dosyayı doğrulayıp (geçici konumda) rules.json üzerine yazar;
+    /// yedek rules.json.backup alır, reload'u watcher'a veya elle tetikler.
+    void importRules();
     /// 200 ms poll: V8/I33 — drains rj_action_event_dequeue (UI event kuyruğu,
     /// aktüatörden ayrı) and feeds HealingOverlay.
     void pollHealingActions();

@@ -33,6 +33,8 @@ public:
     // v0.4+ Hot-reload
     QCheckBox* chk_auto_reload{nullptr};
     QPushButton* btn_edit_rules{nullptr};
+    QPushButton* btn_export_rules{nullptr};
+    QPushButton* btn_import_rules{nullptr};
 
     // Yayın çıkış ayarları (Faz2/Aşama2.2: SRT + RTMP protokol seçimi)
     QComboBox* combo_protocol{nullptr};   // 0=SRT, 1=RTMP (rj::TransportProtocol)
@@ -104,10 +106,25 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     auto* grp_hotreload = new QGroupBox(tr("Kural Yönetimi (v0.4+)"), this);
     auto* layout_hotreload = new QVBoxLayout(grp_hotreload);
 
+    auto* layout_rule_btns = new QHBoxLayout;
+
     d_->btn_edit_rules = new QPushButton(tr("Kuralları Düzenle..."), this);
     connect(d_->btn_edit_rules, &QPushButton::clicked,
             this, &SettingsDialog::onEditRulesClicked);
-    layout_hotreload->addWidget(d_->btn_edit_rules);
+    layout_rule_btns->addWidget(d_->btn_edit_rules);
+
+    d_->btn_export_rules = new QPushButton(tr("Dışa Aktar..."), this);
+    connect(d_->btn_export_rules, &QPushButton::clicked,
+            this, &SettingsDialog::onExportRulesClicked);
+    layout_rule_btns->addWidget(d_->btn_export_rules);
+
+    d_->btn_import_rules = new QPushButton(tr("İçe Aktar..."), this);
+    connect(d_->btn_import_rules, &QPushButton::clicked,
+            this, &SettingsDialog::onImportRulesClicked);
+    layout_rule_btns->addWidget(d_->btn_import_rules);
+
+    layout_rule_btns->addStretch();
+    layout_hotreload->addLayout(layout_rule_btns);
 
     d_->chk_auto_reload = new QCheckBox(tr("Otomatik yeniden yükle (dosya değiştiğinde)"), this);
     d_->chk_auto_reload->setChecked(false);
@@ -283,6 +300,14 @@ void SettingsDialog::setAutoReloadEnabled(bool enabled) {
 
 void SettingsDialog::onEditRulesClicked() {
     emit editRulesRequested();
+}
+
+void SettingsDialog::onExportRulesClicked() {
+    emit exportRulesRequested();
+}
+
+void SettingsDialog::onImportRulesClicked() {
+    emit importRulesRequested();
 }
 
 void SettingsDialog::onAutoReloadToggled(int state) {

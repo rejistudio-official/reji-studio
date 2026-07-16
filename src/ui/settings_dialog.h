@@ -41,12 +41,16 @@ signals:
     void healingModeChanged(HealingMode mode);
     void editRulesRequested();
     void autoReloadToggled(bool enabled);
+    void exportRulesRequested();
+    void importRulesRequested();
 
 private slots:
     void onModeChanged(int index);
     void onOkClicked();
     void onEditRulesClicked();
     void onAutoReloadToggled(int state);
+    void onExportRulesClicked();
+    void onImportRulesClicked();
 
 private:
     class Impl;

@@ -36,6 +36,8 @@
 #include <QThread>
 #include <QDateTime>
 #include <QTimer>
+#include <QFileDialog>
+#include <QTemporaryFile>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -96,6 +98,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // "Otomatik yeniden yükle" — dosya izleme + hot-reload (Commit 2).
     connect(settings_dialog_, &reji::SettingsDialog::autoReloadToggled,
             this, &MainWindow::onAutoReloadToggled);
+    // "Dışa Aktar / İçe Aktar" — kural seti paylaşımı.
+    connect(settings_dialog_, &reji::SettingsDialog::exportRulesRequested,
+            this, &MainWindow::exportRules);
+    connect(settings_dialog_, &reji::SettingsDialog::importRulesRequested,
+            this, &MainWindow::importRules);
     // Kalıcı durum: açılışta önceki oturumdaki tercihi geri yükle. setChecked
     // stateChanged → autoReloadToggled zincirini tetikler, izleme kurulur.
     if (settings_.value(QStringLiteral("rules/auto_reload"), false).toBool()) {
@@ -743,6 +750,123 @@ void MainWindow::reloadRulesNow() {
         // reload temizler — zaman aşımıyla kaybolmaz.
         lbl_rules_->setStyleSheet(QStringLiteral("color:#E53935;"));
         lbl_rules_->setText(tr("Kurallar: YÜKLEME HATASI — eski kurallar korunuyor (JSON?)"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kural seti paylaşımı — dışa/içe aktar.
+// ---------------------------------------------------------------------------
+void MainWindow::exportRules() {
+    const QString src = rulesFilePath();
+    if (!QFileInfo::exists(src)) {
+        QMessageBox::warning(this, tr("Dışa Aktar"),
+            tr("Dışa aktarılacak kural dosyası bulunamadı:\n%1").arg(src));
+        return;
+    }
+
+    const QString defaultName = QStringLiteral("reji-rules-%1.json")
+        .arg(QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd")));
+    const QString dest = QFileDialog::getSaveFileName(
+        this,
+        tr("Kural Setini Dışa Aktar"),
+        QDir::homePath() + QLatin1Char('/') + defaultName,
+        tr("JSON Kural Dosyası (*.json);;Tüm dosyalar (*)"));
+
+    if (dest.isEmpty()) return;
+
+    if (QFile::exists(dest) && !QFile::remove(dest)) {
+        QMessageBox::warning(this, tr("Dışa Aktar"),
+            tr("Hedef dosya silinemedi:\n%1").arg(dest));
+        return;
+    }
+
+    if (!QFile::copy(src, dest)) {
+        QMessageBox::warning(this, tr("Dışa Aktar"),
+            tr("Dosya kopyalanamadı:\n%1\n→ %2").arg(src, dest));
+        return;
+    }
+
+    if (lbl_rules_) {
+        lbl_rules_->setStyleSheet(QString());
+        lbl_rules_->setText(tr("Kurallar: dışa aktarıldı → %1")
+            .arg(QFileInfo(dest).fileName()));
+        lbl_rules_->show();
+    }
+}
+
+void MainWindow::importRules() {
+    const QString src = QFileDialog::getOpenFileName(
+        this,
+        tr("Kural Setini İçe Aktar"),
+        QDir::homePath(),
+        tr("JSON Kural Dosyası (*.json);;Tüm dosyalar (*)"));
+
+    if (src.isEmpty()) return;
+
+    // Adım 1: Geçici konuma kopyala ve doğrula (asıl rules.json'a DOKUNMA).
+    QTemporaryFile tmp;
+    tmp.setAutoRemove(true);
+    if (!tmp.open()) {
+        QMessageBox::warning(this, tr("İçe Aktar"),
+            tr("Geçici doğrulama dosyası oluşturulamadı."));
+        return;
+    }
+    const QString tmpPath = tmp.fileName();
+    tmp.close();
+
+    if (!QFile::copy(src, tmpPath)) {
+        QMessageBox::warning(this, tr("İçe Aktar"),
+            tr("Doğrulama için kopyalanamadı:\n%1").arg(src));
+        return;
+    }
+
+    const QByteArray tmpPathUtf8 = tmpPath.toUtf8();
+    if (rj_reload_rules(tmpPathUtf8.constData()) != 1) {
+        QFile::remove(tmpPath);
+        if (lbl_rules_) {
+            lbl_rules_->setStyleSheet(QStringLiteral("color:#E53935;"));
+            lbl_rules_->setText(tr("Kurallar: İÇE AKTARIM REDDEDİLDİ — geçersiz dosya (JSON/alan hatası?)"));
+            lbl_rules_->show();
+        }
+        QMessageBox::warning(this, tr("İçe Aktar"),
+            tr("Seçilen dosya geçersiz — mevcut kurallar korunuyor.\n\n"
+               "Beklenen format: geçerli JSON, her kuralda 'id', 'condition', 'action' alanları."));
+        return;
+    }
+    QFile::remove(tmpPath);
+
+    // Adım 2: Mevcut rules.json'ı yedekle.
+    const QString dest    = rulesFilePath();
+    const QString backup  = dest + QStringLiteral(".backup");
+    if (QFileInfo::exists(dest)) {
+        QFile::remove(backup);
+        QFile::copy(dest, backup);
+    }
+
+    // Adım 3: Üst dizini oluştur (henüz yoksa) ve yeni dosyayı yaz.
+    const QDir parentDir = QFileInfo(dest).dir();
+    if (!parentDir.exists()) parentDir.mkpath(QStringLiteral("."));
+
+    QFile::remove(dest);
+    if (!QFile::copy(src, dest)) {
+        QMessageBox::warning(this, tr("İçe Aktar"),
+            tr("Dosya yazılamadı:\n%1").arg(dest));
+        return;
+    }
+
+    // Adım 4: Reload — watcher aktifse bırak, değilse elle tetikle.
+    const bool watcherActive = settings_dialog_ && settings_dialog_->isAutoReloadEnabled();
+    if (!watcherActive) {
+        // Watcher kapalı: yolu (yeni oluştu) da ekleyebiliriz; elle yükle.
+        armRulesWatch();
+        reloadRulesNow();
+    } else {
+        // Watcher zaten izliyor — dosya değişimini algılayıp debounce ile tetikler.
+        if (lbl_rules_) {
+            lbl_rules_->setStyleSheet(QString());
+            lbl_rules_->setText(tr("Kurallar: içe aktarıldı — yeniden yükleniyor..."));
+            lbl_rules_->show();
+        }
     }
 }
 

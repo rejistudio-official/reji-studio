@@ -51,6 +51,12 @@ arşive taşındı.
 
 ---
 
+## Oturum: 16 Temmuz 2026 — Paylaşılabilir Kural Setleri (Dışa/İçe Aktar)
+
+**Bilinçli sınırlama (MVP/YAGNI):** `rules.json.backup` tek seviyeli — art arda iki içe aktarımda ilk yedek kaybolur. Çok seviyeli yedek (`.backup.1`, `.backup.2` vb.) YAGNI kapsamı dışında bırakıldı; kayıp kabul edilebilir, kullanıcı farkında.
+
+---
+
 ## Oturum: 15 Temmuz 2026 — GUI Kullanıcı Gözlemleri (CUT/FADE, Sahne Değişimi) ✅ KAPANDI
 
 TALIMAT_GUI_GOZLEM_ARASTIRMA: kullanıcının çalışan app'te yaptığı 5 canlı gözlem
