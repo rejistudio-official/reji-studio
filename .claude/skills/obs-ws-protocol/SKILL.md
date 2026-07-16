@@ -162,5 +162,26 @@ Auth (V8/I8) ✅ — obs-websocket v5 kimlik doğrulaması (11.07, 7 commit):
     + 7 handshake/4007/4009 entegrasyon (ws_obs_protocol_test). Client-side auth
     testte BAĞIMSIZ hesaplanır (sha2/base64 dev-dep).
 
+GetStats ✅ — obs-websocket v5 GetStats (11 alan), `dispatch_request` yeni kolu:
+  - **Gerçek (MetricState — mevcut tüketici deseni, yeni toplama yolu YOK):** `cpuUsage`
+    (`cpu()` = cpu_percent, UI metrik barıyla AYNI kaynak; PDH `cpu_load_pct` RuleEngine'e
+    özel, MetricState'te tutulmaz — commit 224c4af), `activeFps` (`fps()`), `outputSkippedFrames`
+    (`frame_drops()`, GetStreamStatus ile aynı).
+  - **Gerçek (anlık OS sorgusu — `src/orchestrator/src/sys_stats.rs`, windows-sys):**
+    `memoryUsage` (process working-set MB, `GetProcessMemoryInfo`), `availableDiskSpace`
+    (çalışma dizini sürücüsü boş alan MB, `GetDiskFreeSpaceExW`). Streaming telemetri DEĞİL,
+    sorgu-anı OS gerçeği — bilinçli sınır (statik-link → C++ app ile aynı process → working-set
+    = tüm uygulama belleği). Non-Windows'ta 0.0.
+  - **Gerçek (oturum sayaçları — bağlantı-yerel, `Session`):** `webSocketSessionIncomingMessages`
+    (her sınıflandırılan istemci mesajı), `webSocketSessionOutgoingMessages` (Hello/Identified/
+    RequestResponse/event). `dispatch_request`'e snapshot olarak geçer.
+  - **Bilinçli 0 (MVP sınırı, dürüstlük ilkesi — TALIMAT_GETSTATS Faz 0 onayı):**
+    `averageFrameRenderTime`/`renderSkippedFrames`/`renderTotalFrames` (WGC zero-copy'de
+    render-thread kavramı yok), `outputTotalFrames` (C++ `total_frames` FFI ABI'da taşınmıyor
+    → ertelendi). `GetStreamStatus`'un 3 stub'ı (`outputBytes`/`outputTotalFrames`/`outputCongestion`)
+    da AYNI sınırla 0 kaldı (FFI ABI değişikliği gerektirir → bu turun kapsamı dışı).
+  - Testler: `get_stats_tam_alan_seti_ve_tipler`, `get_stats_metric_state_degerlerini_yansitir`
+    (ws suite 33→35); `sys_stats` birim testleri (lib).
+
 Sonraki aşamaları TASK dosyası/CONTEXT.md'den doğrula; bu skill'i her aşama
 tamamlandığında güncelle (tamamlanan requestType'ların listesini buraya ekle).
