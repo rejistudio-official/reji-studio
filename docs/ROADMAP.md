@@ -1287,6 +1287,12 @@ daha düşük risk — JSON, çalıştırılabilir kod değil, mevcut `rj_reload
 > (`QFileSystemWatcher` → `rj_reload_rules`) artık gerçekten bağlı (önceden ölü stub'tı).
 > Dışa/İçe aktar UI'ı bu düzenle+reload boru hattının üstüne oturabilir. Bkz.
 > `SESSION_NOTES.md` "Ayarlar zenginleştirme #1" ve `docs/talimatlar/TALIMAT_KURALLARI_DUZENLE.md`.
+>
+> **İmplemente edildi (16 Tem 2026):** "Dışa Aktar..." ve "İçe Aktar..." butonları
+> SettingsDialog "Kural Yönetimi" bölümüne eklendi. İçe aktarım: geçici konumda
+> `rj_reload_rules` ile doğrula → `rules.json.backup` al → yaz → watcher/elle reload
+> (çift-reload yok). Kalibrasyon verisi paylaşılmıyor (Özellik#5 kararı korundu).
+> Bkz. `SESSION_NOTES.md` "Paylaşılabilir Kural Setleri" ve `TALIMAT_KURAL_SETI_PAYLASIM.md`.
 
 ---
 
