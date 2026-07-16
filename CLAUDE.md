@@ -151,6 +151,18 @@ Her büyük görev bittikten sonra:
 
 ---
 
+## 8b. Dal Stratejisi
+
+| Değişiklik türü | Strateji |
+|---|---|
+| Tek commit'lik, dar kapsamlı düzeltme (örn. tek-satır plumbing fix) | Doğrudan `master` — feature dalı gereksiz |
+| İki veya daha fazla commit içeren **VE** (davranış değiştiren **VEYA** güvenlik-hassas) özellik | Feature dalı (`feat/…`) → `git merge --ff-only master` → dal sil |
+
+**Pratik kural:** İki commit sınırını geçiyor mu? Dur, `git checkout -b feat/…` ile dal aç.
+Güvenlik-hassas özellik mi (doğrulama akışı, FFI sınırı, auth)? Tek commit olsa bile dal kullan.
+
+---
+
 ## 9. Kritik Dosya Referansları
 
 | Dosya | Açıklama | Risk |
