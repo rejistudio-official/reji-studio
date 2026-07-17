@@ -174,6 +174,7 @@ if(WIN32)
         audio_subsystem.cpp
         audio/aac_encoder.cpp          # Ses Ayarları: Media Foundation AAC-LC encoder
         audio/audio_encode_bridge.cpp  # Ses Ayarları: capture→AAC→RTMP köprüsü (SPSC ring)
+        audio/audio_device_enum.cpp    # Ses Ayarları: WASAPI cihaz enumerasyonu (UI dropdown)
     )
     # Media Foundation (AAC encoder MFT) — capture'ın ole32/avrt'sine ek.
     target_link_libraries(reji_pipeline PUBLIC mfplat.lib mfuuid.lib wmcodecdspuuid.lib)

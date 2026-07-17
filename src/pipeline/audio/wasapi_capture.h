@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <thread>
 
 #include "ffi_bridge.h"
@@ -66,6 +67,9 @@ public:
         uint32_t bit_depth;        // 16 / 32
         uint32_t buffer_ms;        // tampon süresi (ms)
         bool     loopback;         // true=sistem sesi (eRender), false=mikrofon
+        // Ses Ayarları: seçili cihazın IMMDevice id'si (enumerate_audio_devices'tan).
+        // Boş = sistem varsayılan endpoint'i (GetDefaultAudioEndpoint, eski davranış).
+        std::wstring device_id;
     };
 
     // std::function yerine ham fonksiyon pointer — hot-path heap tahsis riski yok.

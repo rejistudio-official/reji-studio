@@ -490,6 +490,7 @@ bool Pipeline::init(const Config& cfg_in) {
         acfg.bit_depth      = 32;
         acfg.buffer_ms      = 50;
         acfg.loopback       = cfg_in.loopback;
+        acfg.device_id      = cfg_in.audio_device_id;  // wchar_t[] → std::wstring (boş = varsayılan)
         if (!s.audio_sub_.init(acfg, &Impl::on_audio_capture, &s.audio_bridge_)) {
             dbglog("[Pipeline] WasapiCapture::init failed  audio disabled");
         }

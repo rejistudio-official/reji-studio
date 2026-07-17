@@ -251,8 +251,20 @@ void WasapiCapture::supervisor_main() {
 // Engine açma — 3 aşamalı format stratejisi
 // ============================================================================
 bool WasapiCapture::open_device_and_init_engine() {
-    HRESULT hr = enumerator_->GetDefaultAudioEndpoint(
-        cfg_.loopback ? eRender : eCapture, eConsole, &device_);
+    // Ses Ayarları: belirli cihaz seçildiyse (device_id dolu) onu aç; başarısızsa
+    // (cihaz kaldırıldı/geçersiz id) sistem varsayılanına düş. Boşsa doğrudan varsayılan.
+    HRESULT hr;
+    if (!cfg_.device_id.empty()) {
+        hr = enumerator_->GetDevice(cfg_.device_id.c_str(), &device_);
+        if (FAILED(hr) || !device_) {
+            device_.Reset();
+            hr = enumerator_->GetDefaultAudioEndpoint(
+                cfg_.loopback ? eRender : eCapture, eConsole, &device_);
+        }
+    } else {
+        hr = enumerator_->GetDefaultAudioEndpoint(
+            cfg_.loopback ? eRender : eCapture, eConsole, &device_);
+    }
     if (FAILED(hr) || !device_) return false;
 
     hr = device_->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &audio_client_);

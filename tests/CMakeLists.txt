@@ -306,4 +306,20 @@ if(WIN32)
     )
 
     add_test(NAME AacEncoderTest COMMAND test_aac_encoder)
+
+    # ── Ses Ayarlari: WASAPI cihaz enumerasyonu testi ──
+    # audio_device_enum.cpp dogrudan derlenir. Donanimsiz calisir (bos liste
+    # gecerli). ole32/mmdevapi link.
+    add_executable(test_audio_device_enum
+        test_audio_device_enum.cpp
+        ${CMAKE_SOURCE_DIR}/src/pipeline/audio/audio_device_enum.cpp
+    )
+    target_include_directories(test_audio_device_enum PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/pipeline/audio
+    )
+    target_link_libraries(test_audio_device_enum
+        gtest gtest_main
+        ole32.lib
+    )
+    add_test(NAME AudioDeviceEnumTest COMMAND test_audio_device_enum)
 endif()

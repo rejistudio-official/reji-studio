@@ -44,6 +44,9 @@ public:
         uint32_t original_bitrate_kbps = 0;    // init() tarafından set edilir, recovery ceiling
         bool     audio_enabled     = false;
         bool     loopback          = true;
+        // Ses Ayarları: seçili giriş cihazının WASAPI endpoint id'si (UI'dan;
+        // boş = sistem varsayılanı). POD tutmak için sabit wchar dizisi.
+        wchar_t  audio_device_id[256] = {};
         char     srt_host[256]     = {};
         uint16_t srt_port          = 4200;
         // Faz2/Aşama2.2 — çıkış protokolü seçimi. rj::TransportProtocol
