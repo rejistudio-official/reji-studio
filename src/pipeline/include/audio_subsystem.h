@@ -22,10 +22,6 @@ public:
     using Config   = reji::pipeline::audio::WasapiCapture::Config;
     using Callback = reji::pipeline::audio::WasapiCapture::AudioFrameCallback;
 
-    // v0.1 audio callback stub (SRT mux henüz yok) — init()'e geçilir.
-    static void on_audio(const float*, uint32_t, uint32_t, uint32_t,
-                         int64_t, void*) noexcept;
-
     // V8/I18: WasapiCapture'ın FFI'yi doğrudan çağırmasını engelleyen ince
     // passthrough'lar. Orchestrator-yüzlü bu katman gerçek ::rj_* çağrısını
     // yapar; capture katmanı yalnız sink'e delege eder. Argümanlar birebir
@@ -34,7 +30,8 @@ public:
     static void on_metrics(const RjMetricSample* sample, void* ud) noexcept;
 
     // WasapiCapture oluşturur + init eder. Başarısızlıkta audio_ reset, false döner.
-    bool init(const Config& cfg, Callback cb);
+    // @param user_data on_audio callback'ine iletilir (ör. AudioEncodeBridge*).
+    bool init(const Config& cfg, Callback cb, void* user_data);
 
     bool start();   // audio_ yoksa false
     bool stop();    // audio_ yoksa false

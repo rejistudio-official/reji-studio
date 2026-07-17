@@ -34,6 +34,23 @@ static int seh_srt_send(SrtSendArgs* a) noexcept {
     if (cap.fired) seh_report(cap, SehSite::SrtSend);
     return rv;
 }
+
+// Ses gönderimi için video send ile aynı SEH-leaf koruması (native RTMP_Write
+// çökme yolu ortak). Ayrı arg tipi; __try içinde yok edilebilir C++ local yok.
+struct SrtSendAudioArgs {
+    rj::ITransport* out;
+    const uint8_t*  data;
+    size_t          size;
+    int64_t         pts;
+};
+__declspec(noinline)
+static int seh_srt_send_audio(SrtSendAudioArgs* a) noexcept {
+    SehCapture cap{}; int rv;
+    __try   { rv = a->out->send_audio(a->data, a->size, a->pts) ? 0 : 1; }
+    __except(seh_filter(GetExceptionInformation(), SehSite::SrtSend, &cap)) { rv = -2; }
+    if (cap.fired) seh_report(cap, SehSite::SrtSend);
+    return rv;
+}
 #endif
 
 } // namespace
@@ -78,6 +95,24 @@ bool OutputSubsystem::send(const uint8_t* data, size_t size, int64_t pts) noexce
     return seh_srt_send(&args) == 0;
 #else
     return out->send(data, size, pts);
+#endif
+}
+
+bool OutputSubsystem::set_audio_config(const uint8_t* asc, size_t len) noexcept {
+    // İlk send_audio drain'de çağrılır — o an streaming aktif, transport_atomic_ set.
+    auto* out = transport_atomic_.load(std::memory_order_acquire);
+    if (!out) return false;
+    return out->set_audio_config(asc, len);
+}
+
+bool OutputSubsystem::send_audio(const uint8_t* aac, size_t len, int64_t pts) noexcept {
+    auto* out = transport_atomic_.load(std::memory_order_acquire);
+    if (!out) return true;   // aktif çıkış yok — drop sayılmaz (video ile simetrik)
+#ifdef _WIN32
+    SrtSendAudioArgs args{out, aac, len, pts};
+    return seh_srt_send_audio(&args) == 0;
+#else
+    return out->send_audio(aac, len, pts);
 #endif
 }
 

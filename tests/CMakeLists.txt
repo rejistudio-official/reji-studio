@@ -270,6 +270,23 @@ target_link_libraries(test_av_sync
 
 add_test(NAME AvSyncTest COMMAND test_av_sync)
 
+# ── Ses Ayarlari: SPSC ses ring saf testi ──
+# audio_ring.h header-only — reji_pipeline/MF link gerekmez, sadece gtest.
+# Push/consume FIFO, doluluk (en yeniyi dusur) ve asiri-boyut reddini kilitler.
+add_executable(test_audio_ring
+    test_audio_ring.cpp
+)
+
+target_include_directories(test_audio_ring PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/audio
+)
+
+target_link_libraries(test_audio_ring
+    gtest gtest_main
+)
+
+add_test(NAME AudioRingTest COMMAND test_audio_ring)
+
 # ── Ses Ayarlari: MF AAC encoder entegrasyon testi ──
 # aac_encoder.cpp dogrudan derlenir (test_seh_filter deseni). AAC encoder MFT
 # saf yazilim -> donanimsiz/headless calisir. Media Foundation link'lenir.

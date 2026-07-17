@@ -40,6 +40,13 @@ public:
 
     bool is_active() const noexcept { return transport_ != nullptr; }
 
+    // Ses (AAC) yolu — send() ile AYNI thread-safety (transport_atomic_, encode
+    // thread'inden). MVP'de yalnız RTMP gerçekler; SRT/diğer transport no-op.
+    // set_audio_config: AudioSpecificConfig'i transport'a ver (ilk send_audio'dan
+    // önce). send_audio: ham AAC frame'i gönder (pts video ile aynı saat).
+    bool set_audio_config(const uint8_t* asc, size_t len) noexcept;
+    bool send_audio(const uint8_t* aac, size_t len, int64_t pts) noexcept;
+
     // V9/J2: I18 FFI-sink passthrough'ları (AudioSubsystem::on_connection_lost/
     // on_metrics ile aynı rol). init() bunları cfg'ye enjekte eder; transport
     // doğrudan ::rj_* yerine bu passthrough'ları çağırır. Yalnızca ::rj_*'a delege

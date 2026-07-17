@@ -169,8 +169,15 @@ endif()
 # WASAPI audio capture — Windows only
 # ---------------------------------------------------------------------------
 if(WIN32)
-    target_sources(reji_pipeline PRIVATE audio/wasapi_capture.cpp audio_subsystem.cpp)
-    message(STATUS "WASAPI audio capture modülü etkinleştirildi")
+    target_sources(reji_pipeline PRIVATE
+        audio/wasapi_capture.cpp
+        audio_subsystem.cpp
+        audio/aac_encoder.cpp          # Ses Ayarları: Media Foundation AAC-LC encoder
+        audio/audio_encode_bridge.cpp  # Ses Ayarları: capture→AAC→RTMP köprüsü (SPSC ring)
+    )
+    # Media Foundation (AAC encoder MFT) — capture'ın ole32/avrt'sine ek.
+    target_link_libraries(reji_pipeline PUBLIC mfplat.lib mfuuid.lib wmcodecdspuuid.lib)
+    message(STATUS "WASAPI audio capture + AAC (Media Foundation) modülü etkinleştirildi")
 endif()
 
 # ---------------------------------------------------------------------------

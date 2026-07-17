@@ -37,6 +37,7 @@
 #include "include/encode_subsystem.h"
 #include "audio/wasapi_capture.h"
 #include "include/audio_subsystem.h"
+#include "audio/audio_encode_bridge.h"
 #include "include/i_transport.h"
 #include "include/output_subsystem.h"
 #include "include/gpu_interop_subsystem.h"
@@ -179,7 +180,8 @@ struct Pipeline::Impl {
     CaptureSubsystem                                       capture_sub_; // Aşama 8
     EncodeSubsystem                                        encode_sub_;  // Aşama 6
     AudioSubsystem                                          audio_sub_;   // Aşama 3
-    OutputSubsystem                                         output_sub_;  // Aşama 4
+    reji::pipeline::audio::AudioEncodeBridge               audio_bridge_; // Ses Ayarları: capture→AAC→RTMP köprüsü
+    OutputSubsystem                                        output_sub_;  // Aşama 4
 
     // Aşama 7: D3D11↔Vulkan zero-copy interop — ExternalMemoryBridge yaşam döngüsü +
     // son frame VkImage cache'i (eski ext_bridge/last_staging_vk/last_target_vk alanları).
@@ -296,6 +298,19 @@ struct Pipeline::Impl {
         // send() false döndürürse (aktif çıkış vardı ama gönderim başarısız) → drop.
         if (!self->output_sub_.send(pkt.data, pkt.size, pkt.pts))
             self->frame_drops.fetch_add(1, std::memory_order_relaxed);
+
+        // Ses Ayarları: ses ring'ini bu (encode) thread'de drain et → AAC encode
+        // + send_audio. Video ile AYNI thread → tek-thread RTMP-yazım invariant'ı
+        // korunur (kilit yok). Ses kapalıysa configure edilmemiştir → no-op.
+        self->audio_bridge_.drain(pkt.pts);
+    }
+
+    // Ses Ayarları: WASAPI capture callback'i (capture supervisor thread) — yalnız
+    // ring'e push eder (encode/gönderme YOK). user_data = &audio_bridge_.
+    static void on_audio_capture(const float* samples, uint32_t frames, uint32_t channels,
+                                 uint32_t sample_rate, int64_t pts_us, void* ud) noexcept {
+        static_cast<reji::pipeline::audio::AudioEncodeBridge*>(ud)->push(
+            samples, frames, channels, sample_rate, pts_us);
     }
 
     // GPU TDR / capture-loss recovery Aşama 9'da RecoveryCoordinator'a taşındı.
@@ -440,20 +455,6 @@ bool Pipeline::init(const Config& cfg_in) {
         }
     }
 
-    //  WasapiCapture (optional) — AudioSubsystem alt sistemi
-    if (cfg_in.audio_enabled) {
-        AudioSubsystem::Config acfg{};
-        acfg.exclusive_mode = false;
-        acfg.sample_rate    = 48000;
-        acfg.channels       = 2;
-        acfg.bit_depth      = 32;
-        acfg.buffer_ms      = 50;
-        acfg.loopback       = cfg_in.loopback;
-        if (!s.audio_sub_.init(acfg, &AudioSubsystem::on_audio)) {
-            dbglog("[Pipeline] WasapiCapture::init failed  audio disabled");
-        }
-    }
-
     //  ITransport (SrtTransport | RtmpTransport)  OutputSubsystem alt sistemi
     OutputSubsystem::Config scfg{};
     scfg.protocol = static_cast<rj::TransportProtocol>(cfg_in.transport_protocol);
@@ -470,6 +471,30 @@ bool Pipeline::init(const Config& cfg_in) {
     if (!s.output_sub_.init(scfg)) {
         dbglog("[Pipeline] transport init failed (proto=%u) -- running without stream output",
                cfg_in.transport_protocol);
+    }
+
+    //  Ses (AAC) — AudioSubsystem capture + AudioEncodeBridge (MVP: yalnız RTMP).
+    //  output_sub_ init'ten SONRA yapılır: bridge send_audio için transport'a bağlı.
+    //  Bridge encoder'ı ilk drain'de (encode thread) lazy init eder.
+    if (cfg_in.audio_enabled &&
+        static_cast<rj::TransportProtocol>(cfg_in.transport_protocol) == rj::TransportProtocol::Rtmp) {
+        constexpr uint32_t kAudioSampleRate = 48000;
+        constexpr uint32_t kAudioChannels   = 2;
+        constexpr uint32_t kAudioBitrateBps = 128000;  // AAC-LC 128 kbps
+        s.audio_bridge_.configure(kAudioSampleRate, kAudioChannels, kAudioBitrateBps, &s.output_sub_);
+
+        AudioSubsystem::Config acfg{};
+        acfg.exclusive_mode = false;
+        acfg.sample_rate    = kAudioSampleRate;
+        acfg.channels       = kAudioChannels;
+        acfg.bit_depth      = 32;
+        acfg.buffer_ms      = 50;
+        acfg.loopback       = cfg_in.loopback;
+        if (!s.audio_sub_.init(acfg, &Impl::on_audio_capture, &s.audio_bridge_)) {
+            dbglog("[Pipeline] WasapiCapture::init failed  audio disabled");
+        }
+    } else if (cfg_in.audio_enabled) {
+        dbglog("[Pipeline] audio_enabled ama transport RTMP degil — ses MVP'de yalniz RTMP, atlaniyor");
     }
 
     //  Rust monitor 
@@ -743,6 +768,10 @@ bool Pipeline::shutdown() {
 
         // RAII reset outside __try  destructors run safely here.
         s.audio_sub_.shutdown();    // audio_ reset (SEH-leaf DIŞINDA)
+        // Ses Ayarları: capture durdu (yukarıda) → artık push yok; encoder'ı
+        // drain + kapat. Transport zaten null'landı (set_streaming(false)), son
+        // AAC frame'leri gönderilmez (shutdown'da kabul edilebilir).
+        s.audio_bridge_.shutdown();
         s.output_sub_.shutdown();   // transport_atomic null + transport_ reset (SEH-leaf DIŞINDA)
         s.encode_sub_.shutdown();   // encoder_ reset (SEH-leaf DIŞINDA)
         s.capture_sub_.shutdown();  // capture_ reset + capture_dxgi_ null
