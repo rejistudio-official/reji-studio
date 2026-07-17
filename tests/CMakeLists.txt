@@ -269,3 +269,24 @@ target_link_libraries(test_av_sync
 )
 
 add_test(NAME AvSyncTest COMMAND test_av_sync)
+
+# ── Ses Ayarlari: MF AAC encoder entegrasyon testi ──
+# aac_encoder.cpp dogrudan derlenir (test_seh_filter deseni). AAC encoder MFT
+# saf yazilim -> donanimsiz/headless calisir. Media Foundation link'lenir.
+if(WIN32)
+    add_executable(test_aac_encoder
+        test_aac_encoder.cpp
+        ${CMAKE_SOURCE_DIR}/src/pipeline/audio/aac_encoder.cpp
+    )
+
+    target_include_directories(test_aac_encoder PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/pipeline/audio
+    )
+
+    target_link_libraries(test_aac_encoder
+        gtest gtest_main
+        mfplat.lib mfuuid.lib wmcodecdspuuid.lib ole32.lib
+    )
+
+    add_test(NAME AacEncoderTest COMMAND test_aac_encoder)
+endif()
