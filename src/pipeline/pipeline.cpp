@@ -22,6 +22,7 @@
 #include "include/frame_pacer.h"
 #include "include/metrics_subsystem.h"
 #include "include/command_router.h"
+#include "include/bitrate_policy.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
 #ifndef REJI_VULKAN_MOCK
@@ -348,8 +349,9 @@ bool Pipeline::init(const Config& cfg_in) {
     // Kullanici bitrate'i REDUCE tabaninin (min_bitrate_kbps) altina indirebilir;
     // o durumda apply_action'daki max(new, min) yuzunden REDUCE hic calismazdi.
     // Tabani kullanici bitrate'ine clamp ederek healing'in referans noktasini
-    // gecerli tut (Faz 0 bulgusu — kullanici ayari healing'i sessizce bozmasin).
-    s.cfg.min_bitrate_kbps         = (std::min)(s.cfg.min_bitrate_kbps, cfg_in.bitrate_kbps);
+    // gecerli tut (Faz 0 bulgusu). Saf/test-edilebilir: bitrate_policy.h.
+    s.cfg.min_bitrate_kbps         = reduce_floor_for_target(s.cfg.min_bitrate_kbps,
+                                                             cfg_in.bitrate_kbps);
     s.bitrate_kbps.store(cfg_in.bitrate_kbps, std::memory_order_relaxed);
 
     //  COM 

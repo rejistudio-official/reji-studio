@@ -199,3 +199,21 @@ target_link_libraries(test_keyed_mutex_timeout
 )
 
 add_test(NAME KeyedMutexTimeoutTest COMMAND test_keyed_mutex_timeout)
+
+# ── Video Ayarları: bitrate REDUCE tabanı clamp saf testi ──
+# bitrate_policy.h header-only (yalnız <cstdint>/<algorithm>) — reji_pipeline/Rust
+# link gerekmez, sadece gtest. Kullanıcı hedef bitrate'i REDUCE tabanının altına
+# indirdiğinde tabanın hedefe clamp'lendiğini (healing sessizce durmasın) kilitler.
+add_executable(test_bitrate_policy
+    test_bitrate_policy.cpp
+)
+
+target_include_directories(test_bitrate_policy PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include
+)
+
+target_link_libraries(test_bitrate_policy
+    gtest gtest_main
+)
+
+add_test(NAME BitratePolicyTest COMMAND test_bitrate_policy)
