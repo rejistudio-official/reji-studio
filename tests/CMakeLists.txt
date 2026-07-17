@@ -217,3 +217,55 @@ target_link_libraries(test_bitrate_policy
 )
 
 add_test(NAME BitratePolicyTest COMMAND test_bitrate_policy)
+
+# ── Ses Ayarlari: AAC AudioSpecificConfig saf uretim testi ──
+# aac_config.h header-only (yalniz <cstdint>/<array>/<optional>) — reji_pipeline/
+# Rust/Media Foundation link gerekmez, sadece gtest. FLV AAC sequence header'i
+# icin gereken ASC baytlarini ve MPEG-4 freq-index eslemesini kilitler.
+add_executable(test_aac_config
+    test_aac_config.cpp
+)
+
+target_include_directories(test_aac_config PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/audio
+)
+
+target_link_libraries(test_aac_config
+    gtest gtest_main
+)
+
+add_test(NAME AacConfigTest COMMAND test_aac_config)
+
+# ── Ses Ayarlari: FLV audio tag + PCM donusumu saf testi ──
+# flv_audio_tag.h / pcm_convert.h header-only — reji_pipeline/Rust/MF link
+# gerekmez, sadece gtest. FLV AAC tag header baytlarini ve float->S16 clamp'ini kilitler.
+add_executable(test_audio_wire
+    test_audio_wire.cpp
+)
+
+target_include_directories(test_audio_wire PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/audio
+)
+
+target_link_libraries(test_audio_wire
+    gtest gtest_main
+)
+
+add_test(NAME AudioWireTest COMMAND test_audio_wire)
+
+# ── Ses Ayarlari: A-V drift savunma valfi saf testi (I10 deseni) ──
+# av_sync.h header-only — reji_pipeline/Rust/MF link gerekmez, sadece gtest.
+# Drift esigi + throttle karar mantigini kilitler (sync sessizce kotulesmesin).
+add_executable(test_av_sync
+    test_av_sync.cpp
+)
+
+target_include_directories(test_av_sync PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/audio
+)
+
+target_link_libraries(test_av_sync
+    gtest gtest_main
+)
+
+add_test(NAME AvSyncTest COMMAND test_av_sync)
