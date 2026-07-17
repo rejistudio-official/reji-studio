@@ -1,3 +1,49 @@
+## Oturum: 17 Temmuz 2026 — Ayarlar zenginleştirme #2: Video (bitrate/FPS) manuel kontrolü ✅ KAPANDI
+
+TALIMAT_VIDEO_AYARLARI: Ayarlar araştırma turunun 2. kalemi. "Video" kategorisi
+boştu; bitrate/FPS için config alanları vardı ama UI/init'e bağlı değildi.
+
+**Faz 0 (kod incelemesiyle doğrulandı) — healing referans etkileşimi:**
+- **Bitrate TEMİZ (tek kaynak):** `pipeline.cpp:347/351/424` — `cfg_in.bitrate_kbps`
+  tek yazımla 4 referans noktasını besler: `original_bitrate_kbps` (RECOVER tavanı),
+  atomic `bitrate_kbps` (REDUCE başlangıcı), `max_bitrate_kbps` türevi, encoder
+  `averageBitRate`. Yeni paralel sistem gerekmedi.
+- **FPS izole:** `cfg_in.fps` → pacer + encoder fps_num. `set_fps_limit` tavanı 120.
+- **Çözünürlük ÇIKARILDI (kritik bulgu, kullanıcı onaylı):** encoder init dims
+  capture-authoritative (`pipeline.cpp:387-388` ekran çözünürlüğünü zorla yazıyor)
+  ve capture→encode arası ara-ölçekleme YOK. Healing tavanı (`orig_width/height` =
+  init dims, HP1/I23) dolaylı buna bağlı. "Hedef çözünürlük" ayarı = capture override
+  koşullandırma + encode-time downscale + tavan wiring → bitrate/FPS'ten yapısal olarak
+  daha büyük/riskli iş. Ayrı talimata ertelendi (talimatın "dur ve raporla" maddesi).
+
+**Uygulama (3 commit, dal `feat/video-settings`):**
+- **C1 — UI + persistence.** `settings_dialog`: "Video Ayarları" grubu — bitrate
+  (500–50000 kbps spinbox), FPS (30/60/120 dropdown; **144 sunulmuyor** çünkü
+  `set_fps_limit` >120'de sessizce false döner → healing FPS aksiyonu görünmez bozulur).
+  `QSettings video/bitrate_kbps + video/fps`, mevcut SRT deseniyle birebir. Getter'lar.
+- **C2 — init wiring + min_bitrate clamp.** `main_window`: settings_dialog'dan
+  bitrate/fps → pcfg. `pipeline.cpp`: REDUCE tabanı (`min_bitrate_kbps`, vars. 1000)
+  kullanıcı hedefine clamp'lenir — kullanıcı <1000 seçerse `max(new,min)` yüzünden
+  REDUCE sessizce durmasın (Faz 0'da bulunan healing tutarsızlığı).
+- **C3 — clamp'i saf fonksiyona çıkar + test.** `bitrate_policy.h::reduce_floor_for_target`
+  (`*_for_sample` deseni). Karakterizasyon testi yalnız varsayılan (floor<target)
+  dalını dolaylı kapsıyordu; asıl clamp dalı (target<floor) sessizce regresyona
+  uğrayabilirdi. Header-only `BitratePolicyTest` (5 assert) doğrudan kilitler.
+
+**Doğrulama sınıfı:** **test edildi** — Rust 158 test PASS (HP2 `test_scale_factor_
+read_for_resolution` + kalibrasyon/Özellik #5 dahil); C++ ctest 4/4 PASS
+(BitratePolicy + Pipeline Integration/Characterization + OutputSubsystem);
+`reji_ui` derleme/link doğrulandı (MSVC/Release). **Kod incelemesiyle** — bitrate
+tek-kaynak yansıması. **GUI görsel doğrulaması kullanıcıda** (Faz 3): gerçek yayın
+ayarlanan bitrate/FPS ile başlıyor mu.
+
+**Kullanıcıya görünen değişiklik:** Video kategorisi artık dolu; healing'in bitrate
+"tavan/taban" kavramı **sabit değil, kullanıcı-tanımlı** (`cfg_in.bitrate_kbps`).
+Ayarlar bir sonraki uygulama başlangıcında etkili (canlı reconfigure kapsam dışı,
+YAGNI). Kalan kalem: Ses ayarları (ayrı talimat).
+
+---
+
 ## Oturum: 15 Temmuz 2026 — Ayarlar zenginleştirme #1: "Kuralları Düzenle" + hot-reload wiring ✅ KAPANDI
 
 TALIMAT_KURALLARI_DUZENLE: Ayarlar araştırma turunun (bkz. `docs/talimatlar/

@@ -1,7 +1,13 @@
 # CONTEXT.md — Reji Studio Proje Bağlamı
 
-**Son güncelleme:** 14 Temmuz 2026
+**Son güncelleme:** 17 Temmuz 2026
 **Hazırlayan:** Bu sohbetin (Claude, sohbet asistanı) kendisi — Claude Code'un gerçekleştirdiği işlerin, GitHub'dan doğrudan doğrulanmış özeti.
+
+> **AYARLAR ZENGİNLEŞTİRME (17.07):** Video ayarları (bitrate/FPS manuel kontrolü)
+> tamamlandı — dal `feat/video-settings`, 3 commit. "Video" kategorisi artık dolu;
+> healing'in bitrate tavan/tabanı kullanıcı-tanımlı. Çözünürlük ekseni bilinçli
+> ertelendi (capture-authoritative mimari + encode-time downscale yokluğu). Detay:
+> `SESSION_NOTES.md` (17.07 girdisi). Kalan araştırma kalemi: Ses ayarları.
 
 > **V9 GÜNCEL DURUM (14.07):** V9 bug planı **fiilen tamamlandı** (Sprint 1-4 +
 > healing-plumbing). Sprint 4 Bölüm A (J14 gözden geçirildi, J15/J16.1 FIXED, J16.2-4
