@@ -29,6 +29,12 @@ public:
     bool isAutoReloadEnabled() const;
     void setAutoReloadEnabled(bool enabled);
 
+    // Video ayarları (bitrate + FPS). Encoder init'e ve — cfg_in.bitrate_kbps
+    // üzerinden — healing'in referans noktalarına (original/max/atomic bitrate)
+    // tek kaynaktan yansır.
+    uint32_t videoBitrateKbps() const;    // 500–50000 kbps
+    uint32_t videoFps() const;            // 30 / 60 / 120 (set_fps_limit tavanı 120)
+
     // Yayın çıkış ayarları (Faz2/Aşama2.2: SRT + RTMP)
     QString  srtHost() const;
     uint16_t srtPort() const;

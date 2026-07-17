@@ -36,6 +36,10 @@ public:
     QPushButton* btn_export_rules{nullptr};
     QPushButton* btn_import_rules{nullptr};
 
+    // Video ayarları (bitrate + FPS)
+    QSpinBox*  bitrate_spin{nullptr};     // 500–50000 kbps
+    QComboBox* combo_fps{nullptr};        // 30 / 60 / 120
+
     // Yayın çıkış ayarları (Faz2/Aşama2.2: SRT + RTMP protokol seçimi)
     QComboBox* combo_protocol{nullptr};   // 0=SRT, 1=RTMP (rj::TransportProtocol)
     QLineEdit* srt_host_edit{nullptr};
@@ -136,6 +140,27 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     lbl_rules_path->setStyleSheet("color:#888;font-size:11px;");
     layout_hotreload->addWidget(lbl_rules_path);
 
+    // ===== Video Ayarları (Bitrate / FPS) =====
+    // Bu değerler encoder init'e gider ve cfg_in.bitrate_kbps üzerinden healing'in
+    // referans noktalarını (original/max/atomic bitrate) tek kaynaktan besler.
+    auto* grp_video   = new QGroupBox(tr("Video Ayarları"), this);
+    auto* video_layout = new QFormLayout(grp_video);
+
+    d_->bitrate_spin = new QSpinBox(this);
+    d_->bitrate_spin->setRange(500, 50000);     // NVENC init'i bozmayan makul aralık
+    d_->bitrate_spin->setSingleStep(500);
+    d_->bitrate_spin->setSuffix(tr(" kbps"));
+
+    d_->combo_fps = new QComboBox(this);
+    // Yalnız set_fps_limit'in (tavan 120) desteklediği değerler — 144 sunulmaz,
+    // yoksa healing'in FPS sınırlama aksiyonu sessizce çalışmazdı.
+    d_->combo_fps->addItem(QStringLiteral("30"),  30);
+    d_->combo_fps->addItem(QStringLiteral("60"),  60);
+    d_->combo_fps->addItem(QStringLiteral("120"), 120);
+
+    video_layout->addRow(tr("Bitrate:"), d_->bitrate_spin);
+    video_layout->addRow(tr("FPS:"),     d_->combo_fps);
+
     // ===== Yayın Çıkış Ayarları (SRT / RTMP) =====
     auto* grp_srt  = new QGroupBox(tr("Yayın Çıkış Ayarları"), this);
     auto* srt_layout = new QFormLayout(grp_srt);
@@ -185,6 +210,11 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     // QSettings'ten kalıcı değerleri yükle
     {
         QSettings qs("RejiStudio", "RejiStudio");
+        // Video ayarları — varsayılan 6000 kbps / 60 fps (Pipeline::Config ile aynı)
+        d_->bitrate_spin->setValue(qs.value("video/bitrate_kbps", 6000).toInt());
+        const int saved_fps = qs.value("video/fps", 60).toInt();
+        const int fps_idx = d_->combo_fps->findData(saved_fps);
+        d_->combo_fps->setCurrentIndex(fps_idx >= 0 ? fps_idx : 1);  // fallback: 60
         d_->srt_host_edit->setText(qs.value("srt/host", "127.0.0.1").toString());
         d_->srt_port_spin->setValue(qs.value("srt/port", 9000).toInt());
         d_->rtmp_url_edit->setText(qs.value("rtmp/url", "").toString());
@@ -212,6 +242,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     layout_main->addWidget(grp_healing);
     layout_main->addWidget(grp_copilot);
     layout_main->addWidget(grp_hotreload);
+    layout_main->addWidget(grp_video);
     layout_main->addWidget(grp_srt);
     layout_main->addWidget(grp_ws);
     layout_main->addStretch();
@@ -259,6 +290,8 @@ void SettingsDialog::onModeChanged(int index) {
 
 void SettingsDialog::onOkClicked() {
     QSettings qs("RejiStudio", "RejiStudio");
+    qs.setValue("video/bitrate_kbps", d_->bitrate_spin->value());
+    qs.setValue("video/fps", d_->combo_fps->currentData().toInt());
     qs.setValue("srt/host", d_->srt_host_edit->text());
     qs.setValue("srt/port", d_->srt_port_spin->value());
     qs.setValue("output/protocol", d_->combo_protocol->currentIndex());
@@ -272,6 +305,19 @@ void SettingsDialog::onOkClicked() {
 
     emit healingModeChanged(d_->current_mode);
     accept();
+}
+
+// Video ayarları — encoder init'e ve healing referans noktalarına giden değerler.
+uint32_t SettingsDialog::videoBitrateKbps() const {
+    return d_->bitrate_spin
+        ? static_cast<uint32_t>(d_->bitrate_spin->value())
+        : 6000u;
+}
+
+uint32_t SettingsDialog::videoFps() const {
+    return d_->combo_fps
+        ? static_cast<uint32_t>(d_->combo_fps->currentData().toInt())
+        : 60u;
 }
 
 // Yaklaşım C: Co-Pilot action setting getters
