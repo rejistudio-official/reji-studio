@@ -345,6 +345,11 @@ bool Pipeline::init(const Config& cfg_in) {
 
     s.cfg                          = cfg_in;
     s.cfg.original_bitrate_kbps    = cfg_in.bitrate_kbps;
+    // Kullanici bitrate'i REDUCE tabaninin (min_bitrate_kbps) altina indirebilir;
+    // o durumda apply_action'daki max(new, min) yuzunden REDUCE hic calismazdi.
+    // Tabani kullanici bitrate'ine clamp ederek healing'in referans noktasini
+    // gecerli tut (Faz 0 bulgusu — kullanici ayari healing'i sessizce bozmasin).
+    s.cfg.min_bitrate_kbps         = (std::min)(s.cfg.min_bitrate_kbps, cfg_in.bitrate_kbps);
     s.bitrate_kbps.store(cfg_in.bitrate_kbps, std::memory_order_relaxed);
 
     //  COM 

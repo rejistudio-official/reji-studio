@@ -117,6 +117,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     rj::Pipeline::Config pcfg;  // varsayılan: 1920x1080, 60fps, 6000kbps
     // SRT ayarları — SettingsDialog'dan al, yoksa varsayılan
     if (settings_dialog_) {
+        // Video ayarlari — cfg_in.bitrate_kbps healing referans noktalarini
+        // (original/max/atomic) init'te tek kaynaktan besler; fps pacer + encoder.
+        pcfg.bitrate_kbps = settings_dialog_->videoBitrateKbps();
+        pcfg.fps          = settings_dialog_->videoFps();
         strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host),
                   settings_dialog_->srtHost().toStdString().c_str(), _TRUNCATE);
         pcfg.srt_port = settings_dialog_->srtPort();
