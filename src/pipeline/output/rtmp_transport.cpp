@@ -7,6 +7,8 @@ extern "C" {
 void* rj_rtmp_create();
 bool  rj_rtmp_init(void* handle, const char* url, const char* stream_key);
 bool  rj_rtmp_send(void* handle, const uint8_t* data, size_t size, int64_t pts_us);
+bool  rj_rtmp_set_audio_config(void* handle, const uint8_t* asc, size_t asc_len);
+bool  rj_rtmp_send_audio(void* handle, const uint8_t* aac, size_t aac_len, int64_t pts_us);
 bool  rj_rtmp_is_connected(void* handle);
 void  rj_rtmp_shutdown(void* handle);
 void  rj_rtmp_destroy(void* handle);
@@ -41,6 +43,22 @@ bool RtmpTransport::send(const uint8_t* data, size_t size, int64_t pts_us) noexc
     try {
         if (!handle_) return false;
         return rj_rtmp_send(handle_, data, size, pts_us);
+    } catch (...) {
+        return false;
+    }
+}
+
+bool RtmpTransport::set_audio_config(const uint8_t* asc, size_t len) {
+    if (!handle_) return false;
+    return rj_rtmp_set_audio_config(handle_, asc, len);
+}
+
+bool RtmpTransport::send_audio(const uint8_t* aac, size_t len, int64_t pts_us) noexcept {
+    // send() ile aynı noexcept sözleşmesi (V8/I27): Zig panik=abort, unwind yok;
+    // sarmalayıcı exception'ı bool'a çevir.
+    try {
+        if (!handle_) return false;
+        return rj_rtmp_send_audio(handle_, aac, len, pts_us);
     } catch (...) {
         return false;
     }

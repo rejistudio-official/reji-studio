@@ -52,6 +52,15 @@ public:
     virtual bool is_connected() const                                           = 0;
     virtual void shutdown() noexcept                                            = 0;
 
+    // Ses (AAC) yolu — yalnız RTMP/FLV MVP'sinde gerçek. Diğer transport'lar
+    // (SRT: konteynersiz ham-ES; ses ayrı tur) varsayılan no-op ile yok sayar,
+    // böylece Config'teki latency/bandwidth'in "SRT'ye özel" deseniyle simetrik.
+    /// AudioSpecificConfig'i saklar (encoder init sonrası bir kez).
+    virtual bool set_audio_config(const uint8_t* /*asc*/, size_t /*len*/) { return false; }
+    /// Ham AAC frame'i gönderir; pts_us video ile aynı saati paylaşır (A/V sync).
+    virtual bool send_audio(const uint8_t* /*aac*/, size_t /*len*/,
+                            int64_t /*pts_us*/) noexcept { return false; }
+
     static std::unique_ptr<ITransport> create(TransportProtocol proto);
 };
 

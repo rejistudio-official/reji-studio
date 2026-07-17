@@ -90,7 +90,11 @@ const Transport = struct {
     sps: ?[]u8 = null,
     pps: ?[]u8 = null,
     seq_sent: bool = false,
+    // Ses (AAC) durumu — video ile AYNI first_pts_us epoch'unu paylaşır (A/V sync).
+    asc: ?[]u8 = null,          // AudioSpecificConfig (encoder'dan, set_audio_config ile)
+    audio_seq_sent: bool = false,
     first_pts_us: i64 = no_pts,
+    audio_body: Buf = .{},      // ses tag gövdesi (send ile örtüşmez: ayrı thread yok)
     body: Buf = .{},
     tag: Buf = .{},
 };
@@ -149,6 +153,17 @@ fn buildAvcConfig(out: *Buf, sps: []const u8, pps: []const u8) !void {
 // ── FLV tag + RTMP_Write ────────────────────────────────────────────────────
 
 const flv_video_tag: u8 = 0x09;
+const flv_audio_tag: u8 = 0x08;
+
+// FLV AAC AUDIODATA gövdesi: AudioTagHeader (0xAF = AAC|44k+|16bit|stereo, Flash
+// AAC için sabit) + AACPacketType (0 = sequence header/ASC, 1 = ham AAC frame) +
+// payload. Saf/yan-etkisiz — birim testli (bkz. aşağıdaki testler).
+fn buildAudioTagBody(out: *Buf, packet_type: u8, payload: []const u8) !void {
+    out.len = 0;
+    try out.appendByte(0xAF);
+    try out.appendByte(packet_type);
+    try out.appendSlice(payload);
+}
 
 fn writeFlvTag(t: *Transport, r: *rt.RTMP, tag_type: u8, ts_ms: u32, body: []const u8) bool {
     t.tag.len = 0;
@@ -345,6 +360,49 @@ export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize,
     return ok;
 }
 
+// AudioSpecificConfig'i sakla (encoder init sonrasi, bir kez). İlk ses frame'inde
+// sequence header olarak gönderilir. Yeniden çağrı ASC'yi günceller + seq_sent sıfırlar.
+export fn rj_rtmp_set_audio_config(handle: ?*anyopaque, asc_ptr: ?[*]const u8, asc_len: usize) bool {
+    const t = get(handle) orelse return false;
+    if (asc_len == 0) return false;
+    const src = (asc_ptr orelse return false)[0..asc_len];
+    if (t.asc) |old| allocator.free(old);
+    t.asc = allocator.dupe(u8, src) catch {
+        t.asc = null;
+        return false;
+    };
+    t.audio_seq_sent = false;
+    return true;
+}
+
+// Ham AAC frame'i FLV audio tag olarak gönderir. İlk çağrıda (ASC hazırsa)
+// sequence header'ı ts=0 ile önce yollar. Zaman damgası video ile AYNI
+// first_pts_us epoch'una görelidir (A/V sync tek saat).
+export fn rj_rtmp_send_audio(handle: ?*anyopaque, aac_ptr: ?[*]const u8, aac_len: usize, pts_us: i64) bool {
+    const t = get(handle) orelse return false;
+    const r = t.rtmp orelse return false;
+    if (rt.RTMP_IsConnected(r) == 0) return false;
+    if (aac_len == 0) return true;
+    const aac = (aac_ptr orelse return false)[0..aac_len];
+
+    // Sequence header — ASC hazırsa bir kez, ts=0.
+    if (!t.audio_seq_sent) {
+        const asc = t.asc orelse return false; // ASC'siz ses gönderilemez
+        buildAudioTagBody(&t.audio_body, 0x00, asc) catch return false;
+        if (!writeFlvTag(t, r, flv_audio_tag, 0, t.audio_body.items())) return false;
+        t.audio_seq_sent = true;
+    }
+
+    // Video ile ortak epoch: ilk gelen (ses ya da video) t=0'ı belirler.
+    if (t.first_pts_us == no_pts) t.first_pts_us = pts_us;
+    var rel_us = pts_us -% t.first_pts_us;
+    if (rel_us < 0) rel_us = 0;
+    const ts_ms: u32 = @truncate(@as(u64, @intCast(@divTrunc(rel_us, 1000))));
+
+    buildAudioTagBody(&t.audio_body, 0x01, aac) catch return false;
+    return writeFlvTag(t, r, flv_audio_tag, ts_ms, t.audio_body.items());
+}
+
 export fn rj_rtmp_is_connected(handle: ?*anyopaque) bool {
     const t = get(handle) orelse return false;
     const r = t.rtmp orelse return false;
@@ -366,6 +424,8 @@ export fn rj_rtmp_destroy(handle: ?*anyopaque) void {
     if (t.url) |u| allocator.free(u);
     if (t.sps) |s| allocator.free(s);
     if (t.pps) |p| allocator.free(p);
+    if (t.asc) |a| allocator.free(a);
+    t.audio_body.deinit();
     t.body.deinit();
     t.tag.deinit();
     allocator.destroy(t);
@@ -450,6 +510,37 @@ test "buildAvcConfig kısa SPS'i reddeder" {
     const sps = [_]u8{ 0x67, 0x64 };
     const pps = [_]u8{0x68};
     try std.testing.expectError(error.BadParameterSet, buildAvcConfig(&out, &sps, &pps));
+}
+
+test "buildAudioTagBody AAC sequence header'ı 0xAF 0x00 + ASC olarak kurar" {
+    var out: Buf = .{};
+    defer out.deinit();
+    const asc = [_]u8{ 0x11, 0x90 }; // 48kHz stereo AAC-LC
+    try buildAudioTagBody(&out, 0x00, &asc);
+    const got = out.items();
+    try std.testing.expectEqual(@as(usize, 4), got.len);
+    try std.testing.expectEqual(@as(u8, 0xAF), got[0]);
+    try std.testing.expectEqual(@as(u8, 0x00), got[1]); // sequence header
+    try std.testing.expectEqualSlices(u8, &asc, got[2..4]);
+}
+
+test "buildAudioTagBody ham AAC frame'i 0xAF 0x01 + payload olarak kurar" {
+    var out: Buf = .{};
+    defer out.deinit();
+    const frame = [_]u8{ 0x21, 0x10, 0x05, 0x00 };
+    try buildAudioTagBody(&out, 0x01, &frame);
+    const got = out.items();
+    try std.testing.expectEqual(@as(u8, 0xAF), got[0]);
+    try std.testing.expectEqual(@as(u8, 0x01), got[1]); // raw
+    try std.testing.expectEqualSlices(u8, &frame, got[2..6]);
+}
+
+test "buildAudioTagBody yeniden kullanımda gövdeyi sıfırlar (len=0)" {
+    var out: Buf = .{};
+    defer out.deinit();
+    try buildAudioTagBody(&out, 0x01, &[_]u8{ 1, 2, 3, 4, 5, 6 });
+    try buildAudioTagBody(&out, 0x00, &[_]u8{ 0x11, 0x90 });
+    try std.testing.expectEqual(@as(usize, 4), out.items().len); // eski içerik kalmadı
 }
 
 test "Buf büyür ve içerik korunur" {

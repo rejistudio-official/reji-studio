@@ -29,6 +29,10 @@ public:
     bool is_connected() const override;
     void shutdown() noexcept override;
 
+    // Ses (AAC/FLV) — MVP'de yalnız RTMP gerçekler (SrtTransport no-op).
+    bool set_audio_config(const uint8_t* asc, size_t len) override;
+    bool send_audio(const uint8_t* aac, size_t len, int64_t pts_us) noexcept override;
+
 private:
     void* handle_ = nullptr;   // Zig tarafındaki Transport*
 };
