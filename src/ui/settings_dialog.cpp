@@ -15,6 +15,8 @@
 #include <QTextEdit>
 #include <QMessageBox>
 
+#include "../pipeline/audio/audio_device_enum.h"  // Ses Ayarları: cihaz enumerasyonu
+
 namespace reji {
 
 class SettingsDialog::Impl {
@@ -49,6 +51,10 @@ public:
 
     // V8/I8: WebSocket kontrol parolası (boş = auth kapalı) — Password echo modu
     QLineEdit* ws_password_edit{nullptr};
+
+    // Ses Ayarları (RTMP/FLV AAC MVP)
+    QCheckBox* chk_audio_enabled{nullptr};   // varsayılan: kapalı
+    QComboBox* combo_audio_device{nullptr};  // "Sistem varsayılanı" + enumerate edilenler
 };
 
 SettingsDialog::SettingsDialog(QWidget* parent)
@@ -196,6 +202,26 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     d_->ws_password_edit->setPlaceholderText(tr("boş = kimlik doğrulama kapalı"));
     ws_layout->addRow(tr("Parola:"), d_->ws_password_edit);
 
+    // ===== Ses Ayarları (RTMP/FLV AAC MVP) =====
+    // Etkinleştir + cihaz seçimi. Ses MVP'de yalnız RTMP çıkışında gönderilir
+    // (SRT konteynersiz — ayrı tur). Cihaz listesi loopback (sistem sesi/hoparlör)
+    // endpoint'lerinden gelir; boş seçim = sistem varsayılanı.
+    auto* grp_audio = new QGroupBox(tr("Ses Ayarları"), this);
+    auto* audio_layout = new QFormLayout(grp_audio);
+
+    d_->chk_audio_enabled = new QCheckBox(tr("Sesi etkinleştir (yalnız RTMP)"), this);
+    d_->chk_audio_enabled->setChecked(false);  // varsayılan: kapalı
+
+    d_->combo_audio_device = new QComboBox(this);
+    d_->combo_audio_device->addItem(tr("Sistem varsayılanı"), QString());  // boş id
+    for (const auto& dev : reji::pipeline::audio::enumerate_audio_devices(/*loopback*/true)) {
+        d_->combo_audio_device->addItem(QString::fromStdWString(dev.name),
+                                        QString::fromStdWString(dev.id));
+    }
+
+    audio_layout->addRow(d_->chk_audio_enabled);
+    audio_layout->addRow(tr("Ses cihazı:"), d_->combo_audio_device);
+
     // Seçili protokole göre alanları etkinleştir/pasifleştir
     auto update_protocol_fields = [this](int index) {
         const bool rtmp = (index == 1);
@@ -223,6 +249,12 @@ SettingsDialog::SettingsDialog(QWidget* parent)
         const int proto = qs.value("output/protocol", 0).toInt();
         d_->combo_protocol->setCurrentIndex(proto == 1 ? 1 : 0);
         update_protocol_fields(d_->combo_protocol->currentIndex());
+
+        // Ses ayarları — varsayılan kapalı / sistem varsayılan cihazı.
+        d_->chk_audio_enabled->setChecked(qs.value("audio/enabled", false).toBool());
+        const QString saved_audio_dev = qs.value("audio/device_id", "").toString();
+        const int adev_idx = d_->combo_audio_device->findData(saved_audio_dev);
+        d_->combo_audio_device->setCurrentIndex(adev_idx >= 0 ? adev_idx : 0);
     }
 
     // ===== Buttons =====
@@ -244,6 +276,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     layout_main->addWidget(grp_hotreload);
     layout_main->addWidget(grp_video);
     layout_main->addWidget(grp_srt);
+    layout_main->addWidget(grp_audio);
     layout_main->addWidget(grp_ws);
     layout_main->addStretch();
     layout_main->addLayout(layout_buttons);
@@ -302,6 +335,9 @@ void SettingsDialog::onOkClicked() {
     // V8/I8: WS parolası — RTMP key ile aynı yaklaşım (QSettings/registry düz metin,
     // OBS ile tutarlı; OS kullanıcı profili koruması varsayılır, keychain kapsam dışı).
     qs.setValue("ws/password", d_->ws_password_edit->text());
+    // Ses ayarları — enabled + seçili cihaz id'si (boş = sistem varsayılanı).
+    qs.setValue("audio/enabled", d_->chk_audio_enabled->isChecked());
+    qs.setValue("audio/device_id", d_->combo_audio_device->currentData().toString());
 
     emit healingModeChanged(d_->current_mode);
     accept();
@@ -358,6 +394,15 @@ void SettingsDialog::onImportRulesClicked() {
 
 void SettingsDialog::onAutoReloadToggled(int state) {
     emit autoReloadToggled(state == Qt::Checked);
+}
+
+bool SettingsDialog::isAudioEnabled() const {
+    return d_->chk_audio_enabled && d_->chk_audio_enabled->isChecked();
+}
+
+QString SettingsDialog::audioDeviceId() const {
+    return d_->combo_audio_device ? d_->combo_audio_device->currentData().toString()
+                                  : QString();
 }
 
 QString SettingsDialog::srtHost() const {

@@ -130,6 +130,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                   settings_dialog_->rtmpUrl().toStdString().c_str(), _TRUNCATE);
         strncpy_s(pcfg.rtmp_key, sizeof(pcfg.rtmp_key),
                   settings_dialog_->rtmpStreamKey().toStdString().c_str(), _TRUNCATE);
+        // Ses Ayarları (RTMP/FLV AAC MVP): etkin mi + seçili WASAPI cihaz id'si.
+        // Boş id → sistem varsayılan endpoint'i. Ses yalnız RTMP çıkışında gönderilir
+        // (pipeline init içinde transport==RTMP koşulu).
+        pcfg.audio_enabled = settings_dialog_->isAudioEnabled();
+        const std::wstring adev = settings_dialog_->audioDeviceId().toStdWString();
+        wcsncpy_s(pcfg.audio_device_id,
+                  sizeof(pcfg.audio_device_id) / sizeof(wchar_t),
+                  adev.c_str(), _TRUNCATE);
     } else {
         strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host), "127.0.0.1", _TRUNCATE);
         pcfg.srt_port = 9000;

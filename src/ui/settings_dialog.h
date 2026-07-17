@@ -35,6 +35,11 @@ public:
     uint32_t videoBitrateKbps() const;    // 500–50000 kbps
     uint32_t videoFps() const;            // 30 / 60 / 120 (set_fps_limit tavanı 120)
 
+    // Ses ayarları (RTMP/FLV AAC MVP). audio_enabled pipeline'a; deviceId boşsa
+    // sistem varsayılan endpoint'i kullanılır (WasapiCapture GetDefaultAudioEndpoint).
+    bool     isAudioEnabled() const;
+    QString  audioDeviceId() const;   // seçili WASAPI endpoint id (boş = varsayılan)
+
     // Yayın çıkış ayarları (Faz2/Aşama2.2: SRT + RTMP)
     QString  srtHost() const;
     uint16_t srtPort() const;
