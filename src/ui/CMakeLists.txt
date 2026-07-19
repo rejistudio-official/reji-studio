@@ -19,6 +19,7 @@ if(Qt6_FOUND)
         rust_bridge.cpp
         healing_overlay.cpp
         settings_dialog.cpp
+        profile_advisor.cpp
         render_capability.cpp
         shader_cache.cpp
         vulkan_render_path.cpp
