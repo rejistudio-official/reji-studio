@@ -29,6 +29,7 @@ namespace reji {
     class HealingOverlay;
     class RustBridge;
     class SettingsDialog;
+    enum class HealingMode;   // tanım: healing_overlay.h (Madde 6/A imzası için)
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,11 @@ private:
     void syncAutoApproveToRust();
     /// V8/I8: SettingsDialog WS parolasını Rust motoruna senkronlar (boş = auth kapalı).
     void syncWsPasswordToRust();
+    /// Madde 6/A: Ayarlar OK'inden sonra, ayarların kaydedildiğini ve etkisinin
+    /// bir sonraki healing aksiyonunda görüneceğini lbl_status_'ta kısa süreliğine
+    /// bildirir (kHealingSettingsNotifyMs sonra "Hazır"a döner). Mevcut durum-widget
+    /// desenini kullanır — yeni mekanizma icat edilmez.
+    void notifyHealingSettingsSaved(reji::HealingMode mode);
     void buildMenuBar();
     void buildCentralWidget();
     void buildStatusBar();

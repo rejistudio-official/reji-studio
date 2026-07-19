@@ -91,6 +91,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         rj_set_healing_mode(static_cast<uint32_t>(mode));
         syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
         syncWsPasswordToRust();   // V8/I8: WS parolasını da senkronla
+        notifyHealingSettingsSaved(mode);  // Madde 6/A: kaydedildi bildirimi
     });
     // "Kuralları Düzenle" — rules.json'u harici editörde aç (Commit 1).
     connect(settings_dialog_, &reji::SettingsDialog::editRulesRequested,
@@ -351,6 +352,19 @@ void MainWindow::buildCentralWidget() {
         "QPushButton{background:#3355CC;color:white;font-weight:bold;"
         "border-radius:4px;padding:0 12px;}"
         "QPushButton:hover{background:#4466DD;}");
+
+    // Madde 6/B: CUT/FADE geçiş shader'ı gerçekten çalışıyor (program_widget.cpp),
+    // ancak şu an tek kaynak hem preview hem program'a beslendiğinden geçiş görünür
+    // fark üretmiyor — çoklu-kaynak/sahne kompozisyonu Faz 3'te (ISource) gelecek.
+    // GUI Gözlem Turu'nda butonları DEVRE DIŞI BIRAKMA reddedilmişti (çalışan bir
+    // mekanizmayı "kırık" göstermemek için). Burada yalnız bilgilendirici bir tooltip
+    // ekleniyor: setToolTip, setEnabled'dan bağımsızdır — butonlar tam tıklanabilir
+    // ve işlevsel kalır (o karara çelişki YOK).
+    const QString transition_hint = tr(
+        "Geçiş çalışıyor, ancak şu an tek kaynak var; görünür fark için ikinci bir "
+        "kaynak gerekir. Sahne kompozisyonu (çoklu kaynak) Faz 3'te gelecek.");
+    btn_cut_->setToolTip(transition_hint);
+    btn_fade_->setToolTip(transition_hint);
     btn_start_->setStyleSheet(
         "QPushButton{background:#227722;color:white;font-weight:bold;"
         "border-radius:4px;padding:0 12px;}"
@@ -426,6 +440,34 @@ void MainWindow::syncWsPasswordToRust() {
     if (!settings_dialog_) return;
     const QByteArray pw = settings_dialog_->wsPassword().toUtf8();
     rj_set_ws_password(pw.constData());
+}
+
+// Madde 6/A: Ayarlar OK'ine basıldığında (mod + per-kategori auto-onay Rust'a
+// senkronlandıktan sonra) kullanıcıya "kaydedildi" geri bildirimi ver. GUI Gözlem
+// Turu'nda doğrulandığı gibi, healing ayarlarının etkisi yalnız BİR SONRAKİ healing
+// aksiyonunda görünür — bu bekleyiş daha önce kullanıcıya hiç belirtilmiyordu
+// ("ayar kaydedildi mi?" belirsizliği). Mevcut lbl_status_ desenini kullanır; yeni
+// mekanizma icat edilmez. kHealingSettingsNotifyMs sonra "Hazır"a döner.
+void MainWindow::notifyHealingSettingsSaved(reji::HealingMode mode) {
+    if (!lbl_status_) return;
+
+    QString mode_name;
+    switch (mode) {
+        case reji::HealingMode::AutoPilot: mode_name = tr("Auto-Pilot"); break;
+        case reji::HealingMode::CoPilot:   mode_name = tr("Co-Pilot");   break;
+        case reji::HealingMode::Assist:    mode_name = tr("Assist");     break;
+        case reji::HealingMode::Manual:    mode_name = tr("Manual");     break;
+    }
+
+    lbl_status_->setText(
+        tr("Healing ayarları kaydedildi (Mod: %1) — bir sonraki healing aksiyonunda etkili olur")
+            .arg(mode_name));
+
+    // Kısa süreli bildirim: süre sonunda "Hazır"a dön. QPointer yerine 'this'
+    // yaşam süresi pencereninkiyle aynı (lbl_status_ child widget); tek-atışlık.
+    QTimer::singleShot(rj::constants::kHealingSettingsNotifyMs, this, [this] {
+        if (lbl_status_) lbl_status_->setText(tr("Hazır"));
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -615,6 +657,7 @@ void MainWindow::onSettingsClicked() {
             rj_set_healing_mode(static_cast<uint32_t>(mode));  // V8/I19: modu Rust'a ilet (bkz. ctor'daki handler)
             syncAutoApproveToRust();  // V8/I33c: auto-onay ayarlarını da senkronla
             syncWsPasswordToRust();   // V8/I8: WS parolasını da senkronla
+            notifyHealingSettingsSaved(mode);  // Madde 6/A: kaydedildi bildirimi
         });
         connect(settings_dialog_, &reji::SettingsDialog::editRulesRequested,
                 this, &MainWindow::openRulesInEditor);

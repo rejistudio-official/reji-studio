@@ -15,6 +15,9 @@ namespace rj::constants {
     // UI zamanlama sabitleri
     inline constexpr uint32_t kActionPollIntervalMs        = 200;   // healing action poll (MainWindow)
     inline constexpr uint32_t kSrtLatencyMs               = 200;   // SRT akış gecikmesi
+    // Madde 6/A: Ayarlar OK'inden sonra "kaydedildi" durum mesajının görünür kalma
+    // süresi; ardından lbl_status_ "Hazır"a döner (kısa süreli bilgilendirme).
+    inline constexpr uint32_t kHealingSettingsNotifyMs    = 4000;
 
     // HealingOverlay zamanlama sabitleri
     inline constexpr uint32_t kHealingBannerTimeoutMs     = 10000; // otomatik kapanma süresi
