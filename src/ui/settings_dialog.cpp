@@ -15,6 +15,11 @@
 #include <QSpinBox>
 #include <QTextEdit>
 #include <QMessageBox>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 
 #include "../pipeline/audio/audio_device_enum.h"  // Ses Ayarları: cihaz enumerasyonu
 
@@ -61,6 +66,10 @@ public:
     // Ses Ayarları (RTMP/FLV AAC MVP)
     QCheckBox* chk_audio_enabled{nullptr};   // varsayılan: kapalı
     QComboBox* combo_audio_device{nullptr};  // "Sistem varsayılanı" + enumerate edilenler
+
+    // Kural görünürlüğü (salt-okunur MVP): Ad / Koşul / Aksiyon kolonları.
+    // setRules() doldurur; MainWindow dialog açılışında FFI'dan besler.
+    QTableWidget* rules_table{nullptr};
 };
 
 SettingsDialog::SettingsDialog(QWidget* parent)
@@ -326,6 +335,20 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     tab_remote_layout->addStretch();
     tabs->addTab(tab_remote, tr("Uzaktan Kontrol"));
 
+    // Kurallar — kural motorunun aktif kural listesi (salt-okunur MVP). Motor
+    // GUI'den "kör kutu"ydu; bu sekme id/koşul/aksiyon'u görünür kılar. Düzenleme
+    // (ekle/sil/değiştir) bu turun kapsamı DIŞINDA — ayrı bir gelecek tur.
+    auto* tab_rules = new QWidget(this);
+    auto* tab_rules_layout = new QVBoxLayout(tab_rules);
+    d_->rules_table = new QTableWidget(0, 3, this);
+    d_->rules_table->setHorizontalHeaderLabels({tr("Ad"), tr("Koşul"), tr("Aksiyon")});
+    d_->rules_table->setEditTriggers(QAbstractItemView::NoEditTriggers);  // salt-okunur
+    d_->rules_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    d_->rules_table->verticalHeader()->setVisible(false);
+    d_->rules_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);  // Koşul en geniş
+    tab_rules_layout->addWidget(d_->rules_table);
+    tabs->addTab(tab_rules, tr("Kurallar"));
+
     auto* layout_main = new QVBoxLayout(this);
     layout_main->addWidget(tabs);
     layout_main->addLayout(layout_buttons);
@@ -494,6 +517,57 @@ void SettingsDialog::setWsStatus(uint16_t port, uint32_t connectionCount) {
     }
     if (d_->ws_conn_value) {
         d_->ws_conn_value->setText(QString::number(connectionCount));
+    }
+}
+
+void SettingsDialog::setRules(const QString& rulesJson) {
+    if (!d_->rules_table) {
+        return;
+    }
+    auto* table = d_->rules_table;
+    table->setRowCount(0);
+
+    // Tek satırlık uyarı ekleyen yardımcı — motor init değil / snapshot bozuk /
+    // hiç kural yok gibi durumları görünür kılar (I10: sessizce yutma yok; boş
+    // tablo "hiç kural yok" izlenimi bırakmasın).
+    auto showNotice = [table](const QString& text) {
+        table->setRowCount(1);
+        auto* item = new QTableWidgetItem(text);
+        table->setItem(0, 0, item);
+        table->setSpan(0, 0, 1, 3);
+    };
+
+    QJsonParseError parseErr;
+    const QJsonDocument doc = QJsonDocument::fromJson(rulesJson.toUtf8(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isArray()) {
+        showNotice(tr("Kural okunamadı (motor hazır değil veya veri geçersiz)"));
+        return;
+    }
+
+    const QJsonArray rules = doc.array();
+    if (rules.isEmpty()) {
+        showNotice(tr("Tanımlı kural yok"));
+        return;
+    }
+
+    table->setRowCount(rules.size());
+    for (int row = 0; row < rules.size(); ++row) {
+        const QJsonObject rule = rules.at(row).toObject();
+        const QString id        = rule.value(QStringLiteral("id")).toString();
+        const QString condition = rule.value(QStringLiteral("condition")).toString();
+        const QString action    = rule.value(QStringLiteral("action")).toString();
+        const QString desc      = rule.value(QStringLiteral("description")).toString();
+
+        auto* id_item   = new QTableWidgetItem(id);
+        auto* cond_item = new QTableWidgetItem(condition);
+        auto* act_item  = new QTableWidgetItem(action);
+        // description tooltip'e — MVP'de kolon değil (params/modes de gizli, YAGNI).
+        if (!desc.isEmpty()) {
+            id_item->setToolTip(desc);
+        }
+        table->setItem(row, 0, id_item);
+        table->setItem(row, 1, cond_item);
+        table->setItem(row, 2, act_item);
     }
 }
 

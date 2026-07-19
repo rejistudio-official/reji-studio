@@ -53,6 +53,12 @@ public:
     // bağımsız kalır). port=0 → sunucu henüz bind olmadı.
     void setWsStatus(uint16_t port, uint32_t connectionCount);
 
+    // Kural görünürlüğü (salt-okunur MVP): motorun aktif kural listesini gösterir.
+    // MainWindow dialog açılışında `rj_rules_snapshot_json`'dan okuyup buraya iter
+    // (dialog FFI'dan bağımsız kalır — setWsStatus deseni). `rulesJson` boş veya
+    // geçersizse tabloya "Kural okunamadı" placeholder'ı düşer (sessizce yutma yok).
+    void setRules(const QString& rulesJson);
+
 signals:
     void healingModeChanged(HealingMode mode);
     void editRulesRequested();

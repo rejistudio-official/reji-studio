@@ -669,6 +669,17 @@ void MainWindow::onSettingsClicked() {
     // FFI'dan taze oku ve dialog'a ilet (bir kerelik sorgu; canlı poll yok). Tüm
     // rj_ çağrıları MainWindow'da toplanır — dialog FFI'dan bağımsız kalır.
     settings_dialog_->setWsStatus(rj_get_ws_port(), rj_get_ws_connection_count());
+    // Kural görünürlüğü: motorun aktif kural listesini FFI'dan taze oku ve dialog'a
+    // ilet (bir kerelik snapshot; canlı poll yok — WS görünürlük deseniyle aynı).
+    // Rust JSON'u NUL-terminated tampona yazar; kural seti küçük (birkaç kural <1KB),
+    // 64KB fazlasıyla yeter. Negatif dönüş (init değil / cap yetersiz) → boş string,
+    // dialog "Kural okunamadı" placeholder'ı gösterir (sessizce yutma yok).
+    {
+        char rules_buf[65536];
+        const int written = rj_rules_snapshot_json(rules_buf, static_cast<int>(sizeof(rules_buf)));
+        settings_dialog_->setRules(written > 0 ? QString::fromUtf8(rules_buf, written)
+                                               : QString());
+    }
     settings_dialog_->exec();
 }
 
