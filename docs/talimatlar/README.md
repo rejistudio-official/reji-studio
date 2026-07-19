@@ -76,7 +76,8 @@ hazırlanmış tek seferlik bir uygulama/keşif talimatına karşılık gelir.
 | `TALIMAT_GUI_GOZLEM_ARASTIRMA.md` | GUI gözlem turu — canlı app incelemesi (keşif) | DONE (keşif) |
 | `TALIMAT_AYARLAR_ARASTIRMA.md` | Ayarlar penceresi kapsamlı araştırması (keşif) | DONE (keşif) |
 | `TALIMAT_ARSIV_VE_MAKRO_MOTORU.md` | Eski planlama dosyalarının arşivlenmesi + makro motoru roadmap notu | DONE |
+| `TALIMAT_AYARLAR_KATEGORI_DUZENI.md` | Ayarlar UX Madde 6/C — Settings dialog'u QTabWidget ile 5 sekmeye kategorize etme | FIXED + PUSHED (GUI onayı ayrı bekliyor) |
 
 ---
 
-*Son güncelleme: 2026-07-16 — 35 dosya (README dahil)*
+*Son güncelleme: 2026-07-19 — 42 dosya (README dahil)*
