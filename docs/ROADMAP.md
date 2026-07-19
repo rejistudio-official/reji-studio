@@ -1294,6 +1294,27 @@ daha düşük risk — JSON, çalıştırılabilir kod değil, mevcut `rj_reload
 > (çift-reload yok). Kalibrasyon verisi paylaşılmıyor (Özellik#5 kararı korundu).
 > Bkz. `SESSION_NOTES.md` "Paylaşılabilir Kural Setleri" ve `TALIMAT_KURAL_SETI_PAYLASIM.md`.
 
+### Sütun 4 — Donanıma göre otomatik profil önerisi (yeni, implemente edildi)
+
+**Tez:** Kurulan donanıma bakıp üç hazır profilden (Stabilite/Performans/
+Verimlilik) birini **öneren** bir ilk-kurulum sistemi — Sütun 1 (şeffaflık) ve
+Sütun 3 (paylaşılabilir kural setleri) altyapısının doğal birleşimi. Diğer
+yazılımlar "otomatik ayarlar"ı kara-kutu bir formülle yapar; Reji donanım
+sinyalinden **hangi hazır/açıklanabilir profilin önerileceğini** seçer, içeriği
+statik kalır (denetlenebilir), kullanıcı override eder.
+
+> **İmplemente edildi (20 Tem 2026):** `feat/hardware-profiling` (6 commit).
+> Eşik tablosu (kaba): batarya → Verimlilik; VRAM<4GB || RAM<8GB → Stabilite;
+> aksi → Performans. Üç gömülü `docs/config/profiles/*.json` + bitrate/FPS preset
+> (12000/60 · 6000/30 · 4500/30), Sütun 3'ün doğrula→backup→yaz→reload yolu
+> yeniden kullanılarak uygulanır. İlk kurulumda bir kez, sinyaller görünür öneri
+> diyaloğu (override edilebilir). Yeni FFI yok. **Sütun 2 (hibrit-GPU laptop nişi)
+> ile örtüşür:** batarya/Verimlilik ekseni tam da laptop senaryosu; VRAM
+> `max_gpu_vram_mb` ile hibrit iGPU+dGPU'da dGPU'dan alınır. **Kapsam dışı:**
+> çözünürlük profili (çıkış-çözünürlüğü kontrolü boşluğu), canlı yeniden-
+> değerlendirme, kalibrasyonla birleşme. Bkz. `SESSION_NOTES.md` "Donanım
+> Profilleme" ve `docs/talimatlar/TALIMAT_DONANIM_PROFILLEME.md`.
+
 ---
 
 ## Tasarım İlkesi — Tek Merkezi Boru Hattı, Çok Tüketici

@@ -3019,3 +3019,51 @@ Her healing kararını kalıcı SQLite'a yazan üçüncü fan-out (Özellik#1 UI
 - **Performans:** Yazma batch + ayrı thread olduğundan tick/frame'e gecikme
   eklenmez (push = lock-free ArrayQueue). Runtime ms-ölçümü yapılmadı (yazma
   zaten hot-path dışında; ölçülecek bir hot-path maliyeti yok).
+
+## Oturum: 20 Temmuz 2026 — Donanım Profilleme (Faz 0→2, 6 commit)
+
+Kurulan donanıma bakıp üç profilden (Stabilite/Performans/Verimlilik) birini
+**öneren** ilk-kurulum sistemi. Dal: `feat/hardware-profiling`. Faz 0 (kapsam) →
+Faz 1 (somut sayılar/kararlar) → Faz 2 (6 küçük commit), her aşama onaya sunuldu.
+Talimat: `docs/talimatlar/TALIMAT_DONANIM_PROFILLEME.md`.
+
+### Kararlar (Faz 0/1 — onaylandı)
+- **Mimari (Hibrit):** Donanım sinyali → basit eşik tablosu → hangi hazır profilin
+  **önerileceğini** seçer; profil içeriği statik/hazır kalır. Saf dinamik hesaplama
+  reddedildi (Özellik#1 şeffaflık ilkesiyle geriliyordu — "profil yüklendi" >
+  "sistem 4200 kbps hesapladı").
+- **Zamanlama:** Yalnız ilk kurulumda, öneri olarak (canlı izleme kapsam dışı).
+- **Kullanıcı kontrolü:** Override edilebilir öneri (sessiz uygulama değil).
+- **Eşik tablosu (kaba, üç kural):** batarya → Verimlilik; VRAM<4096MB ||
+  RAM<8192MB → Stabilite; aksi → Performans. UPS kenar durumu MVP dışı (YAGNI).
+- **Preset:** Performans 12000kbps/60 · Stabilite 6000/30 · Verimlilik 4500/30.
+- **Çözünürlük profili HARİÇ** (kullanıcı-görünür çıkış-çözünürlüğü kontrolü yok;
+  ayrı iş). Kalibrasyon (Özellik#5) ve ses bağımsız.
+
+### Yapı (commit sırası)
+1. Üç `docs/config/profiles/*.json` (Performans = mevcut şablon; Stabilite erken/
+   agresif + `gpu_load_high`; Verimlilik recovery'siz + GPU→cap_fps) + qrc gömme.
+2. `profile_advisor.{h,cpp}`: `HwSignals` + RAM (`GlobalMemoryStatusEx`) / batarya
+   (`GetSystemPowerStatus`) toplama. GPU vendor/VRAM çağırandan (GpuScan) —
+   donanım izolasyonu korundu (bu modül DXGI enumerate etmez).
+3. `suggest_profile` saf fonksiyonu + eşik sabitleri (`reji_constants.h`). TDD.
+4. `applyProfile`: `importRules` çekirdeği `writeValidatedRules`'a çıkarıldı (DRY,
+   Sütun 3 doğrula→backup→yaz→reload yeniden kullanıldı; qrc kaynağı da geçerli) +
+   bitrate/FPS preset SettingsDialog'a. `preset_for`/`profile_resource_name`.
+5. `maybeSuggestProfileOnFirstRun`: `QSettings "profile/asked"` bir-kez bayrağı,
+   sinyaller görünür diyalog (Uygula/Başka profil seç/Şimdilik atla).
+   `Pipeline::max_gpu_vram_mb()` (GpuScan max VRAM — hibrit iGPU+dGPU'da dGPU).
+6. Dokümantasyon (bu girdi + ROADMAP + talimat).
+
+### Dürüstlük sınırı
+- **Test edildi:** `suggest_profile`/`preset_for` 11 birim testi PASS; üç profil
+  json RuleEngine şema doğrulamasından geçiyor (4 Rust testi). `reji_app` tam
+  link OK. TDD RED→GREEN (Commit 3) gözlemlendi.
+- **Kod incelemesiyle:** GUI import refactor davranış-korumalı (kullanıcı
+  mesajları aynı; nadir I/O hatasında artık durum satırı da kırmızıya döner —
+  küçük iyileştirme). Yeni FFI YOK (`FFI_CONTRACT.md`'ye dokunulmadı).
+- **Kullanıcıda kalan:** ilk-kurulum öneri kutusunun görsel akışı, override,
+  tekrar-sormama — interaktif GUI, otomatik test edilmedi.
+- **Bilinen kapsam (kusur değil):** `gpu_temp_c`/`cpu_temp_c` STUB olduğundan
+  profiller arası termal fark gerçekte tetiklenmez; davranış farkı yalnız gerçek
+  metriklerde (frame_drop/cpu_load/gpu_load/memory).

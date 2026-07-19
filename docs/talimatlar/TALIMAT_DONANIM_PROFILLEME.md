@@ -487,3 +487,35 @@ commit'ler) ayrı yürütülür.**
 - Varsayımla çelişen bulguda (özellikle "yeni FFI yok" veya import yolunun
   yeniden kullanılabilirliği) **dur, raporla**.
 - "Test edildi" / "kod incelemesiyle doğrulandı" ayrımı her raporda açık.
+
+---
+---
+
+# FAZ 2 — TAMAMLANDI (20 Temmuz 2026)
+
+Dal `feat/hardware-profiling`, 6 commit, her biri push öncesi onaylandı. Plandaki
+varsayımlar tuttu: **yeni FFI yok** (`FFI_CONTRACT.md`'ye dokunulmadı), import
+yolu (Sütun 3) yeniden kullanıldı.
+
+| Commit | İçerik | Doğrulama |
+|---|---|---|
+| 1 | Üç profil json + qrc gömme | 4 Rust testi (şema + değişmezler) PASS |
+| 2 | `profile_advisor` sinyal toplama (RAM/batarya) | reji_ui build OK |
+| 3 | `suggest_profile` saf fonksiyon | TDD RED→GREEN, 7 test |
+| 4 | `applyProfile` + `writeValidatedRules` (DRY) + preset | 11 test, reji_app link OK |
+| 5 | İlk-kurulum öneri UI + `max_gpu_vram_mb` | reji_app link OK |
+| 6 | Dokümantasyon | — |
+
+**Onaylanan MVP birebir uygulandı:** ilk-kurulum önerisi, üç hazır `rules.json` +
+bitrate/FPS preset, çözünürlük hariç, override edilebilir, kalibrasyon/ses
+bağımsız. Eşik tablosu ve preset sayıları Faz 1'de onaylanan değerlerle.
+
+**Dürüstlük sınırı:** Saf mantık (suggest/preset) + profil json şeması otomatik
+test edildi; GUI ilk-kurulum akışının görsel doğrulaması kullanıcıda. Termal
+metrikler STUB olduğundan profiller arası termal fark gerçekte tetiklenmez
+(bilinçli kapsam). Bkz. `SESSION_NOTES.md` "Donanım Profilleme" + `ROADMAP.md`
+Farklılaşma Stratejisi Sütun 4.
+
+**Kapsam dışı kalan (gelecek iş):** çözünürlük profili (çıkış-çözünürlüğü kontrolü
+boşluğu — B.2), her açılışta yeniden değerlendirme, kalibrasyonla birleşme,
+WMI chassis kesinliği.
