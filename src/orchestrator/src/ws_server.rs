@@ -39,6 +39,35 @@ pub fn actual_port() -> u16 {
     ACTUAL_PORT.load(Ordering::Acquire)
 }
 
+/// Anlık aktif WebSocket bağlantı sayısı — `rj_get_ws_connection_count()` FFI ile
+/// C++ Settings dialog'una salt-okunur gösterim için sunulur. `ConnectionGuard`
+/// (handle_socket başında oluşturulur) TEK yazma noktasıdır: açılışta +1, Drop'ta -1.
+static ACTIVE_CONNECTIONS: AtomicU32 = AtomicU32::new(0);
+
+/// O anki aktif bağlantı sayısını döndürür (anlık durum, kalıcı değil).
+pub fn active_connections() -> u32 {
+    ACTIVE_CONNECTIONS.load(Ordering::Acquire)
+}
+
+/// Bir WebSocket bağlantısının yaşam süresini `ACTIVE_CONNECTIONS` sayacına bağlar.
+/// `new()` sayacı artırır; `Drop` azaltır — böylece `handle_socket`'in TÜM çıkış
+/// yolları (normal `break` VE Hello gönderimi başarısızsa erken `return`) sayacı
+/// doğru düşürür. Sayaç asla sızmaz/negatife düşmez.
+struct ConnectionGuard;
+
+impl ConnectionGuard {
+    fn new() -> Self {
+        ACTIVE_CONNECTIONS.fetch_add(1, Ordering::AcqRel);
+        ConnectionGuard
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Port listesini sırayla dener; başarılı bağlanmayı döndürür.
 pub async fn try_bind(bind_addr: &str, ports: &[u16]) -> Option<(tokio::net::TcpListener, u16)> {
     for &port in ports {
@@ -574,6 +603,10 @@ async fn process_client_msg(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: WireMode) {
+    // Aktif bağlantı sayacı: guard bağlantı ömrü boyunca yaşar, fonksiyon dönünce
+    // (normal veya erken return) Drop ile azalır. Settings dialog buradan okur.
+    let _conn_guard = ConnectionGuard::new();
+
     // V8/I8: Parolayı bağlantı açılışında SNAPSHOT'la — çalışırken değişse bile bu
     // oturum açılıştaki parolaya göre doğrulanır (mevcut oturumlar sürer). Boş string
     // = auth kapalı (None gibi).
@@ -790,6 +823,26 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn test_connection_guard_tracks_active_count() {
+        // ConnectionGuard bağlantı açılışında +1, Drop'ta -1 yapar. ACTIVE_CONNECTIONS
+        // süreç-global olduğundan (paralel testlere karşı) MUTLAK değil DELTA doğrulanır:
+        // baseline al, guard oluştur/düş, farkı ölç.
+        let base = active_connections();
+
+        let g1 = ConnectionGuard::new();
+        assert_eq!(active_connections(), base + 1, "1. bağlantı sayacı artırmalı");
+
+        let g2 = ConnectionGuard::new();
+        assert_eq!(active_connections(), base + 2, "2. bağlantı sayacı artırmalı");
+
+        drop(g2);
+        assert_eq!(active_connections(), base + 1, "kapanış sayacı azaltmalı");
+
+        drop(g1);
+        assert_eq!(active_connections(), base, "tüm bağlantılar kapanınca baseline'a dönmeli");
     }
 
     #[tokio::test]

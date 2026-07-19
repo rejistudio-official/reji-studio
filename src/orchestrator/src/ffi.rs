@@ -853,6 +853,18 @@ pub extern "C" fn rj_get_ws_port() -> u16 {
     .unwrap_or(0)
 }
 
+/// O anki aktif WebSocket bağlantı sayısını döndürür (anlık durum; kalıcı değil).
+/// C++ Settings dialog salt-okunur gösterim için çağırır. Sayaç FFI_STATE'ten
+/// bağımsızdır (ws_server statik atomic'i) — init'ten önce de güvenle 0 döner.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_get_ws_connection_count() -> u32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        crate::ws_server::active_connections()
+    }))
+    .unwrap_or(0)
+}
+
 /// WS komutunu ws_command_queue'ya yazar (non-blocking).
 /// C++ run_frame() tarafından rj_ws_command_dequeue ile drain edilir.
 /// Handle gerektirmez — PipelineRegistry bağımlılığı yoktur.

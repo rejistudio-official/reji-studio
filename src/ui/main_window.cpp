@@ -665,6 +665,10 @@ void MainWindow::onSettingsClicked() {
                 this, &MainWindow::onAutoReloadToggled);
         if (healing_overlay_) healing_overlay_->setSettingsDialog(settings_dialog_);
     }
+    // WS görünürlüğü: dialog her açılışında port + anlık aktif bağlantı sayısını
+    // FFI'dan taze oku ve dialog'a ilet (bir kerelik sorgu; canlı poll yok). Tüm
+    // rj_ çağrıları MainWindow'da toplanır — dialog FFI'dan bağımsız kalır.
+    settings_dialog_->setWsStatus(rj_get_ws_port(), rj_get_ws_connection_count());
     settings_dialog_->exec();
 }
 

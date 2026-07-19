@@ -52,6 +52,11 @@ public:
     // V8/I8: WebSocket kontrol parolası (boş = auth kapalı) — Password echo modu
     QLineEdit* ws_password_edit{nullptr};
 
+    // WS görünürlüğü: dinlenen port + anlık aktif bağlantı (salt-okunur).
+    // setWsStatus() günceller; MainWindow dialog açılışında FFI'dan besler.
+    QLabel* ws_port_value{nullptr};
+    QLabel* ws_conn_value{nullptr};
+
     // Ses Ayarları (RTMP/FLV AAC MVP)
     QCheckBox* chk_audio_enabled{nullptr};   // varsayılan: kapalı
     QComboBox* combo_audio_device{nullptr};  // "Sistem varsayılanı" + enumerate edilenler
@@ -201,6 +206,13 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     d_->ws_password_edit->setEchoMode(QLineEdit::Password);
     d_->ws_password_edit->setPlaceholderText(tr("boş = kimlik doğrulama kapalı"));
     ws_layout->addRow(tr("Parola:"), d_->ws_password_edit);
+
+    // WS görünürlüğü: salt-okunur port + aktif bağlantı (dialog açılışında MainWindow
+    // setWsStatus ile besler; başlangıç metni sunucu-hazır-değil durumunu yansıtır).
+    d_->ws_port_value = new QLabel(tr("—"), this);
+    d_->ws_conn_value = new QLabel(tr("—"), this);
+    ws_layout->addRow(tr("Port:"), d_->ws_port_value);
+    ws_layout->addRow(tr("Aktif bağlantı:"), d_->ws_conn_value);
 
     // ===== Ses Ayarları (RTMP/FLV AAC MVP) =====
     // Etkinleştir + cihaz seçimi. Ses MVP'de yalnız RTMP çıkışında gönderilir
@@ -434,6 +446,18 @@ QString SettingsDialog::rtmpStreamKey() const {
 // boşluk anlamlı olabilir). Boş string → Rust tarafında auth kapalı (None).
 QString SettingsDialog::wsPassword() const {
     return d_->ws_password_edit ? d_->ws_password_edit->text() : QString();
+}
+
+// WS görünürlüğü: port/bağlantı salt-okunur alanlarını günceller. port=0 → sunucu
+// henüz bind olmadı ("—" gösterilir). Anlık durum: MainWindow dialog her açılışında
+// FFI'dan taze okuyup çağırır (bir kerelik sorgu; canlı poll yok — YAGNI).
+void SettingsDialog::setWsStatus(uint16_t port, uint32_t connectionCount) {
+    if (d_->ws_port_value) {
+        d_->ws_port_value->setText(port != 0 ? QString::number(port) : tr("—"));
+    }
+    if (d_->ws_conn_value) {
+        d_->ws_conn_value->setText(QString::number(connectionCount));
+    }
 }
 
 } // namespace reji

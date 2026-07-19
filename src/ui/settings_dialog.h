@@ -48,6 +48,11 @@ public:
     QString  rtmpStreamKey() const;
     QString  wsPassword() const;          // V8/I8: WS kontrol parolası (boş = auth kapalı)
 
+    // WS görünürlüğü: dinlenen port + anlık aktif bağlantı sayısı (salt-okunur).
+    // MainWindow dialog açılmadan önce FFI'dan okuyup buraya iter (dialog FFI'dan
+    // bağımsız kalır). port=0 → sunucu henüz bind olmadı.
+    void setWsStatus(uint16_t port, uint32_t connectionCount);
+
 signals:
     void healingModeChanged(HealingMode mode);
     void editRulesRequested();

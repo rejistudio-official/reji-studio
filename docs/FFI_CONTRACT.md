@@ -181,6 +181,22 @@ uint16_t rj_get_ws_port();
 
 ---
 
+### `rj_get_ws_connection_count()`
+
+```c
+uint32_t rj_get_ws_connection_count();
+```
+
+- **Yön:** C++ → Rust
+- **Çağıran thread:** Qt main thread — Settings dialog salt-okunur gösterim için
+- **Davranış:** O anki aktif WebSocket bağlantı sayısını döner
+  (`ws_server::active_connections()`). Sayaç `handle_socket` başında bir `ConnectionGuard`
+  ile artar, bağlantı dönünce (normal veya erken çıkış) Drop ile azalır. Anlık durum;
+  kalıcı değil. FFI_STATE'ten bağımsız (statik atomic) → init'ten önce güvenle `0`.
+- **Panic:** `catch_unwind` ile sarılı; panic → `0`.
+
+---
+
 ### `rj_ws_command_v2(cmd, param)`
 
 ```c
