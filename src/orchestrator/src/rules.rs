@@ -507,6 +507,18 @@ impl RuleEngine {
             .insert(rule_id.to_string(), until);
     }
 
+    /// Görünürlük (salt-okunur): motorun BELLEK-İÇİ kural listesini JSON dizisi
+    /// olarak serialize eder — GUI "Kurallar" sekmesi bunu okuyup gösterir. Dosyayı
+    /// değil aktif kuralları yansıtır (hot_reload rollback'inde disk ≠ bellek olabilir;
+    /// "kör kutu" derdi tam da motorun gerçeğini görmek). `Rule` zaten `Serialize`
+    /// türettiğinden `params`/`modes` dahil kayıpsız. Mutex poison'da kurtarılan
+    /// guard'la yine de üretir; serialize hatasında (beklenmez) `"[]"`. FFI'daki
+    /// `rj_rules_snapshot_json` bunu çağırır — ABI'ye dokunmaz (yalnız string egress).
+    pub fn snapshot_json(&self) -> String {
+        let rules = self.rules.lock().unwrap_or_else(|p| p.into_inner());
+        serde_json::to_string(&*rules).unwrap_or_else(|_| "[]".to_string())
+    }
+
     fn create_action(
         &self,
         rule: &Rule,
@@ -963,5 +975,40 @@ mod tests {
             1,
             "gerçek metrikte (60<70) termal kural tetiklenmeli"
         );
+    }
+
+    // ===== Görünürlük: snapshot_json (salt-okunur kural listesi) =====
+
+    #[test]
+    fn snapshot_json_empty_engine_is_empty_array() {
+        // Kural yoksa boş dizi — GUI "hiç kural yok" ile "okunamadı"yı ayırt edebilsin.
+        let engine = RuleEngine::new_test(vec![], 0);
+        assert_eq!(engine.snapshot_json(), "[]");
+    }
+
+    #[test]
+    fn snapshot_json_roundtrips_rules_lossless() {
+        // params (HashMap) + modes (Vec) dahil kayıpsız serialize edilmeli.
+        let mut params = HashMap::new();
+        params.insert("step_kbps".to_string(), serde_json::json!(1000));
+        let rule = Rule {
+            id: "high_cpu_reduce_bitrate".to_string(),
+            description: "CPU yüksek — bitrate düşür".to_string(),
+            condition: "cpu_load_pct > 80 || gpu_load_pct > 85".to_string(),
+            action: "bitrate_reduce".to_string(),
+            params,
+            modes: vec!["auto".to_string(), "co_pilot".to_string()],
+        };
+        let engine = RuleEngine::new_test(vec![rule], 0);
+
+        let json = engine.snapshot_json();
+        // JSON'u geri parse et — alanlar birebir korunmalı.
+        let parsed: Vec<Rule> = serde_json::from_str(&json).expect("snapshot geçerli JSON olmalı");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].id, "high_cpu_reduce_bitrate");
+        assert_eq!(parsed[0].condition, "cpu_load_pct > 80 || gpu_load_pct > 85");
+        assert_eq!(parsed[0].action, "bitrate_reduce");
+        assert_eq!(parsed[0].modes, vec!["auto".to_string(), "co_pilot".to_string()]);
+        assert_eq!(parsed[0].params.get("step_kbps").and_then(|v| v.as_i64()), Some(1000));
     }
 }

@@ -1388,6 +1388,67 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
     })
 }
 
+/// Görünürlük (salt-okunur): motorun BELLEK-İÇİ kural listesini JSON dizisi olarak
+/// caller'ın verdiği `buf`'a (kapasite `cap` byte) NUL-terminated yazar. GUI "Kurallar"
+/// sekmesi bunu okuyup `QJsonDocument` ile parse eder — dosyayı değil aktif kuralları
+/// gösterir (hot_reload rollback'inde disk ≠ bellek olabilir; "kör kutu" derdi motorun
+/// gerçeğini görmek).
+///
+/// Dönüş:
+///   `>= 0` — yazılan JSON gövdesinin byte uzunluğu (NUL hariç).
+///   `-1`   — `buf` null / `cap <= 0` / FFI_STATE init değil / `cap` yetersiz.
+///
+/// String EGRESS (Rust üretici, C++ parse eder): `ffi-safety-review`'in "string-sınırda-
+/// reddet" ilkesi güvenilmez INGRESS içindi; burada ABI'ye yeni struct/enum EKLENMEZ
+/// (`metrics.rs` dokunulmaz, `static_assert`/sizeof gerekmez). `cap` yetersizse KIRPMAZ
+/// (kırpılmış JSON C++'ta parse edilemezdi) — güvenli `-1` döner. `rj_reload_rules`'un
+/// panik/poison desenini izler.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_rules_snapshot_json(buf: *mut c_char, cap: i32) -> i32 {
+    catch_unwind(AssertUnwindSafe(move || {
+        if buf.is_null() || cap <= 0 {
+            return -1;
+        }
+        let Some(state) = FFI_STATE.get() else {
+            eprintln!("[FFI] WARNING: FFI_STATE not initialized — rj_rules_snapshot_json ignored");
+            return -1;
+        };
+
+        // Kısa kilit: JSON'u üret, kilidi bırak, sonra kopyala.
+        let json = {
+            let engine_lock = state.rule_engine
+                .lock()
+                .unwrap_or_else(|poisoned| {
+                    warn!("rule_engine mutex poison — recovering");
+                    poisoned.into_inner()
+                });
+            match engine_lock.as_ref() {
+                Some(engine) => engine.snapshot_json(),
+                None => "[]".to_string(),
+            }
+        };
+
+        let bytes = json.as_bytes();
+        let cap = cap as usize;
+        // NUL için 1 byte ayrılır; gövde `cap - 1`'e sığmalı.
+        if bytes.len() + 1 > cap {
+            warn!(needed = bytes.len() + 1, cap, "rj_rules_snapshot_json: buffer küçük — reddedildi");
+            return -1;
+        }
+        // SAFETY: `buf` en az `cap` byte (C++ sözleşmesi); `bytes.len()+1 <= cap` doğrulandı.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf as *mut u8, bytes.len());
+            *buf.add(bytes.len()) = 0; // NUL terminator
+        }
+        bytes.len() as i32
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_rules_snapshot_json caught panic");
+        -1
+    })
+}
+
 /// C++ UI → Rust: mevcut sahne isimlerini WsState'e yazar (GetSceneList için).
 ///
 /// Ownership: C++ pointer'ları verir, Rust HEMEN kopyalar (`into_owned`); fonksiyon
@@ -1461,6 +1522,21 @@ mod tests {
 
     fn mk_action(id: u32) -> RjAction {
         RjAction { id, action_type: RjActionType::BitrateReduce, param1: 3500, param2: 0, canary: 0 }
+    }
+
+    // Görünürlük: rj_rules_snapshot_json guard'ları — null buf / cap<=0, FFI_STATE'e
+    // dokunmadan kısa devre eder (süreç-global state'e bağımlı değil, deterministik).
+    // Snapshot içeriği rules::snapshot_json birim testlerinde doğrulanır.
+    #[test]
+    fn snapshot_json_null_buffer_returns_error() {
+        assert_eq!(rj_rules_snapshot_json(std::ptr::null_mut(), 4096), -1);
+    }
+
+    #[test]
+    fn snapshot_json_nonpositive_cap_returns_error() {
+        let mut buf = [0i8; 8];
+        assert_eq!(rj_rules_snapshot_json(buf.as_mut_ptr(), 0), -1);
+        assert_eq!(rj_rules_snapshot_json(buf.as_mut_ptr(), -1), -1);
     }
 
     #[test]
