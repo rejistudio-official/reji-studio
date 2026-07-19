@@ -1,7 +1,19 @@
 # CONTEXT.md — Reji Studio Proje Bağlamı
 
-**Son güncelleme:** 17 Temmuz 2026
+**Son güncelleme:** 20 Temmuz 2026
 **Hazırlayan:** Bu sohbetin (Claude, sohbet asistanı) kendisi — Claude Code'un gerçekleştirdiği işlerin, GitHub'dan doğrudan doğrulanmış özeti.
+
+> **DONANIM PROFİLLEME (20.07):** Kurulan donanıma göre üç profilden
+> (Stabilite/Performans/Verimlilik) birini **öneren** ilk-kurulum sistemi
+> tamamlandı — dal `feat/hardware-profiling`, 6 commit, `master`'a ff-only merge,
+> dal silindi. Eşik tablosu (batarya→Verimlilik; VRAM<4GB || RAM<8GB→Stabilite;
+> aksi→Performans) → üç gömülü `docs/config/profiles/*.json` + bitrate/FPS preset
+> (12000/60·6000/30·4500/30); Sütun 3'ün doğrula→backup→yaz→reload yolu yeniden
+> kullanıldı. Öneri override edilebilir (sessiz uygulama değil), ilk kurulumda bir
+> kez. Çözünürlük profili / canlı izleme / kalibrasyonla birleşme kapsam dışı; yeni
+> FFI yok. Doğrulama: 11 birim + 4 Rust testi PASS, GUI görsel akışı kullanıcıda.
+> Detay: `SESSION_NOTES.md` (20.07) + `docs/talimatlar/TALIMAT_DONANIM_PROFILLEME.md`
+> + `ROADMAP.md` Farklılaşma Stratejisi Sütun 4.
 
 > **AYARLAR ZENGİNLEŞTİRME (17.07):** Video ayarları (bitrate/FPS manuel kontrolü)
 > tamamlandı — dal `feat/video-settings`, 3 commit. "Video" kategorisi artık dolu;
