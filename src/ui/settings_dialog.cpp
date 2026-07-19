@@ -428,6 +428,25 @@ uint32_t SettingsDialog::videoFps() const {
         : 60u;
 }
 
+void SettingsDialog::setVideoBitrateKbps(uint32_t kbps) {
+    // QSpinBox aralığı (500–50000) dışını kendisi clamp'ler — preset değerleri
+    // (12000/6000/4500) zaten aralık içi.
+    if (d_->bitrate_spin) {
+        d_->bitrate_spin->setValue(static_cast<int>(kbps));
+    }
+}
+
+void SettingsDialog::setVideoFps(uint32_t fps) {
+    // Yalnız combo'da bulunan (30/60/120) değere geç; yoksa sessizce yok say
+    // (preset'ler 60/30 kullanır — hepsi mevcut).
+    if (d_->combo_fps) {
+        const int idx = d_->combo_fps->findData(static_cast<int>(fps));
+        if (idx >= 0) {
+            d_->combo_fps->setCurrentIndex(idx);
+        }
+    }
+}
+
 // Yaklaşım C: Co-Pilot action setting getters
 bool SettingsDialog::isBitrateAuto() const {
     return d_->chk_bitrate_auto && d_->chk_bitrate_auto->isChecked();

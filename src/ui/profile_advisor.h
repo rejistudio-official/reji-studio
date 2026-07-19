@@ -46,4 +46,18 @@ bool query_on_battery() noexcept;
 /// birleştirip `HwSignals` üretir. Bu modül DXGI'ye dokunmaz (izolasyon korunur).
 HwSignals collect_hw_signals(uint32_t encode_vendor_id, uint64_t encode_vram_mb) noexcept;
 
+/// Bir profilin bitrate/FPS ön-ayarı (encoder init'e / SettingsDialog'a uygulanır).
+struct ProfilePreset {
+    uint32_t bitrate_kbps;
+    uint32_t fps;
+};
+
+/// Profilin bitrate/FPS ön-ayarını döndürür (Faz 1 onaylanan sayılar):
+///   Performans 12000/60 · Stabilite 6000/30 · Verimlilik 4500/30.
+ProfilePreset preset_for(ProfileId id) noexcept;
+
+/// Profilin gömülü kaynak dosya kökü ("performance"/"stability"/"efficiency").
+/// Çağıran ":/config/profiles/<kök>.json" yolunu kurar (qrc gömme ile eşleşir).
+const char* profile_resource_name(ProfileId id) noexcept;
+
 } // namespace reji

@@ -30,6 +30,7 @@ namespace reji {
     class RustBridge;
     class SettingsDialog;
     enum class HealingMode;   // tanım: healing_overlay.h (Madde 6/A imzası için)
+    enum class ProfileId;     // tanım: profile_advisor.h (applyProfile imzası için)
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +108,11 @@ private slots:
     /// Seçilen dosyayı doğrulayıp (geçici konumda) rules.json üzerine yazar;
     /// yedek rules.json.backup alır, reload'u watcher'a veya elle tetikler.
     void importRules();
+    /// Önerilen/seçilen donanım profilini uygular: gömülü kural setini
+    /// (:/config/profiles/<id>.json) writeValidatedRules ile yazar + bitrate/FPS
+    /// preset'ini SettingsDialog'a uygular. Başarıda true. İlk-kurulum akışı (Commit 5)
+    /// bunu çağırır. Yalnız ÖNERİ uygular — kullanıcı seçimiyle tetiklenir.
+    bool applyProfile(reji::ProfileId id);
     /// 200 ms poll: V8/I33 — drains rj_action_event_dequeue (UI event kuyruğu,
     /// aktüatörden ayrı) and feeds HealingOverlay.
     void pollHealingActions();
@@ -131,6 +137,13 @@ private:
     /// Gömülü şablonu (:/config/rules.json.template) hedef yola yazar.
     /// Üst dizini gerekirse oluşturur. Başarıda true.
     bool seedRulesFromTemplate(const QString& targetPath);
+    /// İçe-aktarım + profil uygulama ORTAK çekirdeği (Sütun 3 güvenlik akışı):
+    /// `src` (kullanıcı dosyası VEYA gömülü qrc kaynağı) geçici konumda
+    /// rj_reload_rules ile DOĞRULANIR (asıl rules.json'a dokunulmadan) → geçerliyse
+    /// rules.json.backup alınır → rules.json'a yazılır → reload watcher'a/elle
+    /// tetiklenir. Başarıda true; hatada `errMsg` doldurulur. UI/mesajlaşma çağırana
+    /// aittir (import: kullanıcı QMessageBox'ı; profil: otomatik durum satırı).
+    bool writeValidatedRules(const QString& src, QString& errMsg);
     /// rules_watcher_ + debounce zamanlayıcısını tembel (lazy) oluşturur.
     void ensureRulesWatcher();
     /// rules.json'u (varsa) ve üst dizinini watcher'a ekler. Üst-dizin izlemesi

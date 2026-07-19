@@ -10,6 +10,7 @@
 #include "program_widget.h"
 #include "rust_bridge.h"    // also pulls in ffi_bridge.h (RjCommand, rj_command_drain, …)
 #include "settings_dialog.h"
+#include "profile_advisor.h"   // reji::ProfileId, preset_for, profile_resource_name
 #include "../pipeline/gpu/vulkan_initializer.h"
 
 #include <vector>
@@ -736,6 +737,17 @@ namespace {
 // Editörler tek kayıtta birden çok dosya-sistemi olayı üretir; bu pencere
 // içindeki olaylar tek bir reload'a birleştirilir.
 constexpr int kRulesReloadDebounceMs = 300;
+
+// Profilin kullanıcıya görünen (Türkçe) adı — durum satırı için. Kaynak kökü
+// (profile_resource_name, "performance"...) İngilizce/dosya-adı içindir; bu ayrı.
+QString profileDisplayName(reji::ProfileId id) {
+    switch (id) {
+        case reji::ProfileId::Performance: return QStringLiteral("Performans");
+        case reji::ProfileId::Stability:   return QStringLiteral("Stabilite");
+        case reji::ProfileId::Efficiency:  return QStringLiteral("Verimlilik");
+    }
+    return QStringLiteral("Performans");  // ulaşılmaz — enum tam kapsanır
+}
 }
 
 void MainWindow::ensureRulesWatcher() {
@@ -864,48 +876,34 @@ void MainWindow::exportRules() {
     }
 }
 
-void MainWindow::importRules() {
-    const QString src = QFileDialog::getOpenFileName(
-        this,
-        tr("Kural Setini İçe Aktar"),
-        QDir::homePath(),
-        tr("JSON Kural Dosyası (*.json);;Tüm dosyalar (*)"));
-
-    if (src.isEmpty()) return;
-
+bool MainWindow::writeValidatedRules(const QString& src, QString& errMsg) {
     // Adım 1: Geçici konuma kopyala ve doğrula (asıl rules.json'a DOKUNMA).
+    // `src` bir kullanıcı dosyası VEYA gömülü qrc kaynağı (":/config/...") olabilir;
+    // QFile::copy her ikisini de destekler, rj_reload_rules yalnız gerçek dosyada çalışır.
     QTemporaryFile tmp;
     tmp.setAutoRemove(true);
     if (!tmp.open()) {
-        QMessageBox::warning(this, tr("İçe Aktar"),
-            tr("Geçici doğrulama dosyası oluşturulamadı."));
-        return;
+        errMsg = tr("Geçici doğrulama dosyası oluşturulamadı.");
+        return false;
     }
     const QString tmpPath = tmp.fileName();
     tmp.close();
 
     if (!QFile::copy(src, tmpPath)) {
-        QMessageBox::warning(this, tr("İçe Aktar"),
-            tr("Doğrulama için kopyalanamadı:\n%1").arg(src));
-        return;
+        errMsg = tr("Doğrulama için kopyalanamadı:\n%1").arg(src);
+        return false;
     }
 
     const QByteArray tmpPathUtf8 = tmpPath.toUtf8();
     if (rj_reload_rules(tmpPathUtf8.constData()) != 1) {
         QFile::remove(tmpPath);
-        if (lbl_rules_) {
-            lbl_rules_->setStyleSheet(QStringLiteral("color:#E53935;"));
-            lbl_rules_->setText(tr("Kurallar: İÇE AKTARIM REDDEDİLDİ — geçersiz dosya (JSON/alan hatası?)"));
-            lbl_rules_->show();
-        }
-        QMessageBox::warning(this, tr("İçe Aktar"),
-            tr("Seçilen dosya geçersiz — mevcut kurallar korunuyor.\n\n"
-               "Beklenen format: geçerli JSON, her kuralda 'id', 'condition', 'action' alanları."));
-        return;
+        errMsg = tr("Seçilen dosya geçersiz — mevcut kurallar korunuyor.\n\n"
+                    "Beklenen format: geçerli JSON, her kuralda 'id', 'condition', 'action' alanları.");
+        return false;
     }
     QFile::remove(tmpPath);
 
-    // Adım 2: Mevcut rules.json'ı yedekle.
+    // Adım 2: Mevcut rules.json'ı yedekle (geri dönüşsüz kayıp yok — I10).
     const QString dest    = rulesFilePath();
     const QString backup  = dest + QStringLiteral(".backup");
     if (QFileInfo::exists(dest)) {
@@ -919,25 +917,86 @@ void MainWindow::importRules() {
 
     QFile::remove(dest);
     if (!QFile::copy(src, dest)) {
-        QMessageBox::warning(this, tr("İçe Aktar"),
-            tr("Dosya yazılamadı:\n%1").arg(dest));
+        errMsg = tr("Dosya yazılamadı:\n%1").arg(dest);
+        return false;
+    }
+
+    // Adım 4: Reload — watcher aktifse dosya değişimini debounce ile o tetikler;
+    // değilse yolu (yeni oluştu) ekleyip elle yükle.
+    const bool watcherActive = settings_dialog_ && settings_dialog_->isAutoReloadEnabled();
+    if (!watcherActive) {
+        armRulesWatch();
+        reloadRulesNow();
+    }
+    return true;
+}
+
+void MainWindow::importRules() {
+    const QString src = QFileDialog::getOpenFileName(
+        this,
+        tr("Kural Setini İçe Aktar"),
+        QDir::homePath(),
+        tr("JSON Kural Dosyası (*.json);;Tüm dosyalar (*)"));
+
+    if (src.isEmpty()) return;
+
+    QString err;
+    if (!writeValidatedRules(src, err)) {
+        if (lbl_rules_) {
+            lbl_rules_->setStyleSheet(QStringLiteral("color:#E53935;"));
+            lbl_rules_->setText(tr("Kurallar: İÇE AKTARIM REDDEDİLDİ — geçersiz dosya (JSON/alan hatası?)"));
+            lbl_rules_->show();
+        }
+        QMessageBox::warning(this, tr("İçe Aktar"), err);
         return;
     }
 
-    // Adım 4: Reload — watcher aktifse bırak, değilse elle tetikle.
+    // Başarı: watcher aktifse debounce ile yüklenecek (durum satırını burada göster);
+    // değilse writeValidatedRules zaten reloadRulesNow() ile lbl_rules_'ı güncelledi.
     const bool watcherActive = settings_dialog_ && settings_dialog_->isAutoReloadEnabled();
-    if (!watcherActive) {
-        // Watcher kapalı: yolu (yeni oluştu) da ekleyebiliriz; elle yükle.
-        armRulesWatch();
-        reloadRulesNow();
-    } else {
-        // Watcher zaten izliyor — dosya değişimini algılayıp debounce ile tetikler.
+    if (watcherActive && lbl_rules_) {
+        lbl_rules_->setStyleSheet(QString());
+        lbl_rules_->setText(tr("Kurallar: içe aktarıldı — yeniden yükleniyor..."));
+        lbl_rules_->show();
+    }
+}
+
+bool MainWindow::applyProfile(reji::ProfileId id) {
+    // Gömülü profil kural setini (:/config/profiles/<kök>.json) aynı Sütun 3
+    // güvenlik akışıyla yaz. Kaynak qrc olduğundan QFile::copy doğrudan çalışır.
+    const QString res = QStringLiteral(":/config/profiles/%1.json")
+        .arg(QString::fromLatin1(reji::profile_resource_name(id)));
+
+    QString err;
+    if (!writeValidatedRules(res, err)) {
+        // Beklenmez — gömülü profiller Commit 1 testinde + RCC'de doğrulandı; yine
+        // de sessiz yutma yok (I10).
         if (lbl_rules_) {
-            lbl_rules_->setStyleSheet(QString());
-            lbl_rules_->setText(tr("Kurallar: içe aktarıldı — yeniden yükleniyor..."));
+            lbl_rules_->setStyleSheet(QStringLiteral("color:#E53935;"));
+            lbl_rules_->setText(tr("Profil uygulanamadı — mevcut kurallar korunuyor"));
             lbl_rules_->show();
         }
+        QMessageBox::warning(this, tr("Donanım Profili"), err);
+        return false;
     }
+
+    // Preset: bitrate/FPS'i SettingsDialog'a uygula — encoder init bu değerleri okur
+    // (ilk kurulumda yayın başlamadan uygulanır, canlı reconfigure gerekmez).
+    const reji::ProfilePreset preset = reji::preset_for(id);
+    if (settings_dialog_) {
+        settings_dialog_->setVideoBitrateKbps(preset.bitrate_kbps);
+        settings_dialog_->setVideoFps(preset.fps);
+    }
+
+    if (lbl_rules_) {
+        lbl_rules_->setStyleSheet(QString());
+        lbl_rules_->setText(tr("Profil uygulandı: %1 (%2 kbps · %3 fps)")
+            .arg(profileDisplayName(id))
+            .arg(preset.bitrate_kbps)
+            .arg(preset.fps));
+        lbl_rules_->show();
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------

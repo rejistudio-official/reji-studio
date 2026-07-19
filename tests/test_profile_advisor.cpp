@@ -63,3 +63,30 @@ TEST(ProfileAdvisor, BatteryTakesPrecedenceOverLowHardware) {
     s.on_battery   = true;
     EXPECT_EQ(suggest_profile(s), ProfileId::Efficiency);
 }
+
+// ===== Preset (bitrate/FPS) — Faz 1 onaylanan sayılar kilitlenir =====
+
+TEST(ProfileAdvisor, PresetPerformanceIs12000At60) {
+    const auto p = reji::preset_for(ProfileId::Performance);
+    EXPECT_EQ(p.bitrate_kbps, 12000u);
+    EXPECT_EQ(p.fps, 60u);
+}
+
+TEST(ProfileAdvisor, PresetStabilityIs6000At30) {
+    const auto p = reji::preset_for(ProfileId::Stability);
+    EXPECT_EQ(p.bitrate_kbps, 6000u);
+    EXPECT_EQ(p.fps, 30u);
+}
+
+TEST(ProfileAdvisor, PresetEfficiencyIs4500At30) {
+    const auto p = reji::preset_for(ProfileId::Efficiency);
+    EXPECT_EQ(p.bitrate_kbps, 4500u);
+    EXPECT_EQ(p.fps, 30u);
+}
+
+TEST(ProfileAdvisor, ResourceNamesMatchEmbeddedFiles) {
+    // ":/config/profiles/<kök>.json" — qrc gömme adlarıyla birebir eşleşmeli.
+    EXPECT_STREQ(reji::profile_resource_name(ProfileId::Performance), "performance");
+    EXPECT_STREQ(reji::profile_resource_name(ProfileId::Stability),   "stability");
+    EXPECT_STREQ(reji::profile_resource_name(ProfileId::Efficiency),  "efficiency");
+}

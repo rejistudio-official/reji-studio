@@ -34,6 +34,10 @@ public:
     // tek kaynaktan yansır.
     uint32_t videoBitrateKbps() const;    // 500–50000 kbps
     uint32_t videoFps() const;            // 30 / 60 / 120 (set_fps_limit tavanı 120)
+    // Donanım profili ön-ayarını UI'a uygular (profil seçilince bitrate/FPS'i set eder).
+    // Aralık dışı bitrate spin tarafından clamp'lenir; desteklenmeyen FPS yok sayılır.
+    void setVideoBitrateKbps(uint32_t kbps);
+    void setVideoFps(uint32_t fps);
 
     // Ses ayarları (RTMP/FLV AAC MVP). audio_enabled pipeline'a; deviceId boşsa
     // sistem varsayılan endpoint'i kullanılır (WasapiCapture GetDefaultAudioEndpoint).

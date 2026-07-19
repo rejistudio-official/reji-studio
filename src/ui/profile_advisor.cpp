@@ -56,4 +56,22 @@ ProfileId suggest_profile(const HwSignals& s) noexcept {
     return ProfileId::Performance;
 }
 
+ProfilePreset preset_for(ProfileId id) noexcept {
+    switch (id) {
+        case ProfileId::Performance: return ProfilePreset{12000u, 60u};
+        case ProfileId::Stability:   return ProfilePreset{ 6000u, 30u};
+        case ProfileId::Efficiency:  return ProfilePreset{ 4500u, 30u};
+    }
+    return ProfilePreset{12000u, 60u};  // ulaşılmaz — enum tam kapsanır
+}
+
+const char* profile_resource_name(ProfileId id) noexcept {
+    switch (id) {
+        case ProfileId::Performance: return "performance";
+        case ProfileId::Stability:   return "stability";
+        case ProfileId::Efficiency:  return "efficiency";
+    }
+    return "performance";  // ulaşılmaz — enum tam kapsanır
+}
+
 } // namespace reji
