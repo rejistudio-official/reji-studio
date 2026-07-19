@@ -1,5 +1,7 @@
 #include "profile_advisor.h"
 
+#include "reji_constants.h"
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -36,6 +38,22 @@ HwSignals collect_hw_signals(uint32_t encode_vendor_id, uint64_t encode_vram_mb)
     s.total_ram_mb = query_total_ram_mb();
     s.on_battery   = query_on_battery();
     return s;
+}
+
+ProfileId suggest_profile(const HwSignals& s) noexcept {
+    // 1) Güç önceliği: batarya gücündeyse Verimlilik (donanım güçlü olsa bile).
+    //    Kullanıcı fişteyken bunu Performans'a override edebilir (öneri, zorunlu değil).
+    if (s.on_battery) {
+        return ProfileId::Efficiency;
+    }
+    // 2) Marjinal donanım: düşük VRAM VEYA düşük RAM → Stabilite (güvenli/tutucu).
+    //    '<' kesin sınır — tam eşik değeri güçlü sayılır (kural 3'e düşer).
+    if (s.vram_mb < rj::constants::kProfileVramLowMb ||
+        s.total_ram_mb < rj::constants::kProfileRamLowMb) {
+        return ProfileId::Stability;
+    }
+    // 3) Aksi halde (AC + yeterli VRAM/RAM) → Performans.
+    return ProfileId::Performance;
 }
 
 } // namespace reji

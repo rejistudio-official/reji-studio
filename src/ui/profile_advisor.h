@@ -22,6 +22,18 @@ struct HwSignals {
     bool     on_battery   = false;  ///< Sistem batarya gücünde mi — GetSystemPowerStatus.ACLineStatus==0
 };
 
+/// Önerilen donanım profili. Gömülü kural setleri (:/config/profiles/<id>.json)
+/// ve bitrate/FPS preset'iyle eşleşir.
+enum class ProfileId { Stability, Performance, Efficiency };
+
+/// Ham sinyallerden önerilen profili türetir. SAF fonksiyon (I/O yok, test edilebilir).
+/// İlk-eşleşen üç kural (Faz 1 / onaylanan eşik tablosu):
+///   1) batarya gücünde                              → Efficiency (güç önceliği)
+///   2) VRAM < kProfileVramLowMb || RAM < kProfileRamLowMb → Stability (marjinal donanım)
+///   3) aksi halde                                   → Performance
+/// Not: yalnız ÖNERİ üretir; kullanıcı override eder (sessiz uygulama değil).
+ProfileId suggest_profile(const HwSignals& s) noexcept;
+
 /// Toplam fiziksel RAM'i MB olarak döndürür (GlobalMemoryStatusEx.ullTotalPhys).
 /// Sorgu başarısızsa 0.
 uint64_t query_total_ram_mb() noexcept;

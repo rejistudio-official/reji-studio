@@ -12,6 +12,12 @@ namespace rj::constants {
     inline constexpr uint32_t kDefaultBitrateKbps         = 6000;
     inline constexpr uint32_t kReducedBitrateKbps         = 3500;
 
+    // Donanım profili önerisi eşikleri (ilk-kurulum profil advisor, profile_advisor.*).
+    // Kaba/basit sınıflandırma — puanlama değil (YAGNI). Bu değerlerin ALTI "marjinal
+    // donanım" sayılıp Stabilite önerilir; '<' kesin sınır (tam eşik → Performans).
+    inline constexpr uint64_t kProfileVramLowMb           = 4096;   // 4 GB
+    inline constexpr uint64_t kProfileRamLowMb            = 8192;   // 8 GB
+
     // UI zamanlama sabitleri
     inline constexpr uint32_t kActionPollIntervalMs        = 200;   // healing action poll (MainWindow)
     inline constexpr uint32_t kSrtLatencyMs               = 200;   // SRT akış gecikmesi

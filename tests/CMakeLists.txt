@@ -323,3 +323,23 @@ if(WIN32)
     )
     add_test(NAME AudioDeviceEnumTest COMMAND test_audio_device_enum)
 endif()
+
+# ── Donanim Profilleme: suggest_profile saf karar mantigi testi ──
+# profile_advisor.cpp dogrudan derlenir (test_seh_filter deseni) — Qt/pipeline/
+# Rust link gerekmez, sadece gtest. windows.h (RAM/batarya sorgulari) icin WIN32.
+# Yalniz saf suggest_profile test edilir; esik tablosu (VRAM/RAM/batarya) kilitlenir.
+add_executable(test_profile_advisor
+    test_profile_advisor.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/profile_advisor.cpp
+)
+
+target_include_directories(test_profile_advisor PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/ui
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include   # reji_constants.h
+)
+
+target_link_libraries(test_profile_advisor
+    gtest gtest_main
+)
+
+add_test(NAME ProfileAdvisorTest COMMAND test_profile_advisor)
