@@ -1,0 +1,84 @@
+{
+  "rules": [
+    {
+      "id": "frame_drop_mild",
+      "description": "Frame drop 3-8%, early mild reduction (stability)",
+      "condition": "frame_drop_pct >= 3 && frame_drop_pct <= 8",
+      "action": "bitrate_reduce",
+      "params": {
+        "step_kbps": 300
+      },
+      "modes": ["auto-pilot", "co-pilot", "assist"]
+    },
+    {
+      "id": "frame_drop_high",
+      "description": "Frame drop > 8%, aggressive reduction (stability)",
+      "condition": "frame_drop_pct > 8",
+      "action": "bitrate_reduce",
+      "params": {
+        "step_kbps": 750
+      },
+      "modes": ["auto-pilot", "co-pilot", "assist"]
+    },
+    {
+      "id": "frame_drop_recovery",
+      "description": "Frame drop < 3%, cautious bitrate recovery (stability)",
+      "condition": "frame_drop_pct < 3",
+      "action": "bitrate_recover",
+      "params": {
+        "step_kbps": 150
+      },
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "gpu_thermal_throttle",
+      "description": "GPU temp > 85°C, scale to half resolution",
+      "condition": "gpu_temp_c > 85",
+      "action": "scale_resolution",
+      "params": {
+        "scale_factor": 0.5
+      },
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "gpu_thermal_restore",
+      "description": "GPU temp < 70°C, restore full resolution",
+      "condition": "gpu_temp_c < 70",
+      "action": "restore_resolution",
+      "params": {},
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "cpu_load_high",
+      "description": "CPU > 75%, cap preview FPS to 30 (stability, early)",
+      "condition": "cpu_load_pct > 75",
+      "action": "cap_fps",
+      "params": {
+        "fps_limit": 30
+      },
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "gpu_load_high",
+      "description": "GPU > 80%, reduce bitrate (stability, real metric)",
+      "condition": "gpu_load_pct > 80",
+      "action": "bitrate_reduce",
+      "params": {
+        "step_kbps": 500
+      },
+      "modes": ["auto-pilot", "co-pilot", "assist"]
+    },
+    {
+      "id": "memory_pressure",
+      "description": "RAM > 70%, scale preview to half (stability, early)",
+      "condition": "memory_usage_pct > 70",
+      "action": "scale_resolution",
+      "params": {
+        "scale_factor": 0.5
+      },
+      "modes": ["auto-pilot", "co-pilot", "assist"]
+    }
+  ],
+  "hysteresis_ms": 6000,
+  "default_mode": "co-pilot"
+}

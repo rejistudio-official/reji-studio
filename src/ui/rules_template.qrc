@@ -3,9 +3,16 @@
   buradan tohumlanır. Tek kaynak: docs/config/rules.json.template (kopya
   tutulmaz, DRY). AUTORCC (src/ui/CMakeLists.txt) derleme anında gömer;
   runtime yolu ":/config/rules.json.template".
+
+  Donanım profilleri — ilk-kurulum profil önerisi (Stabilite/Performans/
+  Verimlilik) buradan tohumlanır. Tek kaynak: docs/config/profiles/*.json.
+  Runtime yolu ":/config/profiles/<id>.json".
 -->
 <RCC>
   <qresource prefix="/config">
     <file alias="rules.json.template">../../docs/config/rules.json.template</file>
+    <file alias="profiles/performance.json">../../docs/config/profiles/performance.json</file>
+    <file alias="profiles/stability.json">../../docs/config/profiles/stability.json</file>
+    <file alias="profiles/efficiency.json">../../docs/config/profiles/efficiency.json</file>
   </qresource>
 </RCC>

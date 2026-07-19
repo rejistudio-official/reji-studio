@@ -1,0 +1,74 @@
+{
+  "rules": [
+    {
+      "id": "frame_drop_mild",
+      "description": "Frame drop < 10%, mild reduction",
+      "condition": "frame_drop_pct >= 5 && frame_drop_pct <= 10",
+      "action": "bitrate_reduce",
+      "params": {
+        "step_kbps": 250
+      },
+      "modes": ["auto-pilot", "co-pilot", "assist"]
+    },
+    {
+      "id": "frame_drop_high",
+      "description": "Frame drop > 10%, aggressive reduction",
+      "condition": "frame_drop_pct > 10",
+      "action": "bitrate_reduce",
+      "params": {
+        "step_kbps": 500
+      },
+      "modes": ["auto-pilot", "co-pilot", "assist"]
+    },
+    {
+      "id": "gpu_thermal_throttle",
+      "description": "GPU temp > 85°C, scale to half resolution",
+      "condition": "gpu_temp_c > 85",
+      "action": "scale_resolution",
+      "params": {
+        "scale_factor": 0.5
+      },
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "gpu_thermal_restore",
+      "description": "GPU temp < 70°C, restore full resolution",
+      "condition": "gpu_temp_c < 70",
+      "action": "restore_resolution",
+      "params": {},
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "cpu_load_high",
+      "description": "CPU > 80%, cap FPS to 30 (efficiency, power saving)",
+      "condition": "cpu_load_pct > 80",
+      "action": "cap_fps",
+      "params": {
+        "fps_limit": 30
+      },
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "gpu_load_high",
+      "description": "GPU > 80%, cap FPS to 30 (efficiency, keep GPU low)",
+      "condition": "gpu_load_pct > 80",
+      "action": "cap_fps",
+      "params": {
+        "fps_limit": 30
+      },
+      "modes": ["auto-pilot", "co-pilot"]
+    },
+    {
+      "id": "memory_pressure",
+      "description": "RAM > 85%, scale preview to quarter",
+      "condition": "memory_usage_pct > 85",
+      "action": "scale_resolution",
+      "params": {
+        "scale_factor": 0.25
+      },
+      "modes": ["auto-pilot", "co-pilot", "assist"]
+    }
+  ],
+  "hysteresis_ms": 10000,
+  "default_mode": "co-pilot"
+}

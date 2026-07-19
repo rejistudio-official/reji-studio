@@ -1011,4 +1011,73 @@ mod tests {
         assert_eq!(parsed[0].modes, vec!["auto".to_string(), "co_pilot".to_string()]);
         assert_eq!(parsed[0].params.get("step_kbps").and_then(|v| v.as_i64()), Some(1000));
     }
+
+    // ===== Donanım profilleri (Faz 2 / Commit 1): gömülü profil dosyaları
+    // RuleEngine şema doğrulamasından geçmeli + profil-özgü değişmezler. Bu
+    // testler docs/config/profiles/*.json'u okur (qrc gömme ile aynı kaynak). =====
+
+    fn profile_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/config/profiles")
+            .join(name)
+    }
+
+    fn load_profile_rules(name: &str) -> Vec<Rule> {
+        let engine = RuleEngine::new(profile_path(name))
+            .unwrap_or_else(|e| panic!("{} yüklenemedi/doğrulanamadı: {}", name, e));
+        serde_json::from_str(&engine.snapshot_json()).expect("snapshot geçerli JSON olmalı")
+    }
+
+    #[test]
+    fn all_three_profiles_parse_and_validate() {
+        // Üç dosya da RuleEngine::new (=> hot_reload => şema doğrulaması) geçmeli.
+        for f in ["performance.json", "stability.json", "efficiency.json"] {
+            let rules = load_profile_rules(f);
+            assert!(!rules.is_empty(), "{} boş kural üretti", f);
+        }
+    }
+
+    #[test]
+    fn performance_is_baseline_template_shape() {
+        // Performans = mevcut varsayılan şablon: recovery içerir, yeni gpu_load_high içermez.
+        let rules = load_profile_rules("performance.json");
+        assert!(
+            rules.iter().any(|r| r.id == "frame_drop_recovery"),
+            "Performans recovery kuralını içermeli"
+        );
+        assert!(
+            !rules.iter().any(|r| r.id == "gpu_load_high"),
+            "Performans temel çizgi — gpu_load_high eklenmemeli"
+        );
+    }
+
+    #[test]
+    fn stability_triggers_earlier_and_adds_gpu_load() {
+        // Stabilite: eşikler erken (cpu > 75) + yeni gpu_load_high (gerçek metrik).
+        let rules = load_profile_rules("stability.json");
+        let cpu = rules
+            .iter()
+            .find(|r| r.id == "cpu_load_high")
+            .expect("cpu_load_high olmalı");
+        assert_eq!(cpu.condition, "cpu_load_pct > 75", "Stabilite CPU eşiği erken (75)");
+        assert!(
+            rules.iter().any(|r| r.id == "gpu_load_high" && r.action == "bitrate_reduce"),
+            "Stabilite gpu_load_high (bitrate_reduce) kuralını eklemeli"
+        );
+    }
+
+    #[test]
+    fn efficiency_removes_recovery_and_caps_gpu() {
+        // Verimlilik: recovery YOK (karar 3), gpu yükü FPS kısarak yönetilir.
+        let rules = load_profile_rules("efficiency.json");
+        assert!(
+            !rules.iter().any(|r| r.id == "frame_drop_recovery"),
+            "Verimlilik recovery kuralını İÇERMEMELİ (sabit-düşük güç felsefesi)"
+        );
+        let gpu = rules
+            .iter()
+            .find(|r| r.id == "gpu_load_high")
+            .expect("gpu_load_high olmalı");
+        assert_eq!(gpu.action, "cap_fps", "Verimlilik GPU yükünü FPS kısarak (güç) yönetir");
+    }
 }
