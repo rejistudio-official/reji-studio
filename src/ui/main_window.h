@@ -144,6 +144,12 @@ private:
     /// tetiklenir. Başarıda true; hatada `errMsg` doldurulur. UI/mesajlaşma çağırana
     /// aittir (import: kullanıcı QMessageBox'ı; profil: otomatik durum satırı).
     bool writeValidatedRules(const QString& src, QString& errMsg);
+    /// İlk kurulumda bir kez (QSettings "profile/asked" bayrağı): donanım
+    /// sinyallerini toplar (pipeline GpuScan vendor/VRAM + RAM/batarya), profil
+    /// önerir, tetikleyen sinyalleri gösteren bir diyalogla sunar (Uygula / Başka
+    /// profil seç / Şimdilik atla). Seçime göre applyProfile. initPipeline
+    /// başarısından sonra event-loop'a ertelenerek çağrılır.
+    void maybeSuggestProfileOnFirstRun();
     /// rules_watcher_ + debounce zamanlayıcısını tembel (lazy) oluşturur.
     void ensureRulesWatcher();
     /// rules.json'u (varsa) ve üst dizinini watcher'a ekler. Üst-dizin izlemesi

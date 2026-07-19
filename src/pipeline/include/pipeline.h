@@ -112,6 +112,11 @@ public:
     /// Returns 0 if not yet initialized or no adapter found.
     uint32_t display_vendor_id() const;
 
+    /// En büyük adanmış VRAM (MB) — tüm donanım adaptörleri arasında (GpuScan).
+    /// Hibrit sistemde (iGPU+dGPU) ayrık GPU'yu yakalar; donanım profili önerisi
+    /// için "makinede kapasiteli GPU var mı" vekili. 0 = init edilmedi / adaptör yok.
+    uint64_t max_gpu_vram_mb() const;
+
     /// Accessor for the frame profiler (initialized during init).
     /// Returns nullptr before init() or if profiler creation failed.
     rj::FrameProfiler* profiler() { return profiler_.get(); }

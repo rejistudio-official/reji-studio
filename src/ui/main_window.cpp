@@ -38,9 +38,33 @@
 #include <QDateTime>
 #include <QTimer>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QTemporaryFile>
 #include <QUrl>
 #include <QVBoxLayout>
+
+namespace {
+// Profilin kullanıcıya görünen (Türkçe) adı — öneri diyaloğu ve durum satırı için.
+// Kaynak kökü (profile_resource_name, "performance"...) İngilizce/dosya-adı; bu ayrı.
+QString profileDisplayName(reji::ProfileId id) {
+    switch (id) {
+        case reji::ProfileId::Performance: return QStringLiteral("Performans");
+        case reji::ProfileId::Stability:   return QStringLiteral("Stabilite");
+        case reji::ProfileId::Efficiency:  return QStringLiteral("Verimlilik");
+    }
+    return QStringLiteral("Performans");  // ulaşılmaz — enum tam kapsanır
+}
+
+// GPU vendor id → kısa ad (öneri diyaloğunda görünür sinyal). Bilinmeyen → "GPU".
+QString vendorName(uint32_t vendor_id) {
+    switch (vendor_id) {
+        case 0x10DE: return QStringLiteral("NVIDIA");
+        case 0x1002: return QStringLiteral("AMD");
+        case 0x8086: return QStringLiteral("Intel");
+        default:     return QStringLiteral("GPU");
+    }
+}
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Construction / destruction
@@ -266,7 +290,74 @@ void MainWindow::stopFrameThread() {
 
 bool MainWindow::initPipeline(const rj::Pipeline::Config& cfg) {
     pipeline_cfg_ = cfg;
-    return pipeline_->init(cfg);
+    const bool ok = pipeline_->init(cfg);
+    if (ok) {
+        // İlk kurulumda bir kez donanım profili öner — event-loop'a ertele ki
+        // pencere görünür olsun ve GpuScan init sonrası hazır olsun.
+        QTimer::singleShot(0, this, &MainWindow::maybeSuggestProfileOnFirstRun);
+    }
+    return ok;
+}
+
+void MainWindow::maybeSuggestProfileOnFirstRun() {
+    // Yalnız ilk kurulumda bir kez (Bölüm D kararı: canlı izleme/tekrar sorma yok).
+    if (settings_.value(QStringLiteral("profile/asked"), false).toBool()) return;
+
+    // Donanım sinyalleri: vendor/VRAM pipeline GpuScan'den (donanım izolasyonu),
+    // RAM/batarya profile_advisor'dan.
+    const uint32_t vendor = pipeline_ ? pipeline_->display_vendor_id() : 0;
+    const uint64_t vram   = pipeline_ ? pipeline_->max_gpu_vram_mb()   : 0;
+    const reji::HwSignals sig = reji::collect_hw_signals(vendor, vram);
+    const reji::ProfileId suggested = reji::suggest_profile(sig);
+
+    // Seçim ne olursa olsun bir daha otomatik sorma (ilk-kurulum sınırı).
+    settings_.setValue(QStringLiteral("profile/asked"), true);
+
+    // Tetikleyen sinyaller GÖRÜNÜR (Özellik#1 şeffaflığı — "sistem böyle karar
+    // verdi" değil, "şu sinyaller şu profili öneriyor").
+    const QString detail = tr("Donanım: %1 · VRAM %2 MB · RAM %3 MB · Güç: %4")
+        .arg(vendorName(vendor))
+        .arg(vram)
+        .arg(sig.total_ram_mb)
+        .arg(sig.on_battery ? tr("Batarya") : tr("AC"));
+
+    QMessageBox box(this);
+    box.setWindowTitle(tr("Donanım Profili"));
+    box.setText(tr("Donanımınız için <b>%1</b> profili öneriliyor.")
+                    .arg(profileDisplayName(suggested)));
+    box.setInformativeText(
+        detail + tr("\n\nUygulansın mı? Kural seti + bitrate/FPS ön-ayarı uygulanır; "
+                    "sonra Ayarlar'dan elle değiştirebilirsiniz."));
+    QPushButton* applyBtn  = box.addButton(tr("Uygula"), QMessageBox::AcceptRole);
+    QPushButton* chooseBtn = box.addButton(tr("Başka profil seç..."), QMessageBox::ActionRole);
+    QPushButton* skipBtn   = box.addButton(tr("Şimdilik atla"), QMessageBox::RejectRole);
+    box.setDefaultButton(applyBtn);
+    box.exec();
+
+    if (box.clickedButton() == skipBtn) {
+        return;  // Manuel — hiçbir profil uygulanmaz (kullanıcı elle yapılandırır).
+    }
+
+    reji::ProfileId chosen = suggested;
+    if (box.clickedButton() == chooseBtn) {
+        const QStringList items{ profileDisplayName(reji::ProfileId::Performance),
+                                 profileDisplayName(reji::ProfileId::Stability),
+                                 profileDisplayName(reji::ProfileId::Efficiency) };
+        bool ok = false;
+        const QString pick = QInputDialog::getItem(
+            this, tr("Profil Seç"), tr("Profil:"),
+            items, items.indexOf(profileDisplayName(suggested)), false, &ok);
+        if (!ok) return;  // iptal — hiçbir şey uygulama
+        if (pick == profileDisplayName(reji::ProfileId::Stability)) {
+            chosen = reji::ProfileId::Stability;
+        } else if (pick == profileDisplayName(reji::ProfileId::Efficiency)) {
+            chosen = reji::ProfileId::Efficiency;
+        } else {
+            chosen = reji::ProfileId::Performance;
+        }
+    }
+
+    applyProfile(chosen);
 }
 
 // ---------------------------------------------------------------------------
@@ -737,17 +828,6 @@ namespace {
 // Editörler tek kayıtta birden çok dosya-sistemi olayı üretir; bu pencere
 // içindeki olaylar tek bir reload'a birleştirilir.
 constexpr int kRulesReloadDebounceMs = 300;
-
-// Profilin kullanıcıya görünen (Türkçe) adı — durum satırı için. Kaynak kökü
-// (profile_resource_name, "performance"...) İngilizce/dosya-adı içindir; bu ayrı.
-QString profileDisplayName(reji::ProfileId id) {
-    switch (id) {
-        case reji::ProfileId::Performance: return QStringLiteral("Performans");
-        case reji::ProfileId::Stability:   return QStringLiteral("Stabilite");
-        case reji::ProfileId::Efficiency:  return QStringLiteral("Verimlilik");
-    }
-    return QStringLiteral("Performans");  // ulaşılmaz — enum tam kapsanır
-}
 }
 
 void MainWindow::ensureRulesWatcher() {

@@ -816,6 +816,18 @@ uint32_t Pipeline::display_vendor_id() const {
     return scan.count > 0 ? scan.entries[0].vendor_id : 0;
 }
 
+uint64_t Pipeline::max_gpu_vram_mb() const {
+    if (!impl_ || !impl_->capture_sub_.dxgi()) return 0;
+    const auto& scan = impl_->capture_sub_.dxgi()->gpu_scan();
+    uint64_t max_mb = 0;
+    for (uint32_t i = 0; i < scan.count; ++i) {
+        if (scan.entries[i].dedicated_vram_mb > max_mb) {
+            max_mb = scan.entries[i].dedicated_vram_mb;
+        }
+    }
+    return max_mb;
+}
+
 rj::pipeline::gpu::ExternalMemoryBridge* Pipeline::get_external_memory_bridge() const {
     if (!impl_) return nullptr;
     return impl_->gpu_sub_.raw();
