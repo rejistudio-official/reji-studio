@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QGroupBox>
+#include <QTabWidget>
 #include <QSettings>
 #include <QSpinBox>
 #include <QTextEdit>
@@ -65,7 +66,9 @@ public:
 SettingsDialog::SettingsDialog(QWidget* parent)
     : QDialog(parent), d_(std::make_unique<Impl>())
 {
-    setWindowTitle(tr("Ayarlar — Healing Modu"));
+    // Başlık sade "Ayarlar" — pencere artık çok kategorili (sekmeli); tek bir
+    // kategoriyi ("Healing Modu") başlığa taşımak yanıltıcı olurdu.
+    setWindowTitle(tr("Ayarlar"));
     setMinimumWidth(400);
     setModal(true);
 
@@ -281,16 +284,50 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     layout_buttons->addWidget(btn_ok);
     layout_buttons->addWidget(btn_cancel);
 
-    // ===== Main Layout =====
+    // ===== Main Layout (QTabWidget ile kategorize) =====
+    // Gruplar sekmelere dağıtılır; her sekme kendi QVBoxLayout'unda ilgili
+    // grupları + sona addStretch() barındırır. addTab, grupları sekme
+    // sayfasına reparent eder — sinyal/slot bağlantıları pointer-tabanlı
+    // olduğundan bu reparent'tan etkilenmez (talimat Faz 0 doğrulaması).
+    // Tamam/İptal buton satırı sekmelerin dışında altta kalır; akış değişmez.
+    auto* tabs = new QTabWidget(this);
+
+    // Self-Healing — varsayılan açılış sekmesi (index 0).
+    auto* tab_healing = new QWidget(this);
+    auto* tab_healing_layout = new QVBoxLayout(tab_healing);
+    tab_healing_layout->addWidget(grp_healing);
+    tab_healing_layout->addWidget(grp_copilot);
+    tab_healing_layout->addWidget(grp_hotreload);
+    tab_healing_layout->addStretch();
+    tabs->addTab(tab_healing, tr("Self-Healing"));
+
+    auto* tab_video = new QWidget(this);
+    auto* tab_video_layout = new QVBoxLayout(tab_video);
+    tab_video_layout->addWidget(grp_video);
+    tab_video_layout->addStretch();
+    tabs->addTab(tab_video, tr("Video"));
+
+    auto* tab_audio = new QWidget(this);
+    auto* tab_audio_layout = new QVBoxLayout(tab_audio);
+    tab_audio_layout->addWidget(grp_audio);
+    tab_audio_layout->addStretch();
+    tabs->addTab(tab_audio, tr("Ses"));
+
+    auto* tab_output = new QWidget(this);
+    auto* tab_output_layout = new QVBoxLayout(tab_output);
+    tab_output_layout->addWidget(grp_srt);
+    tab_output_layout->addStretch();
+    tabs->addTab(tab_output, tr("Yayın Çıkışı"));
+
+    // Uzaktan Kontrol — WS bir kontrol kanalı, yayın çıkışından ayrı sekme.
+    auto* tab_remote = new QWidget(this);
+    auto* tab_remote_layout = new QVBoxLayout(tab_remote);
+    tab_remote_layout->addWidget(grp_ws);
+    tab_remote_layout->addStretch();
+    tabs->addTab(tab_remote, tr("Uzaktan Kontrol"));
+
     auto* layout_main = new QVBoxLayout(this);
-    layout_main->addWidget(grp_healing);
-    layout_main->addWidget(grp_copilot);
-    layout_main->addWidget(grp_hotreload);
-    layout_main->addWidget(grp_video);
-    layout_main->addWidget(grp_srt);
-    layout_main->addWidget(grp_audio);
-    layout_main->addWidget(grp_ws);
-    layout_main->addStretch();
+    layout_main->addWidget(tabs);
     layout_main->addLayout(layout_buttons);
 
     // Initialize description
