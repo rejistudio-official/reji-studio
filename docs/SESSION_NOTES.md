@@ -1,3 +1,47 @@
+## Oturum: 19 Temmuz 2026 — Ayarlar UX Madde 6 (A+B uygulandı, C rapor) ✅ KAPANDI
+
+TALIMAT_AYARLAR_UX_MADDE6: GUI Gözlem Turu'ndan doğan "Ayarlar penceresi UX" (Madde 6)
+üç bağımsız alt-parça. Her biri kendi Faz 0'ından geçti (kod incelemesi + find-references;
+GUI görsel doğrulaması kullanıcıda). Commit `bf4b2cb` (feat/ayarlar-ux-madde6 → master
+ff-only, dal silindi).
+
+### Bölüm A — Mod/CoPilot checkbox değişikliğine anlık bildirim ✅ UYGULANDI
+**Sorun:** healing ayarlarının etkisi yalnız bir sonraki healing aksiyonunda görünür
+(Madde 4/5'te "beklenen davranış" doğrulanmıştı) ama bu bekleyiş kullanıcıya hiç
+belirtilmiyordu → "ayar kaydedildi mi?" belirsizliği. **Faz 0:** OK akışı tek noktada
+(`healingModeChanged` → `main_window.cpp` her iki handler) — doğal kanca. Mevcut
+durum-widget deseni: `lbl_status_` (geçici) + `lbl_rules_` (kalıcı). **Uygulama:**
+`notifyHealingSettingsSaved(mode)` — `lbl_status_`'a "Healing ayarları kaydedildi
+(Mod: %1) — bir sonraki healing aksiyonunda etkili olur" yazar, `kHealingSettingsNotifyMs`
+(4000ms, reji_constants.h) sonra tek-atışlık QTimer ile "Hazır"a döner. Yeni mekanizma
+YOK. Dosyalar: reji_constants.h, main_window.h (enum fwd-decl + imza), main_window.cpp.
+
+### Bölüm B — CUT/FADE'in Faz 3 bağımlılığı ✅ UYGULANDI (gerginlik çözüldü, çelişki YOK)
+**Gerginlik:** GUI Gözlem Turu Madde 2'de butonları DEVRE DIŞI BIRAKMA reddedilmişti
+(shader gerçekten çalışıyor; tek kaynak olduğu için görünür fark yok → "kırık" göstermek
+yanlış olurdu). Madde 6 bilgilendirici ipucu istiyor. **Çözüm:** `setToolTip`,
+`setEnabled`'dan BAĞIMSIZ (tooltip devre dışı widget'ta bile çalışır, buton tam etkin
+kalır) → devre dışı bırakma kararıyla **çelişmez**, onun ruhunu korur. Talimatın
+"çelişiyorsa dur ve sor" koşulu tetiklenmedi (teknik çelişki yok). **Uygulama:** btn_cut_
++ btn_fade_ tooltip'i — geçişin çalıştığını, görünür fark için ikinci kaynağın
+(Faz 3/ISource) gerektiğini belirtir. setEnabled(false) KULLANILMADI.
+
+### Bölüm C — Genel zenginleştirme envanteri (yalnız rapor, kod YOK)
+Adaylar current master'a karşı teyit: **#4 Kural motoru görünürlüğü** (`rj_get_rules` FFI
+hâlâ yok → Büyük), **#5 WS/auth detayları** (`rj_get_ws_port` var ama yalnız
+command_router.cpp:48 log'unda; aktif bağlantı sayısı FFI yok → küçük port/orta conn).
+Yeni gözlem: Settings dialog 7 QGroupBox'ı tek QVBoxLayout'ta istifliyor → kategori düzeni
+(QTabWidget) boşluğu belirginleşti. Öncelik: P1 WS/auth görünürlüğü, P2 kategori düzeni,
+P3 kural motoru görünürlüğü. **Kullanıcı kararı: şimdilik hiçbiri ayrı talimata dönüşmedi**
+(liste kayıtta). Not: orijinal Ayarlar Araştırması'nın ilk 3 önceliği (Kuralları Düzenle,
+Video, Ses) hepsi tamamlanmıştı.
+
+**Doğrulama sınıfı:** kod incelemesi + find-references + build (reji_app derlendi, yeni
+uyarı/hata yok). Runtime/GUI görsel doğrulaması kullanıcıda (düzeltmeler saf Qt UI).
+`tests/baseline_metrics.txt` commit edilmedi. Talimat `docs/talimatlar/` arşivine taşındı.
+
+---
+
 ## Oturum: 17 Temmuz 2026 — Ayarlar zenginleştirme #2: Video (bitrate/FPS) manuel kontrolü ✅ KAPANDI
 
 TALIMAT_VIDEO_AYARLARI: Ayarlar araştırma turunun 2. kalemi. "Video" kategorisi

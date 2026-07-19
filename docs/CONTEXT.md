@@ -1,7 +1,8 @@
 # Reji Studio — Proje Bağlamı
 
-**Son güncelleme:** 2 Temmuz 2026
-**Durum:** Faz 0 tamamlandı, Faz 1'e geçiş
+**Son güncelleme:** 19 Temmuz 2026
+**Durum:** Faz 0 tamamlandı, Faz 1'e geçiş — Ayarlar UX zenginleştirmesi sürüyor
+(Madde 6/A+B: healing ayar bildirimi + CUT/FADE tooltip — bkz. SESSION_NOTES.md)
 
 ---
 
