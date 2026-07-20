@@ -20,6 +20,7 @@ if(WIN32)
         capture/capture_wgc.cpp
         capture/gpu_resource_manager.cpp
         capture_subsystem.cpp
+        existing_desktop_source.cpp
         encode/encode_nvenc.cpp
         encode_subsystem.cpp
         recovery_coordinator.cpp

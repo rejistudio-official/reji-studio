@@ -240,6 +240,30 @@ target_link_libraries(test_desktop_source_logic
 
 add_test(NAME DesktopSourceLogicTest COMMAND test_desktop_source_logic)
 
+# ── ISource/ExistingDesktopSource: adapter yapıştırma testi ──
+# Enjekte edilen sahte IScreenCapture ile (test seam) — gerçek GPU/ekran
+# gerekmez. existing_desktop_source.cpp reji_pipeline içinde; static lib'ten
+# capture/factory obj'leri çekildiği için OutputSubsystemTest link kalıbı.
+if(WIN32)
+    add_executable(test_existing_desktop_source
+        test_existing_desktop_source.cpp
+    )
+
+    target_link_libraries(test_existing_desktop_source
+        gtest gtest_main
+        reji_pipeline
+        ${_RUST_ORCH}   # rj_* FFI fonksiyonları + Rust compiler-rt
+        ntdll.lib       # Zig/Rust runtime NT API
+        userenv.lib     # Rust std::env::home_dir
+    )
+
+    add_test(NAME ExistingDesktopSourceTest COMMAND test_existing_desktop_source)
+
+    set_tests_properties(ExistingDesktopSourceTest PROPERTIES
+        ENVIRONMENT "PATH=${CMAKE_BINARY_DIR}/src/ui;$ENV{PATH}"
+    )
+endif()
+
 # ── Ses Ayarlari: AAC AudioSpecificConfig saf uretim testi ──
 # aac_config.h header-only (yalniz <cstdint>/<array>/<optional>) — reji_pipeline/
 # Rust/Media Foundation link gerekmez, sadece gtest. FLV AAC sequence header'i
