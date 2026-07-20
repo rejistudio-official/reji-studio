@@ -963,29 +963,37 @@ void MainWindow::exportRules() {
 bool MainWindow::writeValidatedRules(const QString& src, QString& errMsg) {
     // Adım 1: Geçici konuma kopyala ve doğrula (asıl rules.json'a DOKUNMA).
     // `src` bir kullanıcı dosyası VEYA gömülü qrc kaynağı (":/config/...") olabilir;
-    // QFile::copy her ikisini de destekler, rj_reload_rules yalnız gerçek dosyada çalışır.
+    // QFile her ikisini de okur, rj_reload_rules yalnız gerçek dosyada çalışır.
+    // QFile::copy hedef dosya mevcutken false döner, QTemporaryFile::open() ise
+    // dosyayı diskte oluşturur — bu yüzden kopya değil, içerik doğrudan yazılır.
+    QFile in(src);
+    if (!in.open(QIODevice::ReadOnly)) {
+        errMsg = tr("Doğrulama için kopyalanamadı:\n%1\n(%2)")
+            .arg(src, in.errorString());
+        return false;
+    }
+
     QTemporaryFile tmp;
-    tmp.setAutoRemove(true);
+    tmp.setAutoRemove(true);  // Dosya nesne ömrü boyunca yaşar, destructor siler.
     if (!tmp.open()) {
-        errMsg = tr("Geçici doğrulama dosyası oluşturulamadı.");
+        errMsg = tr("Geçici doğrulama dosyası oluşturulamadı:\n%1")
+            .arg(tmp.errorString());
+        return false;
+    }
+    if (tmp.write(in.readAll()) < 0 || !tmp.flush()) {
+        errMsg = tr("Geçici doğrulama dosyasına yazılamadı:\n%1")
+            .arg(tmp.errorString());
         return false;
     }
     const QString tmpPath = tmp.fileName();
-    tmp.close();
-
-    if (!QFile::copy(src, tmpPath)) {
-        errMsg = tr("Doğrulama için kopyalanamadı:\n%1").arg(src);
-        return false;
-    }
+    tmp.close();  // Windows'ta rj_reload_rules açarken paylaşım çakışması olmasın.
 
     const QByteArray tmpPathUtf8 = tmpPath.toUtf8();
     if (rj_reload_rules(tmpPathUtf8.constData()) != 1) {
-        QFile::remove(tmpPath);
         errMsg = tr("Seçilen dosya geçersiz — mevcut kurallar korunuyor.\n\n"
                     "Beklenen format: geçerli JSON, her kuralda 'id', 'condition', 'action' alanları.");
         return false;
     }
-    QFile::remove(tmpPath);
 
     // Adım 2: Mevcut rules.json'ı yedekle (geri dönüşsüz kayıp yok — I10).
     const QString dest    = rulesFilePath();
@@ -1028,7 +1036,9 @@ void MainWindow::importRules() {
     if (!writeValidatedRules(src, err)) {
         if (lbl_rules_) {
             lbl_rules_->setStyleSheet(QStringLiteral("color:#E53935;"));
-            lbl_rules_->setText(tr("Kurallar: İÇE AKTARIM REDDEDİLDİ — geçersiz dosya (JSON/alan hatası?)"));
+            // errMsg gerçek sebebi taşır (kopyalama mı, doğrulama mı) — etiket
+            // hata sınıfı iddia etmez, ayrıntı uyarı diyaloğunda.
+            lbl_rules_->setText(tr("Kurallar: İÇE AKTARIM BAŞARISIZ — dosya uygulanmadı"));
             lbl_rules_->show();
         }
         QMessageBox::warning(this, tr("İçe Aktar"), err);
