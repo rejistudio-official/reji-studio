@@ -3,6 +3,20 @@
 **Son güncelleme:** 20 Temmuz 2026
 **Hazırlayan:** Bu sohbetin (Claude, sohbet asistanı) kendisi — Claude Code'un gerçekleştirdiği işlerin, GitHub'dan doğrudan doğrulanmış özeti.
 
+> **ISOURCE ARAYÜZ TASARIMI (20.07):** ROADMAP Faz 3'ün (Çoklu Kaynak
+> Mimarisi) ilk alt maddesi tamamlandı — `src/pipeline/include/i_source.h`
+> (yalnız bildirim, gövde yok; davranış değişikliği sıfır), tek commit
+> doğrudan `master` (`00976c5`). Faz 0 envanteri altı alanı haritaladı
+> (capture/bridge/encoder/healing/lifecycle/metadata); kararlar: pull/senkron
+> next_frame(), init/shutdown iki-fazlı yaşam döngüsü (start/stop YAGNI),
+> encoder referansı yok (kompozit-sonra-encode), SourceState = RuleEngine
+> metriği değil hafif sinyal, encode PTS pacer'da kalır (ISource yalnız
+> yakalama timestamp'i taşır), bridge kavramları kontrata sızdırılmadı
+> (Faz 5 instance-level geçişi imzayı kırmaz). Gerçek kompozisyon, sahne
+> UI ve yeni kaynak tipleri açıkça kapsam dışı. **Sıradaki adım:**
+> ExistingDesktopSource implementasyon talimatı (ayrı tur). Detay:
+> `docs/talimatlar/TALIMAT_ISOURCE_ARAYUZ_TASARIMI.md` + `ROADMAP.md` Faz 3.
+
 > **DONANIM PROFİLLEME (20.07):** Kurulan donanıma göre üç profilden
 > (Stabilite/Performans/Verimlilik) birini **öneren** ilk-kurulum sistemi
 > tamamlandı — dal `feat/hardware-profiling`, 6 commit, `master`'a ff-only merge,
@@ -174,7 +188,7 @@ AMD Vulkan keyed-mutex copy_optimizer zinciri
 Hiçbir acil/bloke eden iş yok. **I33+I11 (CoPilot onay kapısı) ve I8 (WS auth) 11.07'de, I9+I10+I14 12.07'de tamamlandı → Sprint 1-2 tamamen kapandı** (bkz. bölüm 2 tablosu + `SESSION_NOTES.md`). Aşağıdakiler, öncelik sırasına göre makul sonraki adımlar — hangisiyle devam edileceği kullanıcı tercihine bağlı:
 
 1. **Sprint 3-4 (I15-I18, I21-I26, + I34 inert checkbox)** — performans/mimari tutarlılık/temizlik, hiç dokunulmadı, çoğu düşük efor.
-2. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — ROADMAP'teki bir sonraki büyük faz, hiç başlanmadı. (Sonrasında Faz 4 — NDI, Faz 5 — Zig global state tam çözümü.)
+2. **Faz 3 — Çoklu Kaynak Mimarisi (ISource)** — BAŞLANDI (20.07): arayüz tasarımı tamamlandı (`i_source.h`, yalnız bildirim). Sıradaki adım: ExistingDesktopSource implementasyon talimatı. (Sonrasında Faz 4 — NDI; "Scene composition" alt maddesinden hemen önce Faz 5'in dar alt kümesi — bridge instance-level.)
 
 **Kullanıcının elinde bekleyen (Claude Code otonom yapamıyor):**
 - **WS auth tarayıcı doğrulaması (I8'i tam kapatır)** — control.html parolalı (prompt→bağlan / yanlış→4009 hata+retry) ve parolasız akış; opsiyonel: obs-websocket-js/simpleobsws ile parolalı bağlantı
