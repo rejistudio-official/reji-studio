@@ -11,6 +11,7 @@
 #include "rust_bridge.h"    // also pulls in ffi_bridge.h (RjCommand, rj_command_drain, …)
 #include "settings_dialog.h"
 #include "profile_advisor.h"   // reji::ProfileId, preset_for, profile_resource_name
+#include "rules_watch.h"        // reji::ui::armRulesWatchOn (kuruluş-sırası seam'i)
 #include "../pipeline/gpu/vulkan_initializer.h"
 
 #include <vector>
@@ -814,6 +815,18 @@ void MainWindow::openRulesInEditor() {
         }
     }
 
+    // Kuruluş-sırası düzeltmesi: dosya artık kesin var (yukarıda tohumlandıysa
+    // da). Auto-reload, dosya/dizin daha yokken işaretlenmiş olabilir — o anda
+    // armRulesWatch() QFileInfo::exists() koruması yüzünden boş kalmıştı. Yol
+    // artık var olduğuna göre watcher'ı yeniden silahlandır; aksi halde ilk
+    // düzenlemeye kadar hiçbir fileChanged/directoryChanged tetiklenmez (sessiz
+    // regresyon). armRulesWatch() idempotent (!contains guard'lı) — zaten
+    // izleniyorsa zararsız.
+    if (settings_dialog_ && settings_dialog_->isAutoReloadEnabled()) {
+        ensureRulesWatcher();
+        armRulesWatch();
+    }
+
     // QDesktopServices başarısızlığı sessizce yutulmaz (I10 dersi).
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
         QMessageBox::warning(this, tr("Kuralları Düzenle"),
@@ -849,18 +862,9 @@ void MainWindow::ensureRulesWatcher() {
 
 void MainWindow::armRulesWatch() {
     if (!rules_watcher_) return;
-    const QString path = rulesFilePath();
-    const QString dir  = QFileInfo(path).absolutePath();
-
-    // Üst dizin: atomic-save (sil+yeniden-yaz) ve dosya-oluşturma olaylarını
-    // yakalar — dosyanın kendisi geçici olarak yok olsa bile.
-    if (QFileInfo::exists(dir) && !rules_watcher_->directories().contains(dir)) {
-        rules_watcher_->addPath(dir);
-    }
-    // Dosya: yalnızca varsa izlenebilir (QFileSystemWatcher yok olan yolu almaz).
-    if (QFileInfo::exists(path) && !rules_watcher_->files().contains(path)) {
-        rules_watcher_->addPath(path);
-    }
+    // Saf çekirdek rules_watch.h'de — birim testiyle kilitlenen kuruluş-sırası
+    // değişmezi (dosya yokken hiçbir yol eklenmez → re-arm şart) orada belgeli.
+    reji::ui::armRulesWatchOn(*rules_watcher_, rulesFilePath());
 }
 
 void MainWindow::onAutoReloadToggled(bool enabled) {

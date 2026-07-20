@@ -8,6 +8,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+# Qt6::Core — rules-watch testi QFileSystemWatcher kullanır (headless, GUI yok).
+find_package(Qt6 COMPONENTS Core QUIET)
+
 # FFI sinir testi
 add_executable(test_ffi_boundary
     test_ffi_boundary.cpp
@@ -343,3 +346,34 @@ target_link_libraries(test_profile_advisor
 )
 
 add_test(NAME ProfileAdvisorTest COMMAND test_profile_advisor)
+
+# ── Hot-reload: kuruluş-sırası regresyon kilidi (rules_watch seam) ──
+# armRulesWatchOn() saf çekirdeğini (src/ui/rules_watch.h) gerçek
+# QFileSystemWatcher ile, kullanıcının yaşadığı sırayla (önce arm/checkbox,
+# sonra dosyanın ilk kez oluşması) çalıştırır. Yalnız Qt6::Core gerekir —
+# pipeline/Rust/Vulkan link'i yok. Qt6::Core yoksa test atlanır (opsiyonel).
+if(Qt6_FOUND)
+    add_executable(test_rules_watch
+        test_rules_watch.cpp
+    )
+
+    target_include_directories(test_rules_watch PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/ui
+    )
+
+    target_link_libraries(test_rules_watch
+        gtest   # not: özel main() var (QCoreApplication kurar) — gtest_main değil
+        Qt6::Core
+    )
+
+    add_test(NAME RulesWatchTest COMMAND test_rules_watch)
+
+    # Qt6Core.dll çalışma zamanında gerekir — Qt bin'ini ctest PATH'ine ekle
+    # (diğer testlerdeki build/src/ui deseniyle aynı; DLL_NOT_FOUND'u önler).
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(RulesWatchTest PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+else()
+    message(STATUS "Qt6::Core bulunamadı — RulesWatchTest atlanıyor")
+endif()
