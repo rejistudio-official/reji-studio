@@ -975,6 +975,17 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
       ExistingDesktopSource (mevcut WGC/DXGI'nin ISource'a uyarlanması)
 - [ ] UI: Sahne düzenleyici, kaynak ekleme/kaldırma
 
+> **Sıralama notu — Faz 5 bağımlılığı (bkz. `talimatlar/TALIMAT_FAZ5_FAZ3_BAGIMLILIK.md`, Faz 0 analizi):**
+> Faz 5 **tam** önkoşul DEĞİL. Bu dört alt maddenin eşzamanlılık ihtiyaçları farklı:
+> - **ISource interface tasarımı**, **tek-kaynak ExistingDesktopSource uyarlaması** ve
+>   **Sahne düzenleyici UI** gerçek eşzamanlılık gerektirmez → mevcut (global-state) bridge
+>   ile **bugün başlanabilir**. Önerilen ilk adım: ISource interface tasarımı.
+> - Yalnızca **"Scene composition"** (birden fazla canlı GPU kaynağının tek frame'e kompoziti)
+>   eşzamanlı D3D11→Vulkan import gerektirir; `external_memory_bridge.zig`'in tek-global state'i
+>   (`cached_texture_ptr`/`image_pool`/`gl_target_*`) bunu thrashing olmadan imkânsız kılar.
+>   **Bu alt maddeye girmeden hemen önce** Faz 5'in dar alt kümesi (yalnız
+>   `external_memory_bridge.zig` → instance-level + C++ opak pointer) tamamlanmalı.
+
 ## Faz 4 — NDI Desteği
 
 - [ ] NDI SDK entegrasyonu
@@ -1387,6 +1398,17 @@ değerlendirme yok, önkoşul yok, taahhüt yok.
 - [ ] vulkan_initializer.zig — aynı
 - [ ] C++ tarafında opak pointer API'sine geçiş
 - [ ] Çoklu ISource/ITransport senaryosunda test
+
+> **Sıralama notu — Faz 3 ile ilişki (bkz. `talimatlar/TALIMAT_FAZ5_FAZ3_BAGIMLILIK.md`):**
+> Faz 5 tek blok olarak Faz 3'ün önkoşulu değil — iki parçaya ayrılır:
+> - **`external_memory_bridge.zig` (+ C++ opak pointer):** Faz 3'ün "Scene composition"
+>   alt maddesinin **dar önkoşulu.** Bu maddedeki state kategori (b) — bir capture akışına
+>   özgü ama şu an process-global (`image_pool`, `cached_texture_ptr`, `gl_target_*`).
+>   J4 yalnızca round-robin sayacını per-instance yaptı; ağır state hâlâ global.
+>   Kompozisyon adımından hemen önce yapılmalı.
+> - **`vulkan_initializer.zig`:** state'inin tamamı kategori (a) — meşru paylaşılan tekil
+>   (tek Vulkan instance/device çoklu kaynakta da doğrudur). Bu madde **hiçbir fazı bloklamaz**;
+>   saf mimari temizlik olarak **bağımsız/paralel** ele alınabilir, istenirse ertelenebilir.
 
 ## Durum Takibi
 
