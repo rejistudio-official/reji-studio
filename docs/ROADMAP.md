@@ -969,7 +969,13 @@ ve endüstri standardı araçlarla uyumlu bir platforma dönüştürme planını
 
 ## Faz 3 — Çoklu Kaynak Mimarisi (ISource)
 
-- [ ] ISource interface tasarımı (next_frame, metadata, lifecycle)
+- [x] ISource interface tasarımı (next_frame, metadata, lifecycle) —
+      TAMAMLANDI: `src/pipeline/include/i_source.h` (yalnız bildirim, gövde yok)
+      + ExistingDesktopSource adapter tasarımı + Faz 5 kırılmazlık gerekçesi
+      (bkz. `talimatlar/TALIMAT_ISOURCE_ARAYUZ_TASARIMI.md`). Encode PTS
+      sahipliği pacer'da kaldı; ISource yalnız yakalama timestamp'i taşır.
+      **Sıradaki adım:** ExistingDesktopSource implementasyon talimatı
+      (adapter'ın gerçek kodu — ayrı takip turu).
 - [ ] Scene composition — birden fazla ISource'un tek frame'e birleştirilmesi
 - [ ] İlk implementasyonlar: WebcamSource (DirectShow/Media Foundation),
       ExistingDesktopSource (mevcut WGC/DXGI'nin ISource'a uyarlanması)
