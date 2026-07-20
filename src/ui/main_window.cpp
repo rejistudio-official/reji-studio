@@ -930,6 +930,18 @@ void MainWindow::exportRules() {
         return;
     }
 
+    // Kör-kopya koruması: motor rollback ile eski kurallarda çalışırken diskteki
+    // rules.json bozulmuş olabilir — bozuk dosyayı "paylaşılabilir kural seti"
+    // olarak dışarı taşıma, kaynağında yakala.
+    QString verr;
+    if (!validateRulesFile(src, verr)) {
+        QMessageBox::warning(this, tr("Dışa Aktar"),
+            tr("Mevcut kural dosyası doğrulamadan geçemedi — dışa aktarım iptal edildi.\n"
+               "Motor bellekteki eski kurallarla çalışıyor olabilir; önce dosyayı düzeltin:\n%1\n\n%2")
+            .arg(src, verr));
+        return;
+    }
+
     const QString defaultName = QStringLiteral("reji-rules-%1.json")
         .arg(QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd")));
     const QString dest = QFileDialog::getSaveFileName(
@@ -960,8 +972,8 @@ void MainWindow::exportRules() {
     }
 }
 
-bool MainWindow::writeValidatedRules(const QString& src, QString& errMsg) {
-    // Adım 1: Geçici konuma kopyala ve doğrula (asıl rules.json'a DOKUNMA).
+bool MainWindow::validateRulesFile(const QString& src, QString& errMsg) {
+    // Geçici konuma kopyala ve doğrula (asıl rules.json'a DOKUNMA).
     // `src` bir kullanıcı dosyası VEYA gömülü qrc kaynağı (":/config/...") olabilir;
     // QFile her ikisini de okur, rj_reload_rules yalnız gerçek dosyada çalışır.
     // QFile::copy hedef dosya mevcutken false döner, QTemporaryFile::open() ise
@@ -990,10 +1002,16 @@ bool MainWindow::writeValidatedRules(const QString& src, QString& errMsg) {
 
     const QByteArray tmpPathUtf8 = tmpPath.toUtf8();
     if (rj_reload_rules(tmpPathUtf8.constData()) != 1) {
-        errMsg = tr("Seçilen dosya geçersiz — mevcut kurallar korunuyor.\n\n"
+        errMsg = tr("Dosya geçerli bir kural seti değil.\n\n"
                     "Beklenen format: geçerli JSON, her kuralda 'id', 'condition', 'action' alanları.");
         return false;
     }
+    return true;
+}
+
+bool MainWindow::writeValidatedRules(const QString& src, QString& errMsg) {
+    // Adım 1: Geçici kopya üzerinde doğrula (asıl rules.json'a dokunulmaz).
+    if (!validateRulesFile(src, errMsg)) return false;
 
     // Adım 2: Mevcut rules.json'ı yedekle (geri dönüşsüz kayıp yok — I10).
     const QString dest    = rulesFilePath();

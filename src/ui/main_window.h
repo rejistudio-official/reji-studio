@@ -144,6 +144,12 @@ private:
     /// tetiklenir. Başarıda true; hatada `errMsg` doldurulur. UI/mesajlaşma çağırana
     /// aittir (import: kullanıcı QMessageBox'ı; profil: otomatik durum satırı).
     bool writeValidatedRules(const QString& src, QString& errMsg);
+    /// `src` kural dosyasını geçici kopya üzerinde rj_reload_rules ile doğrular —
+    /// asıl rules.json'a dokunmaz. Yan etki: dosya geçerliyse motorun bellek-içi
+    /// kuralları da bu içerikle güncellenir (hot-reload eşdeğeri, tasarım gereği).
+    /// Başarıda true; hatada `errMsg` doldurulur. writeValidatedRules'ın 1. adımı
+    /// ve exportRules'un kör-kopya koruması ortak kullanır.
+    bool validateRulesFile(const QString& src, QString& errMsg);
     /// İlk kurulumda bir kez (QSettings "profile/asked" bayrağı): donanım
     /// sinyallerini toplar (pipeline GpuScan vendor/VRAM + RAM/batarya), profil
     /// önerir, tetikleyen sinyalleri gösteren bir diyalogla sunar (Uygula / Başka
