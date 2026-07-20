@@ -1,8 +1,9 @@
 # Reji Studio — Proje Bağlamı
 
-**Son güncelleme:** 19 Temmuz 2026
-**Durum:** Faz 0 tamamlandı, Faz 1'e geçiş — Ayarlar UX zenginleştirmesi sürüyor
-(Madde 6/A+B: healing ayar bildirimi + CUT/FADE tooltip — bkz. SESSION_NOTES.md)
+**Son güncelleme:** 20 Temmuz 2026
+**Durum:** Faz 3 (ISource) ilerliyor — kontrat + ExistingDesktopSource izole
+adapter hazır (TDD, davranış değişikliği yok); run_frame() wiring'i ayrı talimat
+(TALIMAT_EXISTINGDESKTOPSOURCE_WIRING.md — bkz. SESSION_NOTES.md)
 
 ---
 
@@ -146,7 +147,7 @@ Detaylar: `docs/ROADMAP.md`, Linear (Reji Studio takımı, REJ-5 ila REJ-13)
 | **0** | Temel Hazırlık (FFI_CONTRACT + God Object refactoring) | ✅ **TAMAMLANDI** |
 | 1 | OBS-WebSocket Protokol Uyumluluğu | 🔜 Sıradaki |
 | 2 | RTMP Çıkışı | Backlog |
-| 3 | Çoklu Kaynak Mimarisi (ISource) | Backlog |
+| 3 | Çoklu Kaynak Mimarisi (ISource) | 🔨 Başladı (kontrat + izole adapter ✅; wiring sırada) |
 | 4 | NDI Desteği | Backlog |
 | 5 | Zig Global State Tam Çözümü | Kısmen (geçici double-init uyarısı var) |
 

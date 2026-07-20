@@ -1,3 +1,48 @@
+## Oturum: 20 Temmuz 2026 — ExistingDesktopSource: ISource'un ilk implementasyonu (izole) ✅ KAPANDI
+
+TALIMAT_EXISTINGDESKTOPSOURCE: i_source.h kontratının mevcut WGC/DXGI yoluna
+adaptasyonu. **Faz 0 kapsam kararı: wiring bu tura ALINMADI** — talimat iki
+parçaya bölündü (Ses Ayarları MVP daraltma disiplini; kullanıcı direktifi
+"belirsizse böl"): bu tur izole adapter, `run_frame()` geçişi ayrı talimatta
+(`TALIMAT_EXISTINGDESKTOPSOURCE_WIRING.md`). Dal: feat/existing-desktop-source
+→ master ff-only.
+
+**Faz 0 bulguları:** (1) i_source.h/CaptureSubsystem/IScreenCapture/
+DxgiScreenCapture/WgcScreenCapture önceki tur tarifiyle uyumlu — bayat değil.
+(2) CaptureSubsystem'i yalnız pipeline.cpp + recovery_coordinator.cpp kullanır;
+main_window.cpp DOĞRUDAN dokunmaz (önceki varsayım düzeltildi). (3) Delegasyon
+tablosu düzeltmesi: DxgiScreenCapture `d3d_device()` override ETMEZ (nullptr) →
+metadata() cihazı DXGI'de `encode_gpu()->d3d_device()` üzerinden alınır
+(pipeline.cpp encode_device seçimiyle aynı; i_source.h "DXGI: encode-GPU
+cihazı" niyetinin gerçekleşmesi). (4) DXGI yolunda timestamp'i capture
+doldurmaz → acquire-anı QPC fallback.
+
+**Uygulama (TDD, RED→GREEN):**
+- `desktop_source_logic.h` — saf çekirdek: `map_captured_frame()` +
+  `NullStreakTracker` (eşik 60, CaptureSubsystem::kNullStreakReinit ile birebir,
+  test kilidi var). 11 birim testi (DesktopSourceLogicTest, gtest-only).
+- `existing_desktop_source.{h,cpp}` — ISource adapter'ı; init/next_frame/
+  metadata/state/shutdown delegasyonu CaptureSubsystem akışıyla birebir;
+  `dxgi()` geçiş-dönemi kaçış kapısı kontrat dışı. 9 adapter testi
+  (ExistingDesktopSourceTest, enjekte sahte IScreenCapture, GPU'suz).
+- state() LEVEL semantiği taşır (NeedsReinit sürer), CaptureSubsystem
+  handle_null_frame() EDGE semantiği (eşikte bir kez true) — wiring turunun
+  kritik dönüşüm noktası, wiring talimatında ayrıntılı uyarı var.
+
+**"Davranış değişmedi" kanıtı (Faz 3):** pipeline'a BAĞLI DEĞİL (run_frame
+hâlâ CaptureSubsystem; yeni sınıf lib'de ama çağıran yok) + reji_app tam link
+OK + ctest 19/21 (yalnız bilinen 2 kırık: FrameProfilerTest/ShaderCacheTest) +
+PipelineCharacterization baseline sayısal karşılaştırıldı: init=OK, fps ~60
+(58.9–61.3 koşu gürültüsü), drop deseni 0–1, bitrate healing adımı AYNI karede
+(frame 60'ta 6000→3500). GUI/gerçek capture gözlemi gerekmiyor (çalışma yolu
+değişmedi); wiring turunda zorunlu olacak.
+
+**Doğrulama sınıfı:** test edildi (birim+regresyon+link). Test edilmeyen:
+adapter'ın GERÇEK IScreenCapture::create() ile init'i (GPU yolu — izole sınıf
+kullanılmadığından bu turda gözlem gerekmez, wiring turunda doğrulanacak).
+
+---
+
 ## Oturum: 19 Temmuz 2026 — Ayarlar UX Madde 6 (A+B uygulandı, C rapor) ✅ KAPANDI
 
 TALIMAT_AYARLAR_UX_MADDE6: GUI Gözlem Turu'ndan doğan "Ayarlar penceresi UX" (Madde 6)
