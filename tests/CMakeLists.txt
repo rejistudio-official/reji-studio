@@ -221,6 +221,25 @@ target_link_libraries(test_bitrate_policy
 
 add_test(NAME BitratePolicyTest COMMAND test_bitrate_policy)
 
+# ── ISource/ExistingDesktopSource: saf çekirdek testi ──
+# desktop_source_logic.h header-only (yalnız i_source.h + i_screen_capture.h,
+# D3D11/GPU yok) — reji_pipeline/Rust link gerekmez, sadece gtest. CapturedFrame→
+# SourceFrame alan eşlemesini ve null-streak → NeedsReinit eşiğini (60, Capture-
+# Subsystem ile birebir) kilitler.
+add_executable(test_desktop_source_logic
+    test_desktop_source_logic.cpp
+)
+
+target_include_directories(test_desktop_source_logic PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include
+)
+
+target_link_libraries(test_desktop_source_logic
+    gtest gtest_main
+)
+
+add_test(NAME DesktopSourceLogicTest COMMAND test_desktop_source_logic)
+
 # ── Ses Ayarlari: AAC AudioSpecificConfig saf uretim testi ──
 # aac_config.h header-only (yalniz <cstdint>/<array>/<optional>) — reji_pipeline/
 # Rust/Media Foundation link gerekmez, sadece gtest. FLV AAC sequence header'i
