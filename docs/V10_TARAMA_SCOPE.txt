@@ -1,0 +1,78 @@
+# V10 tarama kapsami — docs/V10_TARAMA_PROMPT.md Bolum 2 ile birebir hizali.
+# scripts/fable5-review.ps1 -ScopeFile ile kullanilir.
+# Yollar repo kokune goreli; sira = oncelik (MaxChars tasarsa sondakiler atlanir).
+
+# --- Grup 1: Ses pipeline'i (en yuksek oncelik) ---
+src/pipeline/audio/aac_config.h
+src/pipeline/audio/flv_audio_tag.h
+src/pipeline/audio/pcm_convert.h
+src/pipeline/audio/av_sync.h
+src/pipeline/audio/aac_encoder.h
+src/pipeline/audio/aac_encoder.cpp
+src/pipeline/audio/audio_ring.h
+src/pipeline/audio/audio_encode_bridge.h
+src/pipeline/audio/audio_encode_bridge.cpp
+src/pipeline/audio/audio_device_enum.h
+src/pipeline/audio/audio_device_enum.cpp
+src/pipeline/audio/wasapi_capture.h
+src/pipeline/audio/wasapi_capture.cpp
+src/pipeline/audio_subsystem.cpp
+src/pipeline/include/audio_subsystem.h
+src/pipeline/output_subsystem.cpp
+src/pipeline/include/output_subsystem.h
+src/pipeline/rtmp/rtmp_transport.zig
+src/pipeline/output/rtmp_transport.h
+src/pipeline/output/rtmp_transport.cpp
+src/pipeline/include/i_transport.h
+
+# --- Grup 2: Donanim profilleme ---
+src/ui/profile_advisor.h
+src/ui/profile_advisor.cpp
+src/ui/main_window.h
+src/ui/main_window.cpp
+docs/config/profiles/stability.json
+docs/config/profiles/performance.json
+docs/config/profiles/efficiency.json
+src/ui/rules_template.qrc
+src/pipeline/pipeline.cpp
+src/pipeline/include/pipeline.h
+
+# --- Grup 3: Kural yonetimi zinciri (main_window.cpp Grup 2'de zaten var) ---
+src/ui/rules_watch.h
+src/orchestrator/src/rules.rs
+src/ui/settings_dialog.h
+src/ui/settings_dialog.cpp
+
+# --- Grup 4: WS/Ayarlar (ws_server.rs Grup 6'da) ---
+src/pipeline/include/bitrate_policy.h
+
+# --- Grup 5: ISource katmani ---
+src/pipeline/include/i_source.h
+src/pipeline/include/desktop_source_logic.h
+src/pipeline/include/existing_desktop_source.h
+src/pipeline/existing_desktop_source.cpp
+
+# --- Grup 6: Orchestrator healing/telemetri zinciri ---
+src/orchestrator/src/ws_server.rs
+src/orchestrator/src/calibration.rs
+src/orchestrator/src/healing_log.rs
+src/orchestrator/src/healing.rs
+src/orchestrator/src/obs_protocol.rs
+src/orchestrator/src/sys_stats.rs
+src/orchestrator/src/ffi.rs
+src/orchestrator/src/event_bus.rs
+src/orchestrator/src/paths.rs
+
+# --- Referans testler (bulgu bolgesi degil; taşarsa ilk atlananlar) ---
+tests/test_aac_config.cpp
+tests/test_aac_encoder.cpp
+tests/test_audio_ring.cpp
+tests/test_audio_wire.cpp
+tests/test_av_sync.cpp
+tests/test_audio_device_enum.cpp
+tests/test_bitrate_policy.cpp
+tests/test_profile_advisor.cpp
+tests/test_rules_watch.cpp
+tests/test_desktop_source_logic.cpp
+tests/test_existing_desktop_source.cpp
+src/orchestrator/tests/ws_obs_protocol_test.rs
