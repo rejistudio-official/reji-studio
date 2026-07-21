@@ -4,7 +4,10 @@
     [switch]$Schedule    = $false,
     [string]$OutputDir   = "C:\reji-studio\docs\reviews",
     [string]$ProjectRoot = "C:\reji-studio\src",
-    [string]$Model       = "anthropic/claude-5-fable-20260609"
+    [string]$Model       = "anthropic/claude-5-fable-20260609",
+    [int]$MaxChars       = 800000,
+    [string]$PromptFile  = "",
+    [string]$ScopeFile   = ""
 )
 
 function Write-Info  { param($msg) Write-Host "  $msg" -ForegroundColor Cyan }
@@ -39,6 +42,21 @@ if (-not $DryRun -and -not $env:OPENROUTER_API_KEY) {
     exit 1
 }
 
+$RepoRoot = Split-Path $PSScriptRoot -Parent
+
+if ($PromptFile -and -not (Test-Path $PromptFile)) {
+    Write-Fail "PromptFile bulunamadi: $PromptFile"
+    exit 1
+}
+if ($ScopeFile -and -not (Test-Path $ScopeFile)) {
+    Write-Fail "ScopeFile bulunamadi: $ScopeFile"
+    exit 1
+}
+# ScopeFile modunda rapor adi/basligi kapsam dosyasinin adini tasir
+if ($ScopeFile) {
+    $Module = "scope-" + [System.IO.Path]::GetFileNameWithoutExtension($ScopeFile)
+}
+
 $includePatterns = switch ($Module) {
     "pipeline"     { @("*.cpp","*.h") }
     "ui"           { @("*.cpp","*.h") }
@@ -61,22 +79,43 @@ Write-Host "  Modul: $Module | DryRun: $DryRun" -ForegroundColor DarkGray
 Write-Host ""
 
 $allFiles = @()
-foreach ($dir in $includeDirs) {
-    if (Test-Path $dir) {
-        foreach ($pattern in $includePatterns) {
-            $found = Get-ChildItem $dir -Recurse -Filter $pattern -ErrorAction SilentlyContinue |
-                Where-Object {
-                    $_.FullName -notlike "*\build\*" -and
-                    $_.FullName -notlike "*\node_modules\*" -and
-                    $_.FullName -notlike "*\.git\*" -and
-                    $_.Length -lt 200KB
-                }
-            $allFiles += $found
+if ($ScopeFile) {
+    # ScopeFile: repo kokune goreli yollar, satir basina bir dosya, # yorum.
+    # Listedeki sira KORUNUR (alfabetik siralama yok) — MaxChars tasarsa
+    # listenin sonundaki dusuk oncelikli dosyalar atlanir.
+    $missing = @()
+    foreach ($line in Get-Content $ScopeFile -Encoding UTF8) {
+        $path = $line.Trim()
+        if (-not $path -or $path.StartsWith("#")) { continue }
+        $full = if ([System.IO.Path]::IsPathRooted($path)) { $path } else { Join-Path $RepoRoot $path }
+        if (Test-Path $full) {
+            $allFiles += Get-Item $full
+        } else {
+            $missing += $path
         }
     }
-}
+    if ($missing.Count -gt 0) {
+        Write-Warn "ScopeFile'daki $($missing.Count) dosya diskte bulunamadi:"
+        $missing | ForEach-Object { Write-Warn "    $_" }
+    }
+} else {
+    foreach ($dir in $includeDirs) {
+        if (Test-Path $dir) {
+            foreach ($pattern in $includePatterns) {
+                $found = Get-ChildItem $dir -Recurse -Filter $pattern -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        $_.FullName -notlike "*\build\*" -and
+                        $_.FullName -notlike "*\node_modules\*" -and
+                        $_.FullName -notlike "*\.git\*" -and
+                        $_.Length -lt 200KB
+                    }
+                $allFiles += $found
+            }
+        }
+    }
 
-$allFiles = $allFiles | Sort-Object FullName -Unique
+    $allFiles = $allFiles | Sort-Object FullName -Unique
+}
 
 if ($allFiles.Count -eq 0) {
     Write-Fail "Hic dosya bulunamadi: $ProjectRoot"
@@ -90,10 +129,14 @@ $totalChars = 0
 $skipped = @()
 
 foreach ($file in $allFiles) {
-    $relativePath = $file.FullName.Replace($ProjectRoot, "src")
+    $relativePath = if ($ScopeFile) {
+        $file.FullName.Substring($RepoRoot.Length + 1).Replace('\', '/')
+    } else {
+        $file.FullName.Replace($ProjectRoot, "src")
+    }
     $content = Get-Content $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
     if ($null -eq $content) { $content = "" }
-    if (($totalChars + $content.Length) -gt 800000) {
+    if (($totalChars + $content.Length) -gt $MaxChars) {
         $skipped += $relativePath
         continue
     }
@@ -108,20 +151,43 @@ if ($skipped.Count -gt 0) {
 }
 
 if ($DryRun) {
-    Write-OK "DryRun - Dosya listesi:"
-    $allFiles | ForEach-Object { Write-Host "    $($_.Name)" -ForegroundColor DarkGray }
+    Write-OK "DryRun - Gonderilecek dosyalar:"
+    if ($ScopeFile) {
+        $allFiles | ForEach-Object {
+            Write-Host "    $($_.FullName.Substring($RepoRoot.Length + 1).Replace('\', '/'))" -ForegroundColor DarkGray
+        }
+    } else {
+        $allFiles | ForEach-Object { Write-Host "    $($_.Name)" -ForegroundColor DarkGray }
+    }
+    if ($skipped.Count -gt 0) {
+        Write-Warn "MaxChars nedeniyle atlananlar:"
+        $skipped | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+    }
+    if ($PromptFile) {
+        $promptPreview = Get-Content $PromptFile -Raw -Encoding UTF8
+        $firstLine = ($promptPreview -split "`n")[0].Trim()
+        Write-OK "Prompt dosyadan yuklendi: $PromptFile ($($promptPreview.Length) karakter)"
+        Write-Info "Ilk satir: $firstLine"
+    } else {
+        Write-Info "Prompt: gomulu varsayilan"
+    }
     exit 0
 }
 
-$moduleContext = switch ($Module) {
-    "pipeline"     { "DXGI capture, NVENC encode, WASAPI audio, Vulkan GPU pipeline" }
-    "ui"           { "Qt6 QOpenGLWidget preview, GL interop, ExternalMemoryBridge" }
-    "ffi"          { "C ABI bridge, FFI safety, RjFrameData struct" }
-    "orchestrator" { "Rust/Tokio event bus, self-healing, crossbeam SPSC" }
-    default        { "C++17/MSVC + Rust/Tokio + Qt6 + Vulkan 1.4 full codebase" }
+if ($PromptFile) {
+    $promptHeader = Get-Content $PromptFile -Raw -Encoding UTF8
+} else {
+    $moduleContext = switch ($Module) {
+        "pipeline"     { "DXGI capture, NVENC encode, WASAPI audio, Vulkan GPU pipeline" }
+        "ui"           { "Qt6 QOpenGLWidget preview, GL interop, ExternalMemoryBridge" }
+        "ffi"          { "C ABI bridge, FFI safety, RjFrameData struct" }
+        "orchestrator" { "Rust/Tokio event bus, self-healing, crossbeam SPSC" }
+        default        { "C++17/MSVC + Rust/Tokio + Qt6 + Vulkan 1.4 full codebase" }
+    }
+    $promptHeader = "You are an expert code reviewer for Reji Studio.`n`nPROJECT: Reji Studio - Windows live streaming software`nSTACK: C++17/MSVC + Rust/Tokio + Qt6 6.8.0 + Vulkan 1.4 + DXGI`nHARDWARE: AMD Radeon 780M (iGPU) + NVIDIA RTX 4070 Laptop (dGPU)`nMODULE: $moduleContext`n`nWrite a report in English covering the following categories:`n1. CRITICAL BUGS (UB, null ptr, race condition, Vulkan spec violation)`n2. MEMORY MANAGEMENT (RAII violation, hot-path allocation, Vulkan object lifetime)`n3. VULKAN/GL INTEROP (missing sync, image layout, external memory)`n4. PERFORMANCE (hot-path copy, suboptimal sync, dual-GPU issues)`n5. ARCHITECTURE (layer violation, refactor opportunity)`n6. SECURITY (SEH scope, COM lifetime, input validation)`n`nFor each finding include: file, line, description, suggested fix."
 }
 
-$prompt = "You are an expert code reviewer for Reji Studio.`n`nPROJECT: Reji Studio - Windows live streaming software`nSTACK: C++17/MSVC + Rust/Tokio + Qt6 6.8.0 + Vulkan 1.4 + DXGI`nHARDWARE: AMD Radeon 780M (iGPU) + NVIDIA RTX 4070 Laptop (dGPU)`nMODULE: $moduleContext`n`nWrite a report in English covering the following categories:`n1. CRITICAL BUGS (UB, null ptr, race condition, Vulkan spec violation)`n2. MEMORY MANAGEMENT (RAII violation, hot-path allocation, Vulkan object lifetime)`n3. VULKAN/GL INTEROP (missing sync, image layout, external memory)`n4. PERFORMANCE (hot-path copy, suboptimal sync, dual-GPU issues)`n5. ARCHITECTURE (layer violation, refactor opportunity)`n6. SECURITY (SEH scope, COM lifetime, input validation)`n`nFor each finding include: file, line, description, suggested fix.`n`nCODEBASE ($($allFiles.Count) files):`n$codeBase"
+$prompt = "$promptHeader`n`nCODEBASE ($($allFiles.Count) files):`n$codeBase"
 
 $requestBody = @{
     model    = $Model
