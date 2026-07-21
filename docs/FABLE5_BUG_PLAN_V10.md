@@ -377,6 +377,19 @@ kesinleşmez" diye işaretledi.)
       OutputSubsystemTest 7/7, PipelineCharacterization 1/1, reji_app
       build OK. Merge + push kullanıcı onayı bekliyor; L5/L1 GUI
       akışları canlı testte doğrulanacak.
+- [x] S1-ek2 (6c6fce1, `docs/SIYAH_KUTU_REGRESYON.md`): boşta her ~6s'de
+      sahne paneli üstünde beliren kutu. ~5s timer YOK, L5 ile İLGİSİZ;
+      periyot = hysteresis_ms 6000. Zincir: eski ~/.reji/rules.json mode
+      adları (auto/co_pilot) motorla hiç eşleşmiyordu → L1-ek applyProfile'ı
+      canlandırınca stabilite ilk EŞLEŞEN set oldu → frame_drop_recovery
+      boşta her pencerede tetiklendi → healing overlay banner'ı. Düzeltme
+      (onaylı): yayın yokken bilgi banner'ı bastırılır (geçmiş tutulur,
+      onay prompt'ları muaf). Dürüst sınır: "içeriksiz siyah" render
+      ayrıntısı doğrulanamadı — adjustSize hipotezi offscreen testle
+      çürüdü; en olası açıklama 3s'lik koyu banner'ın kendisi (canlı
+      teyit bekliyor). HealingOverlayTest 4/4 (yeni widget test altyapısı).
+      SPRINT 2 NOTU: boşta (yayın yokken) kural değerlendirmesi/recovery
+      üretimi tasarım sorusu — Rust tarafı kök çözüm adayı (L11 komşusu).
 - [x] L1-ek (72b4b09, `docs/ACIL_L1_QRC_REGRESYON.md`): canlı profil-uygula
       denemesi ":/config/profiles/*.json bulunamadı" verdi. Kök neden L1
       regresyonu DEĞİL — statik reji_ui.lib'de qrc nesnesi linker'ca
