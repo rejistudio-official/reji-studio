@@ -377,6 +377,17 @@ kesinleşmez" diye işaretledi.)
       OutputSubsystemTest 7/7, PipelineCharacterization 1/1, reji_app
       build OK. Merge + push kullanıcı onayı bekliyor; L5/L1 GUI
       akışları canlı testte doğrulanacak.
+- [x] S1-ek3 (7665cb0, `docs/HEALING_RECOVERY_KOK_DUZELTME.md`): S1-ek2'nin
+      UI gate'i yanlış boyutu hedefledi (canlıda kutu yayın SIRASINDA çıktı)
+      → kök çözüm Rust'ta: rj_update_bitrate_state FFI'sı ile C++ konfigüre
+      bitrate durumunu bildirir (bitrate_kbps.store noktalarında + init);
+      collect_rule_actions, recovery_has_deficit (0<current<original) doğru
+      değilse BitrateRecover'ı hiç üretmez. UI gate kaldırıldı (gerekçe:
+      meşru banner'ları da yutuyordu; kök kaynakta kesildi). 5 yeni Rust
+      testi + 2 mevcut test açık-deficit imzasına taşındı; Rust 137+5+35,
+      HealingOverlayTest 2/2 (geometri kilitleri), Characterization 1/1,
+      OutputSubsystem 7/7. Kullanıcı: boşta VE yayında gözlem gerekli.
+      "Sprint 2'ye ertelendi" kararı geri alındı — kapsam bu turda kapandı.
 - [x] S1-ek2 (6c6fce1, `docs/SIYAH_KUTU_REGRESYON.md`): boşta her ~6s'de
       sahne paneli üstünde beliren kutu. ~5s timer YOK, L5 ile İLGİSİZ;
       periyot = hysteresis_ms 6000. Zincir: eski ~/.reji/rules.json mode
