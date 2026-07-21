@@ -58,7 +58,10 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
-    /// Stores config and calls Pipeline::init(cfg). Returns false on failure.
+    /// TEK pipeline init yolu (V10/L5): config'i saklar, Pipeline::init(cfg)
+    /// çağırır; başarıda GUI wiring + frame thread + ilk-kurulum profil önerisi
+    /// (singleShot). Ctor da burayı kullanır. Yeniden init desteklenmez
+    /// (frame thread varken false döner). Başarısızlıkta false.
     bool initPipeline(const rj::Pipeline::Config& cfg);
 
 public slots:
@@ -169,6 +172,12 @@ private:
     void saveWindowState();
     void loadWindowState();
     void stopFrameThread();
+    // V10/L5: initPipeline'ın parçaları — init-sonrası GUI wiring (preview/
+    // callback bağlantıları) ve frame thread başlatma (idempotent). Ctor
+    // dahil TÜM init'ler initPipeline üzerinden geçer; iki yan etki kümesi
+    // (öneri singleShot'ı vs frame thread) bir daha ayrışamaz.
+    void wireUpPipeline();
+    void startFrameThread();
 
     // ── Video monitors ─────────────────────────────────────────────────────
     reji::PreviewWidget* preview_widget_{nullptr};
