@@ -20,6 +20,7 @@
 
 #include "audio_ring.h"
 #include "aac_encoder.h"
+#include "asc_state.h"
 #include "av_sync.h"
 
 namespace rj { class OutputSubsystem; }
@@ -49,6 +50,7 @@ public:
 private:
     static void on_aac(const uint8_t* aac, uint32_t len, int64_t pts_us, void* ud);
     bool ensure_encoder();   // encode-thread-yerel lazy init
+    void send_asc_if_ready() noexcept;  // V10/L6: ASC gönderimi (dönüş asc_sent_'e)
 
     AudioRing            ring_;
     AacEncoder           encoder_;
@@ -62,6 +64,7 @@ private:
     // Aşağıdakiler YALNIZ encode thread'inden erişilir (senkronizasyon gerekmez).
     bool    encoder_ready_{false};
     bool    encoder_failed_{false};
+    bool    asc_sent_{false};       // V10/L6: encoder_ready_'den BAĞIMSIZ — retry için
     int64_t last_audio_pts_us_{0};
     int64_t last_drift_warn_ms_{kNoPriorWarn};
 };
