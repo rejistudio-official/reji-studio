@@ -425,11 +425,41 @@ if(Qt6_FOUND)
     )
     add_test(NAME QrcResourcesTest COMMAND test_qrc_resources)
 
+    # ── SIYAH_KUTU_REGRESYON: HealingOverlay ilk-gösterim geometri kilidi ──
+    # onActionEvent, showMessage'dan farklı olarak adjustSize çağırmıyordu →
+    # overlay hiç showMessage görmemişse ~30px içeriksiz siyah şerit.
+    # reji_ui AUTOMOC'un tek mocs_compilation nesnesi MainWindow'u da
+    # sürüklediğinden uygulamanın tam bağımlılık seti link'lenir (reji_app
+    # deseni: reji_ffi + Rust lib + Windows runtime bağımlılıkları).
+    # Rust lib: src/ui'deki imported-target deseninin test-kapsamı kopyası —
+    # build config'ine göre doğru (release/debug) lib seçilir; ham yol
+    # RUST_BUILD_TYPE görünürlüğüne takılıp bayat debug lib'e bağlanıyordu.
+    add_library(reji_orchestrator_tests STATIC IMPORTED)
+    set_target_properties(reji_orchestrator_tests PROPERTIES
+        IMPORTED_LOCATION         "${CMAKE_SOURCE_DIR}/target/release/reji_orchestrator.lib"
+        IMPORTED_LOCATION_DEBUG   "${CMAKE_SOURCE_DIR}/target/debug/reji_orchestrator.lib"
+        IMPORTED_LOCATION_RELEASE "${CMAKE_SOURCE_DIR}/target/release/reji_orchestrator.lib"
+    )
+    add_executable(test_healing_overlay
+        test_healing_overlay.cpp
+    )
+    target_include_directories(test_healing_overlay PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/ui
+    )
+    target_link_libraries(test_healing_overlay
+        gtest    # özel main() (offscreen QApplication) — gtest_main değil
+        reji_ui
+        reji_ffi
+        reji_orchestrator_tests
+        ws2_32 bcrypt userenv ntdll
+    )
+    add_test(NAME HealingOverlayTest COMMAND test_healing_overlay)
+
     # Qt6Core.dll çalışma zamanında gerekir — Qt bin'ini ctest PATH'ine ekle
     # (diğer testlerdeki build/src/ui deseniyle aynı; DLL_NOT_FOUND'u önler).
     get_target_property(_qt_core_loc Qt6::Core LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
-    set_tests_properties(RulesWatchTest QrcResourcesTest PROPERTIES
+    set_tests_properties(RulesWatchTest QrcResourcesTest HealingOverlayTest PROPERTIES
         ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
 else()
     message(STATUS "Qt6::Core bulunamadı — RulesWatchTest atlanıyor")
