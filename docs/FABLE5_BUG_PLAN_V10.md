@@ -69,7 +69,7 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 
 | # | Madde | Doğrulama | Sprint | Durum |
 |---|---|---|---|---|
-| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | ✅ FIXED c528b7c (rj_validate_rules + QSaveFile) |
+| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | ✅ FIXED c528b7c (+L1-ek 72b4b09: statik-lib qrc kaydı — L5'in açığa çıkardığı latent bug, L1 regresyonu değil) |
 | L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | ✅ FIXED 3e1fcd4 (+CpuUsage{0} ve WS broadcast dahil) |
 | L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 73d0137 (adopt_calibration) |
 | L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 8af4f3c (enabled parametresi) |
@@ -377,5 +377,14 @@ kesinleşmez" diye işaretledi.)
       OutputSubsystemTest 7/7, PipelineCharacterization 1/1, reji_app
       build OK. Merge + push kullanıcı onayı bekliyor; L5/L1 GUI
       akışları canlı testte doğrulanacak.
+- [x] L1-ek (72b4b09, `docs/ACIL_L1_QRC_REGRESYON.md`): canlı profil-uygula
+      denemesi ":/config/profiles/*.json bulunamadı" verdi. Kök neden L1
+      regresyonu DEĞİL — statik reji_ui.lib'de qrc nesnesi linker'ca
+      atılıyordu (self-registration hiç çalışmadı); applyProfile L5'e dek
+      ölü yol olduğundan hiç görünmemişti, şablon tohumlama da latent
+      kırıktı. Düzeltme: ensureResourcesRegistered (Q_INIT_RESOURCE).
+      Test boşluğu kapatıldı: QrcResourcesTest reji_ui'yi uygulamayla aynı
+      biçimde link'ler; negatif kontrol canlı hatayı birebir üretti.
+      Kullanıcı yeniden denemeli: öneri diyaloğunda "Uygula".
 - Tamamlanınca `TALIMAT_V10_TARAMA_HAZIRLIK.md` → `docs/talimatlar/`
   arşivine taşınacak.
