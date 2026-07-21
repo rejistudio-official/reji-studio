@@ -228,6 +228,12 @@ struct Pipeline::Impl {
                 if (cmd.param1 > 0) {
                     (void)encode_sub_.set_bitrate(static_cast<uint32_t>(cmd.param1));
                     bitrate_kbps.store(static_cast<uint32_t>(cmd.param1), std::memory_order_relaxed);
+                    // SIYAH_KUTU kök düzeltmesi: konfigüre bitrate durumu Rust
+                    // kural katmanına bildirilir — BitrateRecover yalnız gerçek
+                    // düşüş varken üretilir (bkz. healing.rs recovery_has_deficit).
+                    // bitrate_kbps.store ile AYNI noktada: tüm yollar kapsanır.
+                    ::rj_update_bitrate_state(static_cast<uint32_t>(cmd.param1),
+                                              cfg.original_bitrate_kbps);
                 }
                 break;
             case RJ_ACTION_SCALE_RESOLUTION:
@@ -272,6 +278,9 @@ struct Pipeline::Impl {
                 if (encode_sub_.raw() && c.param_u32 > 0) {
                     (void)encode_sub_.set_bitrate(c.param_u32);
                     bitrate_kbps.store(c.param_u32, std::memory_order_relaxed);
+                    // SIYAH_KUTU: predictive/WS komut yolu da bitrate'i değiştirir —
+                    // Rust durumu store ile aynı noktada senkron tutulur.
+                    ::rj_update_bitrate_state(c.param_u32, cfg.original_bitrate_kbps);
                 }
                 break;
             case RJ_CMD_SCENE_SWITCH: break;  // v0.1 no-op
@@ -368,8 +377,11 @@ bool Pipeline::init(const Config& cfg_in) {
     s.cfg.min_bitrate_kbps         = reduce_floor_for_target(s.cfg.min_bitrate_kbps,
                                                              cfg_in.bitrate_kbps);
     s.bitrate_kbps.store(cfg_in.bitrate_kbps, std::memory_order_relaxed);
+    // SIYAH_KUTU kök düzeltmesi: başlangıç durumu Rust'a bildirilir
+    // (current == original → kurtarılacak düşüş yok, recovery üretilmez).
+    ::rj_update_bitrate_state(cfg_in.bitrate_kbps, cfg_in.bitrate_kbps);
 
-    //  COM 
+    //  COM
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (hr == RPC_E_CHANGED_MODE) {
         dbglog("[Pipeline] COM apartment set by caller  uninit skipped");

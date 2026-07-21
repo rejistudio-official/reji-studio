@@ -1293,16 +1293,16 @@ void MainWindow::pollHealingActions() {
     }
 
     if (healing_overlay_) {
-        // SIYAH_KUTU_REGRESYON: yayın yokken bilgi banner'ı açılmaz. Boşta
-        // her hysteresis penceresinde tetiklenen kurallar (örn. stabilite
-        // profilinin frame_drop_recovery'si, 6000ms) sahne panelinin üstünde
-        // periyodik kutu üretiyordu. Event geçmişe yine işlenir; onay
-        // prompt'ları overlay tarafında bu bayraktan bağımsız gösterilir.
-        const bool show_banner = stream_active_ || event.require_approval;
+        // SIYAH_KUTU kök düzeltmesi: stream_active_ bazlı UI gate KALDIRILDI —
+        // canlı test yanlış boyutu hedeflediğini gösterdi (kutu yayın
+        // sırasında çıkmaya başladı). Sahte recovery aksiyonları artık
+        // kaynağında (Rust, recovery_has_deficit) üretilmiyor; buraya ulaşan
+        // her event meşru bir healing bilgisidir ve gösterilmelidir
+        // (sessizce yutma yok — Healing Plumbing dersi).
         healing_overlay_->move(
             width() - healing_overlay_->width() - 16,
             menuBar()->height() + 8);
-        healing_overlay_->onActionEvent(event, show_banner);
+        healing_overlay_->onActionEvent(event);
     }
 }
 

@@ -53,11 +53,10 @@ public:
     void showMessage(const QString& msg, int timeout_ms = rj::constants::kHealingBannerTimeoutMs);
 
     // New API: action event notification (thread-safe via Qt::QueuedConnection)
-    // SIYAH_KUTU: show_banner=false → bilgi event'i yalnız geçmişe işlenir,
-    // overlay AÇILMAZ (yayın yokken boşta tetiklenen kurallar sahne paneli
-    // üstünde periyodik kutu üretiyordu). Onay prompt'ları (require_approval)
-    // bu bayraktan ETKİLENMEZ — Rust'ta pending karar her durumda gösterilir.
-    void onActionEvent(const ActionEvent& event, bool show_banner = true);
+    // Not (SIYAH_KUTU): geçici show_banner bastırma parametresi kaldırıldı —
+    // sahte recovery event'leri artık kaynağında (Rust kural katmanı,
+    // recovery_has_deficit) üretilmiyor; buraya ulaşan her event gösterilir.
+    void onActionEvent(const ActionEvent& event);
 
     // V8/I33: Rust pending TTL doldu / mod değişti → o aksiyonun onay prompt'unu
     // temizle (id == mevcut onay bekleyen aksiyon ise). require_approval=false

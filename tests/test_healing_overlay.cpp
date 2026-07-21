@@ -66,38 +66,9 @@ TEST(HealingOverlayTest, FirstApprovalPromptSizesOverlayToContent) {
         << "onay prompt'u gösteriminde overlay içerik boyutuna ayarlanmalı";
 }
 
-// SIYAH_KUTU düzeltmesi: banner bastırıldığında (yayın yokken bilgi
-// event'i) overlay AÇILMAZ ama event geçmişe yine işlenir — kayıt
-// kaybolmaz, sahne paneli üstünde periyodik kutu da çıkmaz.
-TEST(HealingOverlayTest, SuppressedInfoEventRecordsHistoryWithoutShowing) {
-    QWidget parent;
-    parent.resize(1280, 720);
-    parent.show();
-    reji::HealingOverlay overlay(&parent);
-
-    overlay.onActionEvent(makeEvent(/*require_approval=*/false),
-                          /*show_banner=*/false);
-
-    EXPECT_FALSE(overlay.isVisible())
-        << "banner bastırıldığında overlay görünmemeli (boşta periyodik kutu)";
-    EXPECT_EQ(overlay.actionHistory(10).size(), 1)
-        << "event geçmişe yine işlenmeli";
-}
-
-// Onay prompt'ları gate'ten ETKİLENMEZ — show_banner=false olsa bile
-// require_approval event'i prompt açar (Rust'ta pending karar bekliyor).
-TEST(HealingOverlayTest, ApprovalPromptShowsEvenWhenBannerSuppressed) {
-    QWidget parent;
-    parent.resize(1280, 720);
-    parent.show();
-    reji::HealingOverlay overlay(&parent);
-
-    overlay.onActionEvent(makeEvent(/*require_approval=*/true),
-                          /*show_banner=*/false);
-
-    EXPECT_TRUE(overlay.isVisible())
-        << "onay bekleyen aksiyon her durumda gösterilmeli";
-}
+// Not (SIYAH_KUTU kök düzeltmesi): show_banner bastırma testleri kaldırıldı —
+// parametre API'den çıktı; sahte event'ler artık kaynağında (Rust,
+// recovery_has_deficit) üretilmiyor. Geometri kilitleri yukarıda duruyor.
 
 int main(int argc, char** argv) {
     // Görüntüsüz CI/terminal koşusu — gerçek pencere sistemi gerekmez.

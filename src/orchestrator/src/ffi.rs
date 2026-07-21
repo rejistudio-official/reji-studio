@@ -283,6 +283,21 @@ struct FfiState {
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
 pub(crate) static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
 
+// SIYAH_KUTU kök düzeltmesi: aktüatörün KONFİGÜRE bitrate durumu (C++
+// apply_action / pipeline init bildirir). Kural katmanı BitrateRecover
+// üretmeden önce "kurtarılacak düşüş var mı" diye buraya bakar
+// (healing::recovery_has_deficit). 0 = henüz bildirilmedi/bilinmiyor.
+pub(crate) static CURRENT_BITRATE_KBPS: AtomicU32 = AtomicU32::new(0);
+pub(crate) static ORIGINAL_BITRATE_KBPS: AtomicU32 = AtomicU32::new(0);
+
+/// Kural katmanının okuduğu (current, original) çifti.
+pub(crate) fn bitrate_state() -> (u32, u32) {
+    (
+        CURRENT_BITRATE_KBPS.load(Ordering::Relaxed),
+        ORIGINAL_BITRATE_KBPS.load(Ordering::Relaxed),
+    )
+}
+
 /// V8/I33: Süreç-global, monoton aksiyon ID sayacı. Eskiden ID'ler
 /// `RuleEngine::evaluate()` içinde her tick `1`'den başlıyordu (tick-yerel) —
 /// pending-onay deposu ID ile anahtarlanacağından tick'ler arası çakışma
@@ -1386,6 +1401,19 @@ pub extern "C" fn rj_validate_rules(path: *const c_char) -> i32 {
         eprintln!("[PANIC] rj_validate_rules caught panic");
         0
     })
+}
+
+/// SIYAH_KUTU kök düzeltmesi: C++ aktüatörü konfigüre bitrate durumunu
+/// bildirir — `Pipeline::apply_action` her REDUCE/RECOVER kararında ve
+/// pipeline init'te çağırır. Kural katmanı bu duruma bakarak "kurtarılacak
+/// düşüş yokken" BitrateRecover aksiyonu (ve sahte healing banner'ını) hiç
+/// üretmez. Ölçülen kbps DEĞİL, konfigüre değerler beklenir (dalgalanma
+/// sahte tetik üretirdi). FFI_STATE gerektirmez; idempotent/yarışsız
+/// (iki bağımsız atomic store).
+#[no_mangle]
+pub extern "C" fn rj_update_bitrate_state(current_kbps: u32, original_kbps: u32) {
+    CURRENT_BITRATE_KBPS.store(current_kbps, Ordering::Relaxed);
+    ORIGINAL_BITRATE_KBPS.store(original_kbps, Ordering::Relaxed);
 }
 
 /// Reload rules from file (async hot-reload)

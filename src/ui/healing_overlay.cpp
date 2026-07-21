@@ -143,7 +143,7 @@ void HealingOverlay::onTick() {
     d_->lbl_countdown->setText(QString("%1s").arg(d_->remaining_ms / 1000));
 }
 
-void HealingOverlay::onActionEvent(const ActionEvent& event, bool show_banner) {
+void HealingOverlay::onActionEvent(const ActionEvent& event) {
     // Add to history
     d_->history_list->insertItem(0, QString("[%1] %2")
         .arg(event.timestamp, event.description));
@@ -157,14 +157,7 @@ void HealingOverlay::onActionEvent(const ActionEvent& event, bool show_banner) {
     // overlay artık per-kategori ayarları YENİDEN HESAPLAMAZ (kapı tek yerde).
     if (event.require_approval) {
         // CoPilot manuel-kategori: aksiyon Rust'ta pending, onay bekliyor.
-        // show_banner'dan bağımsız — pending karar kullanıcıya ulaşmalı.
         showApprovalPrompt(event);
-        return;
-    }
-
-    // SIYAH_KUTU: bilgi banner'ı bastırıldı (örn. yayın yokken) — geçmişe
-    // işlendi, görsel açılmaz.
-    if (!show_banner) {
         return;
     }
 
