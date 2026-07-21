@@ -1384,13 +1384,19 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
         };
 
         match RuleEngine::new(&path_str) {
-            Ok(new_engine) => {
+            Ok(mut new_engine) => {
                 let mut engine_lock = state.rule_engine
                     .lock()
                     .unwrap_or_else(|poisoned| {
                         warn!("rule_engine mutex poison — recovering");
                         poisoned.into_inner()
                     });
+                // V10/L3: kalibre eşik tablosu engine-içi yaşar — devralınmazsa
+                // her reload Özellik#5 kalibrasyonunu sessizce siler
+                // (calibration_done=true → HealingMonitor yeniden uygulamaz).
+                if let Some(old_engine) = engine_lock.as_ref() {
+                    new_engine.adopt_calibration(old_engine);
+                }
                 *engine_lock = Some(new_engine);
                 info!(path = ?path_str, "Rules reloaded successfully");
                 1
