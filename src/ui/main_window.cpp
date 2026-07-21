@@ -865,7 +865,10 @@ void MainWindow::armRulesWatch() {
     if (!rules_watcher_) return;
     // Saf çekirdek rules_watch.h'de — birim testiyle kilitlenen kuruluş-sırası
     // değişmezi (dosya yokken hiçbir yol eklenmez → re-arm şart) orada belgeli.
-    reji::ui::armRulesWatchOn(*rules_watcher_, rulesFilePath());
+    // V10/L4: checkbox durumu çekirdeğe geçirilir — auto-reload kapalıyken
+    // (writeValidatedRules/reloadRulesNow re-arm çağrıları dahil) yol eklenmez.
+    const bool enabled = settings_dialog_ && settings_dialog_->isAutoReloadEnabled();
+    reji::ui::armRulesWatchOn(*rules_watcher_, rulesFilePath(), enabled);
 }
 
 void MainWindow::onAutoReloadToggled(bool enabled) {

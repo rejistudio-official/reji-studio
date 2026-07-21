@@ -22,7 +22,17 @@ namespace reji::ui {
 // watcher boş kalır ve hiçbir değişiklik tetiklenmez. Bu yüzden dosya
 // oluştuktan sonra rutin YENİDEN çağrılmalıdır (re-arm). `!contains` koruması
 // tekrar çağrıları zararsız (idempotent) kılar.
-inline void armRulesWatchOn(QFileSystemWatcher& watcher, const QString& filePath) {
+//
+// V10/L4 (etkinlik değişmezi): `enabled=false` iken HİÇBİR yol eklenmez —
+// çağıran, "Otomatik yeniden yükle" checkbox durumunu geçirir. Parametre
+// bilinçli olarak varsayılansız: yeni çağrı yerleri durumu düşünmeden arm
+// edemesin. Aksi halde import/manuel-reload yolundaki re-arm çağrıları,
+// toggle-off'un temizlediği path'leri geri ekleyip checkbox kapalıyken
+// sessiz hot-reload'a yol açıyordu.
+inline void armRulesWatchOn(QFileSystemWatcher& watcher, const QString& filePath,
+                            bool enabled) {
+    if (!enabled) return;
+
     const QString dir = QFileInfo(filePath).absolutePath();
 
     if (QFileInfo::exists(dir) && !watcher.directories().contains(dir)) {
