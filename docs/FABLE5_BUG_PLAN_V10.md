@@ -69,12 +69,12 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 
 | # | Madde | Doğrulama | Sprint | Durum |
 |---|---|---|---|---|
-| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | ✅ Faz 0 DOĞRULANDI (a,b,c,d — c rapordan geniş) |
-| L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | ✅ Faz 0 DOĞRULANDI (+CpuUsage{0} ve WS broadcast kirliliği) |
-| L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | ✅ Faz 0 DOĞRULANDI |
-| L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | ✅ Faz 0 DOĞRULANDI |
-| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ Faz 0 DOĞRULANDI — initPipeline ölü kod (0 çağıran) |
-| L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | ✅ Faz 0 DOĞRULANDI |
+| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | ✅ FIXED c528b7c (rj_validate_rules + QSaveFile) |
+| L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | ✅ FIXED 3e1fcd4 (+CpuUsage{0} ve WS broadcast dahil) |
+| L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 73d0137 (adopt_calibration) |
+| L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 8af4f3c (enabled parametresi) |
+| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ FIXED 758d155 (tek init yolu) — canlı doğrulama kullanıcıda |
+| L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | ✅ FIXED fcdcb9e (asc_sent_ retry) |
 | L7 | Shutdown-flush sırasında MF lazy-init SEH ihlali | 🔵 1/4 (Fable) | 1 | ❌ ÇÜRÜTÜLDÜ — on_packet streaming guard'ı drain'i keser |
 | L8 | Zig ABI üst-sınır eksikliği + writeFlvTag sessiz kırpma | 🔵 1/4 (tavan) / 🟢 3/4 (kırpma) | 2 | Faz 0 bekliyor |
 | L9 | MFT CAN_PROVIDE_SAMPLES yanlış yorumu + hata-yolu pSample sızıntısı | 🔵 1/4 (Fable) | 2 | Faz 0 bekliyor |
@@ -369,6 +369,13 @@ kesinleşmez" diye işaretledi.)
       spekülatif havuz)
 - [ ] Linear'da V10 issue açıldı _(bkz. talimat Bölüm D)_
 - [x] Sprint'lere bölündü (S1: L1-L7, S2: L8-L12, S3: L13-L20)
-- [ ] Faz 0 doğrulamaları — Sprint 1'den başlıyor
+- [x] Sprint 1 Faz 0 tamamlandı (L1-L6 doğrulandı, L7 çürütüldü)
+- [x] Sprint 1 düzeltmeleri `feat/v10-sprint1` dalında (Bölüm 8b: çok
+      commit + güvenlik-hassas → feature dalı): L2 3e1fcd4, L3 73d0137,
+      L1 c528b7c, L4 8af4f3c, L6 fcdcb9e, L5 758d155. Testler: Rust
+      132+5+35 PASS, RulesWatchTest 4/4, AudioWireTest 10/10,
+      OutputSubsystemTest 7/7, PipelineCharacterization 1/1, reji_app
+      build OK. Merge + push kullanıcı onayı bekliyor; L5/L1 GUI
+      akışları canlı testte doğrulanacak.
 - Tamamlanınca `TALIMAT_V10_TARAMA_HAZIRLIK.md` → `docs/talimatlar/`
   arşivine taşınacak.
