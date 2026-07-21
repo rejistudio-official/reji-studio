@@ -139,14 +139,17 @@ private:
     bool seedRulesFromTemplate(const QString& targetPath);
     /// İçe-aktarım + profil uygulama ORTAK çekirdeği (Sütun 3 güvenlik akışı):
     /// `src` (kullanıcı dosyası VEYA gömülü qrc kaynağı) geçici konumda
-    /// rj_reload_rules ile DOĞRULANIR (asıl rules.json'a dokunulmadan) → geçerliyse
-    /// rules.json.backup alınır → rules.json'a yazılır → reload watcher'a/elle
-    /// tetiklenir. Başarıda true; hatada `errMsg` doldurulur. UI/mesajlaşma çağırana
-    /// aittir (import: kullanıcı QMessageBox'ı; profil: otomatik durum satırı).
+    /// rj_validate_rules ile DOĞRULANIR (motora ve rules.json'a dokunulmadan) →
+    /// geçerliyse rules.json.backup alınır (yedek başarısızsa iptal) →
+    /// rules.json'a QSaveFile ile atomik yazılır → reload watcher'a/elle
+    /// tetiklenir. Başarıda true; hatada `errMsg` doldurulur ve motor + disk
+    /// ESKİ hâlinde kalır (V10/L1). UI/mesajlaşma çağırana aittir
+    /// (import: kullanıcı QMessageBox'ı; profil: otomatik durum satırı).
     bool writeValidatedRules(const QString& src, QString& errMsg);
-    /// `src` kural dosyasını geçici kopya üzerinde rj_reload_rules ile doğrular —
-    /// asıl rules.json'a dokunmaz. Yan etki: dosya geçerliyse motorun bellek-içi
-    /// kuralları da bu içerikle güncellenir (hot-reload eşdeğeri, tasarım gereği).
+    /// `src` kural dosyasını geçici kopya üzerinde rj_validate_rules ile
+    /// doğrular — asıl rules.json'a VE canlı motora dokunmaz (V10/L1: eski
+    /// rj_reload_rules yolu her doğrulamada motoru geçici-dosya kurallarına
+    /// çeviriyordu; hata yolunda "eski kurallar korunuyor" mesajı yanlıştı).
     /// Başarıda true; hatada `errMsg` doldurulur. writeValidatedRules'ın 1. adımı
     /// ve exportRules'un kör-kopya koruması ortak kullanır.
     bool validateRulesFile(const QString& src, QString& errMsg);

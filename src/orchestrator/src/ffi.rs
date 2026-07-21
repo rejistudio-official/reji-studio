@@ -1352,6 +1352,42 @@ pub extern "C" fn rj_get_healing_mode() -> u32 {
     .unwrap_or(0)
 }
 
+/// V10/L1(c): kural dosyasını YAN ETKİSİZ doğrular — canlı motora dokunmaz.
+/// `rj_reload_rules`'tan tek farkı: başarılı parse sonucu `FFI_STATE`'e
+/// yazılmaz (sonuç bilinçli atılır). GUI `validateRulesFile` bunu kullanır;
+/// eskiden doğrulama `rj_reload_rules(tmpPath)` ile yapıldığından her
+/// import/export/profil doğrulaması motoru geçici-dosya kurallarına
+/// çeviriyordu (motor-disk ayrışması). `FFI_STATE` gerektirmez — monitör
+/// başlamadan da çağrılabilir. Dönüş: 1 = geçerli, 0 = geçersiz/null.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_validate_rules(path: *const c_char) -> i32 {
+    catch_unwind(AssertUnwindSafe(move || {
+        if path.is_null() {
+            return 0;
+        }
+        // I24 deseni: sınırlı okuma — aşırı uzun/NUL'suz path güvenli reddedilir.
+        let path_str = match unsafe { cstr_bounded(path, MAX_FFI_PATH_LEN) } {
+            Some(s) => PathBuf::from(s),
+            None => {
+                warn!("rj_validate_rules: geçersiz/aşırı uzun path (>{}B) — reddedildi", MAX_FFI_PATH_LEN);
+                return 0;
+            }
+        };
+        match RuleEngine::new(&path_str) {
+            Ok(_) => 1, // sonuç bilinçli atılır — canlı motor değişmez
+            Err(e) => {
+                warn!(path = ?path_str, error = %e, "rules validation failed");
+                0
+            }
+        }
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_validate_rules caught panic");
+        0
+    })
+}
+
 /// Reload rules from file (async hot-reload)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
@@ -1768,6 +1804,56 @@ mod tests {
             "audio örneğinden system event yayılmamalı: {:?}",
             events
         );
+    }
+
+    // --- V10/L1(c): rj_validate_rules — yan etkisiz doğrulama ---
+
+    const L1_VALID_RULES_JSON: &str = r#"{"hysteresis_ms":0,"rules":[{"id":"l1_validate_probe","description":"L1 test kuralı","condition":"frame_drop_pct > 10","action":"bitrate_reduce","params":{},"modes":["auto-pilot"]}]}"#;
+
+    #[test]
+    fn validate_rules_accepts_valid_rejects_invalid_and_null() {
+        // V10/L1(c): GUI doğrulaması rj_reload_rules yan etkisi olmadan
+        // yapılabilmeli — geçerli 1, bozuk 0, null 0.
+        let dir = std::env::temp_dir();
+
+        let valid = dir.join("reji_l1_valid.json");
+        std::fs::write(&valid, L1_VALID_RULES_JSON).unwrap();
+        let c = std::ffi::CString::new(valid.to_str().unwrap()).unwrap();
+        assert_eq!(rj_validate_rules(c.as_ptr()), 1, "geçerli dosya 1 dönmeli");
+
+        let invalid = dir.join("reji_l1_invalid.json");
+        std::fs::write(&invalid, "{ bozuk json").unwrap();
+        let c = std::ffi::CString::new(invalid.to_str().unwrap()).unwrap();
+        assert_eq!(rj_validate_rules(c.as_ptr()), 0, "bozuk dosya 0 dönmeli");
+
+        assert_eq!(rj_validate_rules(std::ptr::null()), 0, "null path 0 dönmeli");
+    }
+
+    #[test]
+    fn validate_rules_does_not_touch_live_engine() {
+        // V10/L1(c) kök neden: validateRulesFile doğrulamayı rj_reload_rules
+        // ile yapınca CANLI motor geçici-dosya kurallarına dönüyordu
+        // (motor-disk ayrışması). rj_validate_rules motoru DEĞİŞTİRMEMELİ.
+        rj_start_monitor();
+
+        let mut before = vec![0 as c_char; 16384];
+        let n1 = rj_rules_snapshot_json(before.as_mut_ptr(), 16384);
+        assert!(n1 >= 0, "canlı snapshot alınabilmeli");
+
+        let dir = std::env::temp_dir();
+        let probe = dir.join("reji_l1_probe.json");
+        std::fs::write(&probe, L1_VALID_RULES_JSON).unwrap();
+        let c = std::ffi::CString::new(probe.to_str().unwrap()).unwrap();
+        assert_eq!(rj_validate_rules(c.as_ptr()), 1);
+
+        let mut after = vec![0 as c_char; 16384];
+        let n2 = rj_rules_snapshot_json(after.as_mut_ptr(), 16384);
+        assert_eq!(n1, n2, "doğrulama canlı motorun snapshot boyutunu değiştirmemeli");
+        assert_eq!(before[..n1 as usize], after[..n2 as usize],
+            "doğrulama canlı motorun kural setini değiştirmemeli");
+        let after_str = unsafe { std::ffi::CStr::from_ptr(after.as_ptr()) }.to_string_lossy();
+        assert!(!after_str.contains("l1_validate_probe"),
+            "probe kuralı canlı motora sızmamalı");
     }
 
     // --- I24: cstr_bounded sınırlı okuma ---

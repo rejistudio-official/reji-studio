@@ -40,6 +40,7 @@
 #include <QTimer>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QSaveFile>
 #include <QTemporaryFile>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -952,15 +953,24 @@ void MainWindow::exportRules() {
 
     if (dest.isEmpty()) return;
 
-    if (QFile::exists(dest) && !QFile::remove(dest)) {
+    // V10/L1(d): eski remove-sonra-copy deseni, copy başarısızsa kullanıcının
+    // hedefteki mevcut dosyasını geri dönüşsüz siliyordu (TOCTOU). QSaveFile
+    // temp+rename ile atomik — başarısızlıkta hedefteki eski dosya aynen kalır.
+    QFile in(src);
+    if (!in.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, tr("Dışa Aktar"),
-            tr("Hedef dosya silinemedi:\n%1").arg(dest));
+            tr("Kaynak dosya okunamadı:\n%1\n(%2)").arg(src, in.errorString()));
         return;
     }
-
-    if (!QFile::copy(src, dest)) {
+    QSaveFile out(dest);
+    if (!out.open(QIODevice::WriteOnly)) {
         QMessageBox::warning(this, tr("Dışa Aktar"),
-            tr("Dosya kopyalanamadı:\n%1\n→ %2").arg(src, dest));
+            tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, out.errorString()));
+        return;
+    }
+    if (out.write(in.readAll()) < 0 || !out.commit()) {
+        QMessageBox::warning(this, tr("Dışa Aktar"),
+            tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, out.errorString()));
         return;
     }
 
@@ -973,9 +983,9 @@ void MainWindow::exportRules() {
 }
 
 bool MainWindow::validateRulesFile(const QString& src, QString& errMsg) {
-    // Geçici konuma kopyala ve doğrula (asıl rules.json'a DOKUNMA).
+    // Geçici konuma kopyala ve doğrula (asıl rules.json'a VE motora DOKUNMA).
     // `src` bir kullanıcı dosyası VEYA gömülü qrc kaynağı (":/config/...") olabilir;
-    // QFile her ikisini de okur, rj_reload_rules yalnız gerçek dosyada çalışır.
+    // QFile her ikisini de okur, rj_validate_rules yalnız gerçek dosyada çalışır.
     // QFile::copy hedef dosya mevcutken false döner, QTemporaryFile::open() ise
     // dosyayı diskte oluşturur — bu yüzden kopya değil, içerik doğrudan yazılır.
     QFile in(src);
@@ -998,10 +1008,13 @@ bool MainWindow::validateRulesFile(const QString& src, QString& errMsg) {
         return false;
     }
     const QString tmpPath = tmp.fileName();
-    tmp.close();  // Windows'ta rj_reload_rules açarken paylaşım çakışması olmasın.
+    tmp.close();  // Windows'ta rj_validate_rules açarken paylaşım çakışması olmasın.
 
+    // V10/L1(c): yan-etkisiz doğrulama — eski rj_reload_rules yolu geçerli
+    // dosyada CANLI motoru geçici-dosya kurallarına çeviriyordu; hata yolunda
+    // motor orada kalıyor, "eski kurallar korunuyor" mesajı yalan oluyordu.
     const QByteArray tmpPathUtf8 = tmpPath.toUtf8();
-    if (rj_reload_rules(tmpPathUtf8.constData()) != 1) {
+    if (rj_validate_rules(tmpPathUtf8.constData()) != 1) {
         errMsg = tr("Dosya geçerli bir kural seti değil.\n\n"
                     "Beklenen format: geçerli JSON, her kuralda 'id', 'condition', 'action' alanları.");
         return false;
@@ -1014,20 +1027,37 @@ bool MainWindow::writeValidatedRules(const QString& src, QString& errMsg) {
     if (!validateRulesFile(src, errMsg)) return false;
 
     // Adım 2: Mevcut rules.json'ı yedekle (geri dönüşsüz kayıp yok — I10).
+    // V10/L1(a): copy dönüşü kontrol edilir — yedek alınamazsa asıl dosyaya
+    // hiç dokunmadan iptal (eskiden sessizce yedeksiz devam ediliyordu).
     const QString dest    = rulesFilePath();
     const QString backup  = dest + QStringLiteral(".backup");
     if (QFileInfo::exists(dest)) {
         QFile::remove(backup);
-        QFile::copy(dest, backup);
+        if (!QFile::copy(dest, backup)) {
+            errMsg = tr("Yedek alınamadı:\n%1\nMevcut kurallara dokunulmadı.").arg(backup);
+            return false;
+        }
     }
 
-    // Adım 3: Üst dizini oluştur (henüz yoksa) ve yeni dosyayı yaz.
+    // Adım 3: Üst dizini oluştur (henüz yoksa) ve yeni dosyayı ATOMİK yaz.
+    // V10/L1(b): eski remove+copy deseni copy-başarısızlığında rules.json'u
+    // diskte bırakmıyordu (backup'tan restore da yoktu). QSaveFile geçici ada
+    // yazıp commit'te rename eder — başarısızlıkta eski dosya aynen kalır.
     const QDir parentDir = QFileInfo(dest).dir();
     if (!parentDir.exists()) parentDir.mkpath(QStringLiteral("."));
 
-    QFile::remove(dest);
-    if (!QFile::copy(src, dest)) {
-        errMsg = tr("Dosya yazılamadı:\n%1").arg(dest);
+    QFile in(src);
+    if (!in.open(QIODevice::ReadOnly)) {
+        errMsg = tr("Kaynak dosya okunamadı:\n%1\n(%2)").arg(src, in.errorString());
+        return false;
+    }
+    QSaveFile outFile(dest);
+    if (!outFile.open(QIODevice::WriteOnly)) {
+        errMsg = tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, outFile.errorString());
+        return false;
+    }
+    if (outFile.write(in.readAll()) < 0 || !outFile.commit()) {
+        errMsg = tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, outFile.errorString());
         return false;
     }
 
