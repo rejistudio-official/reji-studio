@@ -380,6 +380,13 @@ pub extern "C" fn rj_start_monitor() {
 fn system_events_for_sample(sample: &MetricSample) -> Vec<SystemEvent> {
     let mut events = Vec::new();
 
+    // V10/L2-EK: yalnız video örnekleri (source_id=0) sistem event'i üretir.
+    // Audio örneklerinde (source_id=1) cpu_load_pct/gpu/mem/network alanları
+    // sıfır-init'tir; koşulsuz CpuUsage sahte CpuUsage{0} enjekte ediyordu.
+    if sample.source_id != 0 {
+        return events;
+    }
+
     // cpu_load_pct: C++ PDH sistem yükü (offset +44); cpu_percent (offset +24)
     // burada OKUNMAZ — o alan MetricState/UI snapshot yoluna (rj_metrics_poll)
     // aittir. RuleEngine cpu_load_high kuralını cpu_load_pct üzerinden çalıştırır.
@@ -420,6 +427,15 @@ fn system_events_for_sample(sample: &MetricSample) -> Vec<SystemEvent> {
 /// `FrameDropped` ile `FrameDropPct` AYRI event'ler — gate paylaşmazlar.
 fn media_events_for_sample(sample: &MetricSample) -> Vec<MediaEvent> {
     let mut events = Vec::new();
+
+    // V10/L2: yalnız video örnekleri (source_id=0) medya event'i üretir. Audio
+    // örnekleri (1Hz, frame_drop_pct=0) videonun drop sinyalini sıfırlayıp
+    // sahte frame_drop_recovery tetikliyor, ses glitch sayacı (frame_drops)
+    // video FrameDropped trendine karışıyordu.
+    if sample.source_id != 0 {
+        return events;
+    }
+
     events.push(MediaEvent::FrameDropPct {
         pct: sample.frame_drop_pct,
     });
@@ -479,7 +495,10 @@ fn rj_start_monitor_impl() {
                         state.update(&sample);
                         // V8/I15: eskiden rj_metrics_push içinde inline yapılan JSON
                         // formatlama + broadcast — çıktı formatı birebir korundu.
-                        {
+                        // V10/L2-EK: yalnız video örnekleri (source_id=0) yayınlanır —
+                        // JSON şemasında kaynak alanı yok, audio örnekleri (1Hz)
+                        // istemcilere sahte fps/kbps olarak karışıyordu.
+                        if sample.source_id == 0 {
                             json_buf.clear();
                             use std::fmt::Write as _;
                             let _ = write!(json_buf,
@@ -1707,6 +1726,41 @@ mod tests {
         assert!(
             events.iter().any(|e| matches!(e, MediaEvent::FrameDropped { count: 7 })),
             "frame_drops > 0 iken FrameDropped yayılmalı"
+        );
+    }
+
+    // --- V10/L2: audio örnekleri event türetimine karışmamalı ---
+
+    #[test]
+    fn audio_sample_emits_no_media_events() {
+        // V10/L2: ses metrik örneği (source_id=1, 1Hz) frame_drop_pct=0 taşır;
+        // ayrımsız türetim videonun gerçek drop sinyalini sıfırlayıp sahte
+        // frame_drop_recovery tetikliyordu. Ses glitch sayacı (frame_drops)
+        // da video FrameDropped trendine karışmamalı.
+        let mut s = sample_for_events();
+        s.source_id = 1;
+        s.frame_drops = 7;
+        s.frame_drop_pct = 0;
+        let events = media_events_for_sample(&s);
+        assert!(
+            events.is_empty(),
+            "audio örneğinden media event yayılmamalı: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn audio_sample_emits_no_system_events() {
+        // V10/L2-EK: audio örneğinde cpu_load_pct=0 → koşulsuz CpuUsage,
+        // sahte CpuUsage{0} enjekte ediyordu (MemUsage'ın >0 guard'ı ile
+        // asimetri). Sistem event türetimi de source_id==0'a sınırlı.
+        let mut s = sample_for_events();
+        s.source_id = 1;
+        let events = system_events_for_sample(&s);
+        assert!(
+            events.is_empty(),
+            "audio örneğinden system event yayılmamalı: {:?}",
+            events
         );
     }
 
