@@ -69,13 +69,13 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 
 | # | Madde | Doğrulama | Sprint | Durum |
 |---|---|---|---|---|
-| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | Faz 0 bekliyor |
-| L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | Faz 0 bekliyor |
-| L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | Faz 0 bekliyor |
-| L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | Faz 0 bekliyor |
-| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | Faz 0 bekliyor |
-| L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | Faz 0 bekliyor |
-| L7 | Shutdown-flush sırasında MF lazy-init SEH ihlali | 🔵 1/4 (Fable) | 1 | Faz 0 bekliyor |
+| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | ✅ Faz 0 DOĞRULANDI (a,b,c,d — c rapordan geniş) |
+| L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | ✅ Faz 0 DOĞRULANDI (+CpuUsage{0} ve WS broadcast kirliliği) |
+| L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | ✅ Faz 0 DOĞRULANDI |
+| L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | ✅ Faz 0 DOĞRULANDI |
+| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ Faz 0 DOĞRULANDI — initPipeline ölü kod (0 çağıran) |
+| L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | ✅ Faz 0 DOĞRULANDI |
+| L7 | Shutdown-flush sırasında MF lazy-init SEH ihlali | 🔵 1/4 (Fable) | 1 | ❌ ÇÜRÜTÜLDÜ — on_packet streaming guard'ı drain'i keser |
 | L8 | Zig ABI üst-sınır eksikliği + writeFlvTag sessiz kırpma | 🔵 1/4 (tavan) / 🟢 3/4 (kırpma) | 2 | Faz 0 bekliyor |
 | L9 | MFT CAN_PROVIDE_SAMPLES yanlış yorumu + hata-yolu pSample sızıntısı | 🔵 1/4 (Fable) | 2 | Faz 0 bekliyor |
 | L10 | Kanal-uyumsuzluğunda sessiz bozuk encode | 🔵 1/4 (Opus) | 2 | Faz 0 bekliyor |
@@ -112,6 +112,16 @@ model aynı bölgeyi işaret etti (son üç GUI bug'ının tam bölgesi).
 **Önerilen düzeltme:** QSaveFile/geçici-ad + atomik rename deseni;
 backup başarısızsa asıl dosyaya dokunma; copy-fail'de backup restore +
 motor reload; hata mesajını gerçek duruma uydur.
+**Faz 0 (2026-07-21): ✅ DOĞRULANDI — dört alt-madde de kodda mevcut.**
+(a) `main_window.cpp:1020-1021` copy dönüşü kontrolsüz.
+(b) `:1028-1031` remove+copy başarısızsa restore yok, rules.json diskte yok.
+(c) `validateRulesFile:1004` doğrulamayı `rj_reload_rules(tmpPath)` ile
+yapıyor → CANLI motora temp-dosya kuralları yüklenir (yan etki). Rapordan
+GENİŞ: yalnız hata yolunda değil — exportRules dahil HER doğrulama motoru
+temp dosyaya çevirir; başarı yolunda ikinci reload (gerçek path) düzeltir
+ama hata yolunda motor temp kurallarında kalır ve engine.file_path silinmiş
+QTemporaryFile'ı gösterir. (d) `exportRules:955-961` remove-sonra-copy,
+kopya başarısızsa eski yedek geri dönüşsüz gitmiş.
 
 ### L2 — Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu 🟡 2/4
 **Kaynak:** Opus 4.8 + Kimi K3
@@ -126,6 +136,16 @@ zaten biliyor (asimetri kanıtı); audio frame_drops'un (ses
 glitch'leri) video FrameDropped trendine karışması ikincil sorun.
 **Önerilen düzeltme:** Drainer'da media event üretimini source_id==0'a
 (video) sınırla.
+**Faz 0 (2026-07-21): ✅ DOĞRULANDI + rapordan geniş.**
+`wasapi_capture.cpp:574-585` audio örneği `RjMetricSample s{}` (sıfır-init,
+frame_drop_pct=0, cpu_load_pct=0) + source_id=1 push eder;
+`ffi.rs:421-432 media_events_for_sample` ve `:501` drainer çağrısı
+source_id ayrımı yapmaz → FrameDropPct{0} 1Hz enjeksiyonu doğru. EK-1:
+`system_events_for_sample:386` CpuUsage'ı KOŞULSUZ yayar → audio örnekleri
+CpuUsage{0} da enjekte eder (aynı sınıf, raporlarda yok). EK-2: drainer WS
+JSON broadcast'i (`:483-490`) audio örneklerini ayrımsız yayınlar → WS
+istemcilerine 1Hz sahte fps/kbps karışır. MemUsage >0 guard asimetrisi
+(Kimi) doğru.
 
 ### L3 — Kalibrasyon hot-reload'da sessizce kayboluyor 🔵 1/4 (Kimi — kod-kanıtlı)
 **Konum:** `src/orchestrator/src/ffi.rs` (`rj_reload_rules`),
@@ -138,6 +158,13 @@ kurallar statik eşiklere döner, `[kalibre]` etiketi kaybolur,
 kullanıcıya hiçbir sinyal yok.
 **Önerilen düzeltme:** Kalibrasyon tablosunu engine dışında yaşat veya
 engine değişiminde HealingMonitor yeniden uygulasın.
+**Faz 0 (2026-07-21): ✅ DOĞRULANDI.** `rules.rs:352` RuleEngine::new boş
+CalibrationTable kurar; `ffi.rs:1367-1375` rj_reload_rules engine'i
+komple değiştirir (tablo taşınmaz); `healing.rs:444-453` calibration_done
+guard'ı finalize'ı tek seferlik yapar (test: calibration_finalizes_only_once)
+→ herhangi bir reload sonrası kalibrasyon kalıcı kaybolur, sinyal yok.
+L1(c) ile etkileşim: her import/export doğrulaması da engine'i değiştirdiği
+için kayıp penceresi rapordakinden bile geniş.
 
 ### L4 — Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor 🔵 1/4 (Kimi)
 **Konum:** `src/ui/main_window.cpp` / `src/ui/rules_watch.h` — `armRulesWatch`
@@ -149,6 +176,14 @@ düzenlemeler sessizce hot-reload olur. `armRulesWatch` içinde
 `isAutoReloadEnabled` kontrolü yok. Bizim 449c084 düzeltmemizin
 (yeniden-silahlandırma ekleyen) etkileşim alanı.
 **Önerilen düzeltme:** `armRulesWatch` girişine enabled kontrolü.
+**Faz 0 (2026-07-21): ✅ DOĞRULANDI.** `armRulesWatch` (main_window.cpp:863)
+yalnız `rules_watcher_` null kontrolü yapar, enabled kontrolü yok.
+Gate'siz çağıranlar: `reloadRulesNow:902` (koşulsuz) ve
+`writeValidatedRules:1037-1039` (tam da watcher İNAKTİFKEN çalışan dal).
+`onAutoReloadToggled(false):873-882` path'leri siler ama watcher nesnesi
+yaşar → toggle aç-kapat + import senaryosunda path'ler geri eklenir,
+`onRulesPathChanged:896` debounce'u yeniden başlatır → checkbox kapalıyken
+sessiz hot-reload. Tek gate'li çağıran: `:825-828` (doğru desen).
 
 ### L5 — Çift init yolu: profil önerisi hiç tetiklenmiyor 🔵 1/4 (Fable) + CANLI KANIT
 **Konum:** `src/ui/main_window.cpp` — ctor vs `initPipeline()`
@@ -165,6 +200,14 @@ Faz 0 kod izini doğrulamakla sınırlı; doğrudan düzeltme tasarımına
 geçilebilir.
 **Önerilen düzeltme:** Tek init yoluna birleştirme + frame-thread yan
 etkisinin iki yolda da tutarlı olması.
+**Faz 0 (2026-07-21): ✅ DOĞRULANDI — rapordan da kesin.**
+`initPipeline`'ın repo genelinde SIFIR çağıranı var (yalnız tanımlar:
+main_window.cpp:292 Qt6, :1288 stub, header bildirimi) → ölü kod. Gerçek
+akış ctor'un doğrudan `pipeline_->init(pcfg)` yolu (:172), singleShot
+yok → `maybeSuggestProfileOnFirstRun` HİÇBİR akışta tetiklenmiyor.
+Kullanıcının "diyaloğu hiç görmedim" canlı kanıtıyla birebir uyumlu.
+Frame thread yalnız ctor'da (:251-261) başlar; iki tanım #if QT6_AVAILABLE
+dallarında (çakışma değil).
 
 ### L6 — ASC kaybı yarışı: kalıcı sessiz ses ölümü 🔵 1/4 (Fable — dar pencere, kalıcı etki)
 **Konum:** `src/pipeline/audio/audio_encode_bridge.cpp`
@@ -177,6 +220,14 @@ ASC kaybolur, `encoder_ready_=true` kaldığından bir daha denenmez →
 frame'lerini kalıcı reddeder. Yeniden start_stream'de ses ölü kalır.
 **Önerilen düzeltme:** Dönüşü sakla, başarısızsa sonraki drain'de
 yeniden dene (asc_sent_ bayrağı).
+**Faz 0 (2026-07-21): ✅ DOĞRULANDI.**
+`audio_encode_bridge.cpp:55` `(void)out_->set_audio_config(...)` +
+`:56` koşulsuz `encoder_ready_=true`; `output_subsystem.cpp:101-104`
+transport_atomic_ null'sa false döner (stop_stream `set_streaming(false)`
+ile null'lar); `rtmp_transport.zig:390` `t.asc orelse return false` —
+ASC'siz TÜM ses frame'leri reddedilir. encoder_ready_ yalnız bridge
+shutdown'ında sıfırlanır → stop/start döngüsünde ASC bir daha denenmez.
+Yarış penceresi dar (ilk drain × stop_stream) ama etki kalıcı — iddia doğru.
 
 ### L7 — Shutdown-flush sırasında MF lazy-init SEH ihlali 🔵 1/4 (Fable)
 **Konum:** `src/pipeline/pipeline.cpp` (`seh_shutdown_subsystems`),
@@ -190,6 +241,16 @@ disiplini kural 4 ihlali). `audio_bridge_.shutdown()` flush'tan SONRA
 **Önerilen düzeltme:** `enabled_=false` store'unu (veya bridge
 shutdown'ı) seh_shutdown_subsystems'ten ÖNCE al; drain'e "shutdown
 başladı" kontrolü.
+**Faz 0 (2026-07-21): ❌ ÇÜRÜTÜLDÜ.** İddia edilen zincir
+(`enc->flush()` → on_packet → `audio_bridge_.drain()`) shutdown'da
+kopuk: `pipeline.cpp:750` `streaming=false` store'u `seh_shutdown_subsystems`
+çağrısından (:767) ÖNCE gelir ve on_packet `:297`'de
+`if (!self->streaming.load(...)) return;` guard'ı drain'e (:305)
+ulaşmadan erken döner → __try scope'unda MF lazy-init tetiklenemez.
+Fable'ın "enabled_ hâlâ true" gözlemi doğru ama etkisiz — drain hiç
+çağrılmaz. Latent not: guard kaldırılırsa tuzak geri gelir; on_packet'teki
+guard'ın shutdown-sırası sözleşmesi kod yorumuyla belgelenebilir
+(düzeltme yok, hijyen adayı).
 
 ---
 
