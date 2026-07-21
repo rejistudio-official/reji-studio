@@ -411,11 +411,25 @@ if(Qt6_FOUND)
 
     add_test(NAME RulesWatchTest COMMAND test_rules_watch)
 
+    # ── V10/L1-ek: qrc kaynak kaydı regresyon kilidi (ACIL_L1_QRC_REGRESYON) ──
+    # reji_ui.lib'i uygulamayla AYNI şekilde (statik lib) link'ler — qrc
+    # nesnesinin linker tarafından atılması ancak bu link biçiminde ürer;
+    # qrc'yi test exe'sine gömmek bug'ı temsil ETMEZDİ (test boşluğu buydu).
+    add_executable(test_qrc_resources
+        test_qrc_resources.cpp
+    )
+    target_link_libraries(test_qrc_resources
+        gtest    # özel main() (QCoreApplication kurar) — gtest_main değil
+        reji_ui
+        Qt6::Core
+    )
+    add_test(NAME QrcResourcesTest COMMAND test_qrc_resources)
+
     # Qt6Core.dll çalışma zamanında gerekir — Qt bin'ini ctest PATH'ine ekle
     # (diğer testlerdeki build/src/ui deseniyle aynı; DLL_NOT_FOUND'u önler).
     get_target_property(_qt_core_loc Qt6::Core LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
-    set_tests_properties(RulesWatchTest PROPERTIES
+    set_tests_properties(RulesWatchTest QrcResourcesTest PROPERTIES
         ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
 else()
     message(STATUS "Qt6::Core bulunamadı — RulesWatchTest atlanıyor")

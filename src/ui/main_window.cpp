@@ -12,6 +12,7 @@
 #include "settings_dialog.h"
 #include "profile_advisor.h"   // reji::ProfileId, preset_for, profile_resource_name
 #include "rules_watch.h"        // reji::ui::armRulesWatchOn (kuruluş-sırası seam'i)
+#include "resource_init.h"      // reji::ui::ensureResourcesRegistered (qrc kaydı)
 #include "../pipeline/gpu/vulkan_initializer.h"
 
 #include <vector>
@@ -72,6 +73,9 @@ QString vendorName(uint32_t vendor_id) {
 // Construction / destruction
 // ---------------------------------------------------------------------------
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+    // V10/L1-ek: qrc kaydını her şeyden önce zorla — seedRulesFromTemplate,
+    // applyProfile ve validateRulesFile ":/config/..." kaynaklarını okur.
+    reji::ui::ensureResourcesRegistered();
     setWindowTitle("Reji Studio");
     setMinimumSize(1280, 720);
 
