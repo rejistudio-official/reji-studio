@@ -70,6 +70,10 @@ bool AacEncoder::init(const Config& cfg, OutputCallback cb, void* user_data) {
     MFT_OUTPUT_STREAM_INFO osi{};
     hr = mft_->GetOutputStreamInfo(output_stream_id_, &osi);
     if (FAILED(hr)) { shutdown(); return false; }
+    // V10/L9 Faz 0 (çürütüldü): iki bayrağı birlikte "MFT sağlar" saymak spec'e
+    // uygun — CAN_PROVIDE_SAMPLES'ta pSample=NULL geçerlidir: "If pSample is
+    // NULL, the MFT will allocate the media sample" (IMFTransform::ProcessOutput,
+    // Output Buffers). Caller-buffer zorunluluğu iddiası dokümanla çelişir.
     output_provides_samples_ =
         (osi.dwFlags & (MFT_OUTPUT_STREAM_PROVIDES_SAMPLES |
                         MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES)) != 0;
@@ -171,10 +175,15 @@ bool AacEncoder::drain_outputs() {
         HRESULT hr = mft_->ProcessOutput(0, 1, &out, &status);
 
         if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
+            // V10/L9: spec'e uyan MFT bu yolda pSample set etmez (NO_SAMPLE →
+            // NULL kalır); savunmacı release — uymayan MFT'de sızıntıyı keser.
+            // Caller-tahsisli durumda sahiplik out_sample ComPtr'ında, dokunulmaz.
+            if (output_provides_samples_ && out.pSample) out.pSample->Release();
             if (out.pEvents) out.pEvents->Release();
             return true;   // arabellek bosaldi, daha fazla girdi lazim
         }
         if (FAILED(hr)) {
+            if (output_provides_samples_ && out.pSample) out.pSample->Release();
             if (out.pEvents) out.pEvents->Release();
             return false;
         }
