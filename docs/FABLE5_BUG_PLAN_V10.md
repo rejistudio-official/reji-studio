@@ -388,6 +388,28 @@ kesinleşmez" diye işaretledi.)
       HealingOverlayTest 2/2 (geometri kilitleri), Characterization 1/1,
       OutputSubsystem 7/7. Kullanıcı: boşta VE yayında gözlem gerekli.
       "Sprint 2'ye ertelendi" kararı geri alındı — kapsam bu turda kapandı.
+- [x] S1-ek4 (13be1ab, `docs/BITRATE_STATE_SENKRON.md`): 7665cb0 sonrası kutu
+      START'sız belirdi. Faz 0: kullanıcı hipotezi (3500 = kalıcı ayar,
+      current/original farklı kaynaklar) ÇÜRÜTÜLDÜ (registry bitrate=6000;
+      rj_update_bitrate_state iki atomiği daima birlikte yazar, tek yazar).
+      Kök neden: null capture frame ("yeni kare yok" — durağan ekranda normal)
+      run_frame'de frame_drops sayılıyordu → boşta FrameDropped event'leri
+      predictive katmanı besliyor → ReduceBitrate(3500) encoder'a GERÇEKTEN
+      uygulanıyor (status bar "3500"ün kaynağı) → (3500,6000) gerçek açık →
+      frame_drop_recovery (ölü frame_drop_pct=0 → koşul hep doğru) her 6s'de
+      BitrateRecover + banner. Eski baseline_metrics.txt bunu canlı kaydetmişti
+      (boşta drops=1/örnek, ~60. frame'de 6000→3500). Düzeltme:
+      frame_drop_policy.h saf seam — yalnız EncodeFailed drop sayılır;
+      NoNewFrame sayılmaz. FrameDropPolicyTest 3/3 (RED-GREEN), ctest 22/24
+      (bilinen 2), yeni baseline boşta drops=0 / 6000 sabit (davranış bilinçli
+      değişti → baseline bu kez commit'e SOKULDU). Kullanıcı: 3 senaryo gözlemi
+      gerekli (boşta / yayında / gerçek düşüşte recovery). SONRAKİ SPRİNT:
+      (a) frame_drop_pct ölü metrik (record_frame/record_frame_drop çağrılmıyor
+      — reduce kuralları hiç, recovery daima tetiklenir), (b) healing
+      aktüasyonunda yayın-durumu kapısı yok, (c) DERS — dört ardışık
+      merge-öncesi bulgunun ortak paydası: mutlu-yol testleri "uygulama açık
+      ama yayın yok" başlangıç durumunu hiç kapsamıyor; boşta-durum testleri
+      sprint planına ayrı kalem olarak girmeli.
 - [x] S1-ek2 (6c6fce1, `docs/SIYAH_KUTU_REGRESYON.md`): boşta her ~6s'de
       sahne paneli üstünde beliren kutu. ~5s timer YOK, L5 ile İLGİSİZ;
       periyot = hysteresis_ms 6000. Zincir: eski ~/.reji/rules.json mode
