@@ -90,6 +90,11 @@ void OutputSubsystem::set_streaming(bool active) noexcept {
 bool OutputSubsystem::send(const uint8_t* data, size_t size, int64_t pts) noexcept {
     auto* out = transport_atomic_.load(std::memory_order_acquire);
     if (!out) return true;   // aktif çıkış yok — drop sayılmaz
+    // V10/L21: bağlantı yok — drop sayılmaz. Bağlantı-yokluğu tıkanıklık
+    // değildir; sayılırsa FrameDropped seli predictive ReduceBitrate'i
+    // tetikler (yanlış tedavi). Kopuş bildirimi SRT worker'ın işi
+    // (notify_connection_lost → SourceDisconnected fallback yolu).
+    if (!out->is_connected()) return true;
 #ifdef _WIN32
     SrtSendArgs args{out, data, size, pts};
     return seh_srt_send(&args) == 0;

@@ -375,8 +375,12 @@ struct SrtOutput::Impl {
                         if (!shutting_down.load(std::memory_order_acquire))
                             notify_connection_lost("srt_client_disconnected");
                     } else {
-                        connected.store(false, std::memory_order_release);
-                        notify_connection_lost("srt_epoll_error");
+                        // V10/L21: hiç bağlanamamış caller soketinde neden ayrışır —
+                        // "bağlantı kurulamadı" ile "kurulu bağlantı koptu" teşhisi
+                        // loglardan doğrudan okunabilsin.
+                        bool was = connected.exchange(false, std::memory_order_acq_rel);
+                        notify_connection_lost(was ? "srt_epoll_error"
+                                                   : "srt_connect_failed");
                     }
                 } else if ((e & SRT_EPOLL_IN) && !cfg.caller_mode) {
                     // Yeni bağlantı: listen soketi (sock) üzerinden accept et.
