@@ -23,6 +23,7 @@
 #include "include/metrics_subsystem.h"
 #include "include/command_router.h"
 #include "include/bitrate_policy.h"
+#include "include/frame_drop_policy.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
 #ifndef REJI_VULKAN_MOCK
@@ -663,7 +664,8 @@ bool Pipeline::run_frame() {
             // encode_frame(): encoder yoksa true (no-op) — eski `s.encoder && ...`
             // koşuluyla aynı: yalnızca gerçek encode hatasında drop + TDR recovery.
             if (!s.encode_sub_.encode_frame(tex, pts_us)) {
-                s.frame_drops.fetch_add(1, std::memory_order_relaxed);
+                if (counts_as_frame_drop(FrameOutcome::EncodeFailed))
+                    s.frame_drops.fetch_add(1, std::memory_order_relaxed);
                 // 3) GPU TDR check  outside __try, free to use C++ objects
                 (void)RecoveryCoordinator::handle_device_lost(
                     s.capture_sub_, s.encode_sub_, s.cfg,
@@ -717,7 +719,11 @@ bool Pipeline::run_frame() {
             }
 
         } else {
-            s.frame_drops.fetch_add(1, std::memory_order_relaxed);
+            // S1-ek4: null frame ("yeni kare yok") drop DEĞİL — sayaç artmaz
+            // (frame_drop_policy.h). Boşta bu sayaç predictive healing'i sahte
+            // besleyip START'sız recovery banner döngüsü üretiyordu.
+            if (counts_as_frame_drop(FrameOutcome::NoNewFrame))
+                s.frame_drops.fetch_add(1, std::memory_order_relaxed);
             // Null-streak sayacı CaptureSubsystem'de; eşiğe (60) ulaşınca true döner.
             // Gerçek reinit RecoveryCoordinator'a delege edilir (cross-subsystem).
             if (s.capture_sub_.handle_null_frame()) {

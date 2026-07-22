@@ -221,6 +221,25 @@ target_link_libraries(test_bitrate_policy
 
 add_test(NAME BitratePolicyTest COMMAND test_bitrate_policy)
 
+# ── SIYAH_KUTU S1-ek4: frame-drop sayacı semantiği saf testi ──
+# frame_drop_policy.h header-only (yalnız <cstdint>) — reji_pipeline/Rust link
+# gerekmez, sadece gtest. "Null frame (yeni kare yok) drop DEĞİLDİR" kararını
+# kilitler; boşta predictive healing'in sahte beslenmesini (3500 düşürme →
+# recovery banner döngüsü) yeniden girmekten korur.
+add_executable(test_frame_drop_policy
+    test_frame_drop_policy.cpp
+)
+
+target_include_directories(test_frame_drop_policy PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include
+)
+
+target_link_libraries(test_frame_drop_policy
+    gtest gtest_main
+)
+
+add_test(NAME FrameDropPolicyTest COMMAND test_frame_drop_policy)
+
 # ── ISource/ExistingDesktopSource: saf çekirdek testi ──
 # desktop_source_logic.h header-only (yalnız i_source.h + i_screen_capture.h,
 # D3D11/GPU yok) — reji_pipeline/Rust link gerekmez, sadece gtest. CapturedFrame→
