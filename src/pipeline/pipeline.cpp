@@ -316,11 +316,16 @@ struct Pipeline::Impl {
     }
 
     // Ses Ayarları: WASAPI capture callback'i (capture supervisor thread) — yalnız
-    // ring'e push eder (encode/gönderme YOK). user_data = &audio_bridge_.
+    // ring'e push eder (encode/gönderme YOK). user_data = Impl* (V10/L12: pacer
+    // origin'ine erişim gerekir; origin_us init'te sabitlenir, salt-okunur).
     static void on_audio_capture(const float* samples, uint32_t frames, uint32_t channels,
                                  uint32_t sample_rate, int64_t pts_us, void* ud) noexcept {
-        static_cast<reji::pipeline::audio::AudioEncodeBridge*>(ud)->push(
-            samples, frames, channels, sample_rate, pts_us);
+        auto* self = static_cast<Impl*>(ud);
+        // V10/L12: WASAPI pts'i QPC-mutlak, video pts'i pacer-origin'e göreli —
+        // muxer tek epoch paylaştığından ses pts'i aynı tabana indirilir.
+        const int64_t rebased = reji::pipeline::audio::rebase_audio_pts(
+            pts_us, self->pacer_.origin_us());
+        self->audio_bridge_.push(samples, frames, channels, sample_rate, rebased);
     }
 
     // GPU TDR / capture-loss recovery Aşama 9'da RecoveryCoordinator'a taşındı.
@@ -504,7 +509,9 @@ bool Pipeline::init(const Config& cfg_in) {
         acfg.buffer_ms      = 50;
         acfg.loopback       = cfg_in.loopback;
         acfg.device_id      = cfg_in.audio_device_id;  // wchar_t[] → std::wstring (boş = varsayılan)
-        if (!s.audio_sub_.init(acfg, &Impl::on_audio_capture, &s.audio_bridge_)) {
+        // V10/L12: user_data = Impl (bridge değil) — on_audio_capture pacer
+        // origin'iyle pts'i rebase edip bridge'e iletir.
+        if (!s.audio_sub_.init(acfg, &Impl::on_audio_capture, &s)) {
             dbglog("[Pipeline] WasapiCapture::init failed  audio disabled");
         }
     } else if (cfg_in.audio_enabled) {
