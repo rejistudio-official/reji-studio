@@ -12,6 +12,8 @@
 
 #include <atomic>
 #include <array>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <thread>
@@ -32,6 +34,21 @@ constexpr int kSendTimeoutMs   = 50;
 constexpr int kMsgTtlMs        = 100;
 constexpr int kMaxPayloadBytes = 1456;
 constexpr int kPayloadSize     = 1316;
+
+// V10/L23: bağlantı durum-geçişi logları — pipeline.cpp::dbglog ile aynı desen
+// (OutputDebugStringA + stderr → run.log). Yalnız geçiş anlarında çağrılır;
+// hot-path send_internal'ın başarı yoluna log konmaz.
+inline void srtlog(const char* fmt, ...) noexcept {
+    char buf[256];
+    constexpr char kPrefix[] = "[rj_srt] ";
+    constexpr size_t kPrefixLen = sizeof(kPrefix) - 1;
+    memcpy(buf, kPrefix, kPrefixLen);
+    va_list ap; va_start(ap, fmt);
+    _vsnprintf_s(buf + kPrefixLen, sizeof(buf) - kPrefixLen, _TRUNCATE, fmt, ap);
+    va_end(ap);
+    OutputDebugStringA(buf); OutputDebugStringA("\n");
+    fprintf(stderr, "%s\n", buf); fflush(stderr);
+}
 
 // ============================================================================
 // SRT global yaşam döngüsü (process-scope, instance counted)
@@ -260,11 +277,13 @@ struct SrtOutput::Impl {
         }
 
         if (cfg.caller_mode) {
+            srtlog("connecting to %s:%u (caller mode)", cfg.host, (unsigned)cfg.port);
             int rv = srt_connect(sock, reinterpret_cast<sockaddr*>(&sa), sizeof sa);
             if (rv == SRT_ERROR) {
                 int err = srt_getlasterror(nullptr);
                 if (err != SRT_EASYNCSND && err != SRT_EASYNCRCV &&
                     err != SRT_EASYNCFAIL) {
+                    srtlog("srt_connect failed immediately, err=%d", err);
                     seh_safe_close(sock);
                     sock = SRT_INVALID_SOCK;
                     return false;
@@ -273,10 +292,13 @@ struct SrtOutput::Impl {
         } else {
             if (srt_bind(sock, reinterpret_cast<sockaddr*>(&sa), sizeof sa) == SRT_ERROR ||
                 srt_listen(sock, 1) == SRT_ERROR) {
+                srtlog("srt_bind/listen failed on %s:%u, err=%d",
+                       cfg.host, (unsigned)cfg.port, srt_getlasterror(nullptr));
                 seh_safe_close(sock);
                 sock = SRT_INVALID_SOCK;
                 return false;
             }
+            srtlog("listening on %s:%u (listener mode)", cfg.host, (unsigned)cfg.port);
         }
 
         epoll_id = srt_epoll_create();
@@ -309,6 +331,7 @@ struct SrtOutput::Impl {
         bool expected = false;
         if (notified_lost.compare_exchange_strong(expected, true,
                                                   std::memory_order_acq_rel)) {
+            srtlog("connection lost: %s", reason);
             // V8/I18 deseni: doğrudan ::rj_connection_lost yerine sink (OutputSubsystem
             // passthrough). init non-null garantiledi. Davranış birebir.
             cfg.on_connection_lost(reason, cfg.sink_user_data);
@@ -326,6 +349,7 @@ struct SrtOutput::Impl {
         bool           was   = connected.exchange(now_c, std::memory_order_acq_rel);
 
         if (now_c) {
+            if (!was) srtlog("connected (caller=%d)", cfg.caller_mode ? 1 : 0);
             notified_lost.store(false, std::memory_order_release);
         } else if (was && !shutting_down.load(std::memory_order_acquire)) {
             notify_connection_lost("srt_socket_disconnected");
@@ -370,8 +394,9 @@ struct SrtOutput::Impl {
                         srt_epoll_add_usock(epoll_id, client, &oev);
                         connected.store(true, std::memory_order_release);
                         notified_lost.store(false, std::memory_order_release);
+                        srtlog("client accepted (listener mode)");
                     } else {
-                        OutputDebugStringA("[rj_srt] srt_accept failed, retaining listen socket\n");
+                        srtlog("srt_accept failed, retaining listen socket");
                     }
                 } else if (e & (SRT_EPOLL_OUT | SRT_EPOLL_CONNECT)) {
                     update_state_from_socket();
