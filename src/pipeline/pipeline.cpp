@@ -861,7 +861,9 @@ bool Pipeline::apply_action(const RjAction& action) {
     switch (action.action_type) {
         case RJ_ACTION_BITRATE_REDUCE: {
             uint32_t current    = impl_->bitrate_kbps.load(std::memory_order_relaxed);
-            uint32_t new_bitrate = static_cast<uint32_t>(current * 0.85f);
+            // V10/L11: param1 = profil step_kbps (HP2 sözleşmesi) — artık
+            // kullanılıyor; param1<=0 eski %15 fallback (bitrate_policy.h).
+            uint32_t new_bitrate = rj::reduce_step_bitrate(current, action.param1);
             new_bitrate = (std::max)(new_bitrate, impl_->cfg.min_bitrate_kbps);
             impl_->command_router_.push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_bitrate)});
             return true;
@@ -870,8 +872,9 @@ bool Pipeline::apply_action(const RjAction& action) {
             uint32_t target  = impl_->cfg.original_bitrate_kbps;
             uint32_t current = impl_->bitrate_kbps.load(std::memory_order_relaxed);
             if (current < target) {
+                // V10/L11: REDUCE ile simetrik — recovery kuralı da step taşır.
                 uint32_t new_bitrate = (std::min)(
-                    static_cast<uint32_t>(current * 1.15f),
+                    rj::recover_step_bitrate(current, action.param1),
                     target
                 );
                 impl_->command_router_.push_frame_cmd({RJ_ACTION_BITRATE_RECOVER, static_cast<int32_t>(new_bitrate)});
