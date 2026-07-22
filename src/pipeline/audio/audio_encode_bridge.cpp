@@ -1,5 +1,6 @@
 // src/pipeline/audio/audio_encode_bridge.cpp
 #include "audio_encode_bridge.h"
+#include "format_gate.h"        // V10/L10: format_matches (kanal/sr uyuşmazlık kapısı)
 #include "output_subsystem.h"   // rj::OutputSubsystem::send_audio/set_audio_config
 
 #ifdef _WIN32
@@ -74,8 +75,19 @@ void AudioEncodeBridge::drain(int64_t video_pts_us) noexcept {
     if (asc_retry_needed(encoder_ready_, asc_sent_)) send_asc_if_ready();
 
     // Ring'i boşalt: her PCM chunk'ı AAC'ye kodla (on_aac → send_audio).
-    while (ring_.consume([&](const float* s, uint32_t frames, uint32_t /*ch*/,
-                            uint32_t /*sr*/, int64_t pts) {
+    // V10/L10: chunk formatı configure edilenle uyuşmuyorsa encode edilmez ve
+    // ses yolu güvenli kapatılır (format_gate.h) — encoder sabit format
+    // varsayımıyla interleave çözer, uyuşmazlık sessiz bozuk AAC üretirdi.
+    while (ring_.consume([&](const float* s, uint32_t frames, uint32_t ch,
+                            uint32_t sr, int64_t pts) {
+        if (!format_matches(ch, sr, channels_, sample_rate_)) {
+            if (!format_mismatch_logged_) {
+                format_mismatch_logged_ = true;
+                dlog("[AudioEncodeBridge] format uyusmazligi (cihaz != konfig) — ses guvenli kapatildi, video surer\n");
+            }
+            enabled_.store(false, std::memory_order_release);
+            return;
+        }
         (void)encoder_.encode(s, frames, pts);
     })) {}
 

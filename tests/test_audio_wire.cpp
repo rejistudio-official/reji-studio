@@ -3,6 +3,7 @@
 // reji_pipeline/Rust/Media Foundation link gerekmez, sadece gtest.
 #include <gtest/gtest.h>
 #include "asc_state.h"
+#include "format_gate.h"
 #include "flv_audio_tag.h"
 #include "pcm_convert.h"
 
@@ -64,4 +65,20 @@ TEST(AscStateTest, RetryWhenReadyButNotSent) {
 }
 TEST(AscStateTest, NoRetryAfterAscSent) {
     EXPECT_FALSE(asc_retry_needed(/*encoder_ready=*/true, /*asc_sent=*/true));
+}
+
+// V10/L10: format kapisi — chunk'in gercek (channels, sample_rate) degerleri
+// configure edilenle uyusmuyorsa encode edilmez, ses yolu guvenli kapatilir
+// (eski davranis: ch/sr yok sayilip sabit formatla sessiz bozuk AAC uretimi).
+using reji::pipeline::audio::format_matches;
+
+TEST(FormatGateTest, MatchingFormatPasses) {
+    EXPECT_TRUE(format_matches(/*ch=*/2, /*sr=*/48000, /*cfg_ch=*/2, /*cfg_sr=*/48000));
+}
+TEST(FormatGateTest, ChannelMismatchRejected) {
+    EXPECT_FALSE(format_matches(/*ch=*/1, /*sr=*/48000, /*cfg_ch=*/2, /*cfg_sr=*/48000))
+        << "mono cihaz 2ch varsayimiyla encode edilirse interleave bozulur";
+}
+TEST(FormatGateTest, SampleRateMismatchRejected) {
+    EXPECT_FALSE(format_matches(/*ch=*/2, /*sr=*/44100, /*cfg_ch=*/2, /*cfg_sr=*/48000));
 }
