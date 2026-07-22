@@ -1,7 +1,8 @@
 # FABLE5_BUG_PLAN_V10.md — Reji Studio Dördüncü Nesil Bug Planı (V9-Sonrası Yeni Kod)
 
-**Durum:** 🟠 SENTEZ İŞLENDİ — dört model taraması tamamlandı, L1-L20
-atandı. Faz 0 doğrulamaları Sprint 1'den başlıyor.
+**Durum:** 🟠 SPRINT 1 KAPANDI (merge edildi) — dört model taraması
+tamamlandı, L1-L20 atandı; L21-L23 canlı Faz 0 teşhisinden Sprint 2'ye
+eklendi. Sıradaki: Sprint 2.
 
 **Hazırlayan:** Sentez sohbeti (dört bağımsız model raporunun
 triyajı — `docs/V10_SENTEZ_TRIYAJ.md` kanonik ara belge).
@@ -303,6 +304,50 @@ saatlerce kayar; drift valfi sürekli uyarır ama düzeltmez.
 çürüt, farklıysa düzelt. (Fable raporunun kendisi de "pacer görülmeden
 kesinleşmez" diye işaretledi.)
 
+### L21 — Predictive katman gönderim-hatasını yük sanıyor 🟢 canlı kanıt (Faz 0 reduce-tetikleyici teşhisi)
+**Konum:** `src/orchestrator/src/healing.rs:657-664` (frame-drop trendi),
+`src/pipeline/pipeline.cpp:307-310` (`on_packet` send-fail → drop),
+`src/pipeline/output/srt_output.cpp:390` (`connected=false` → her send false)
+**Açıklama:** START'a basıldığında SRT bağlantısı yoksa (caller-mode
+bağlanamamış, `connected=false`) her encode paketi drop sayılır →
+`FrameDropped` seli → predictive `ReduceBitrate(3500)`. Canlı kanıt
+(`run.log` 22.07 22:28): cpu %14-18, gpu %20-22, drop %0 iken
+"streaming started"dan ~2-3 sn sonra 6000→3500. Bitrate düşürmek
+tıkanıklık tedavisidir, "bağlantı yok"u çözmez; streaming alıcısız
+sürseydi 60 sn cooldown'la salınım üretirdi. S1-ek4 ikincil bulgusu
+(b) (healing aktüasyonunda yayın-durumu kapısı yok) bu maddenin
+kapsamına komşu.
+**Önerilen düzeltme:** Gönderim-hatası drop'larını predictive
+trendden ayır; bağlantı-yok/koptu durumunu mevcut
+`notify_connection_lost` → fallback yoluna yönlendir. Kendi Faz
+0/1'ini hak eden orta-büyük mimari iş.
+
+### L22 — frame_drop_pct ölü metrik: kural motoru kör 🟢 canlı kanıt (S1-ek4 ikincil bulgu (a)'nın resmileşmesi)
+**Konum:** `src/pipeline/metrics_collector.cpp:93-101`
+(`record_frame`/`record_frame_drop` — çağıran YOK),
+`docs/config/profiles/*.json` (üç frame_drop kuralı)
+**Açıklama:** `frame_drop_pct` daima 0 → `frame_drop_mild/high`
+reduce kuralları HİÇ tetiklenmez, `frame_drop_recovery` (`< 3`)
+KOŞULSUZ tetiklenir (healing_log.sqlite: 54/54 kayıt
+frame_drop_recovery, current_value=0). S1 turundaki 3500→6000
+iyileşmesi bu koşulsuz kural sayesinde çalıştı — tasarım gereği
+değil, tesadüfen.
+**Faz 0 sorusu:** Metrik diriltilmeli mi (Impl::frame_drops
+zincirinden beslemek bir aday) yoksa üç kural profillerden
+çıkarılmalı mı? İkisi birden olmaz — koşulsuz recovery şu an
+fiili emniyet supabı, kaldırmadan önce recovery'nin gerçek
+tetikleyicisi tanımlanmalı.
+
+### L23 — SRT bağlantı durumu gözlemlenebilirliği 🔵 hijyen (L21 teşhisinin açık bıraktığı nokta)
+**Konum:** `src/pipeline/output/srt_output.cpp` (durum geçişleri
+yalnız `OutputDebugStringA`; `run.log`'a hiçbir şey yazılmıyor)
+**Açıklama:** Faz 0 teşhisinde SRT bağlantı durumu loglardan
+doğrulanamadı — "alıcı yoktu" sonucu eleme yöntemiyle kuruldu.
+connect başarı/başarısızlık ve `connected` geçişleri (kayıp dahil)
+run.log'a yazılırsa bu sınıf teşhisler doğrudan kanıtla kapanır.
+**Önerilen düzeltme:** Bağlantı durum geçişlerinde tek satır dbglog
+(hot-path `send_internal`'a log koyma — yalnız geçiş anları).
+
 ---
 
 ## Sprint 3 — Düşük öncelik / hijyen
@@ -432,5 +477,19 @@ kesinleşmez" diye işaretledi.)
       Test boşluğu kapatıldı: QrcResourcesTest reji_ui'yi uygulamayla aynı
       biçimde link'ler; negatif kontrol canlı hatayı birebir üretti.
       Kullanıcı yeniden denemeli: öneri diyaloğunda "Uygula".
+- [x] Faz 0 reduce-tetikleyici araştırması
+      (`docs/REDUCE_TETIKLEYICI_ARASTIRMA.md`, kod değişikliği YOK):
+      6000→3500 düşüşünün kaynağı kural motoru DEĞİL — predictive katman
+      (hedef 3500 = REDUCED_BITRATE_KBPS imzası), besleyen sinyal START
+      sonrası SRT gönderim-hatası drop'ları (127.0.0.1:9000'de dinleyici
+      yok, `connected=false` → her paket drop). Gerçek CPU/GPU yükü YOKTU
+      (cpu ≤%22, gpu ≤%22, mem %58, drop_pct %0). healing_log.sqlite:
+      hiç reduce kaydı yok (predictive log'a yazmıyor), 4 recovery kaydı
+      4 healing adımıyla birebir. Hibrit-GPU ölçümü bu olayda temiz
+      (PDH engtype_3D max — ama NVENC encode motorunu ölçmüyor, ileri
+      not). S1-ek4 düzeltmesinin boşta-doğrulaması BAŞARILI (boşta
+      drop=0, 6000 sabit). KARAR (kullanıcı): Sprint 1 merge edilir;
+      bulgular L21-L23 olarak Sprint 2'ye — "madem buradayız" tuzağından
+      bilinçli kaçınma.
 - Tamamlanınca `TALIMAT_V10_TARAMA_HAZIRLIK.md` → `docs/talimatlar/`
   arşivine taşınacak.
