@@ -58,7 +58,10 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
-    /// Stores config and calls Pipeline::init(cfg). Returns false on failure.
+    /// TEK pipeline init yolu (V10/L5): config'i saklar, Pipeline::init(cfg)
+    /// çağırır; başarıda GUI wiring + frame thread + ilk-kurulum profil önerisi
+    /// (singleShot). Ctor da burayı kullanır. Yeniden init desteklenmez
+    /// (frame thread varken false döner). Başarısızlıkta false.
     bool initPipeline(const rj::Pipeline::Config& cfg);
 
 public slots:
@@ -139,14 +142,17 @@ private:
     bool seedRulesFromTemplate(const QString& targetPath);
     /// İçe-aktarım + profil uygulama ORTAK çekirdeği (Sütun 3 güvenlik akışı):
     /// `src` (kullanıcı dosyası VEYA gömülü qrc kaynağı) geçici konumda
-    /// rj_reload_rules ile DOĞRULANIR (asıl rules.json'a dokunulmadan) → geçerliyse
-    /// rules.json.backup alınır → rules.json'a yazılır → reload watcher'a/elle
-    /// tetiklenir. Başarıda true; hatada `errMsg` doldurulur. UI/mesajlaşma çağırana
-    /// aittir (import: kullanıcı QMessageBox'ı; profil: otomatik durum satırı).
+    /// rj_validate_rules ile DOĞRULANIR (motora ve rules.json'a dokunulmadan) →
+    /// geçerliyse rules.json.backup alınır (yedek başarısızsa iptal) →
+    /// rules.json'a QSaveFile ile atomik yazılır → reload watcher'a/elle
+    /// tetiklenir. Başarıda true; hatada `errMsg` doldurulur ve motor + disk
+    /// ESKİ hâlinde kalır (V10/L1). UI/mesajlaşma çağırana aittir
+    /// (import: kullanıcı QMessageBox'ı; profil: otomatik durum satırı).
     bool writeValidatedRules(const QString& src, QString& errMsg);
-    /// `src` kural dosyasını geçici kopya üzerinde rj_reload_rules ile doğrular —
-    /// asıl rules.json'a dokunmaz. Yan etki: dosya geçerliyse motorun bellek-içi
-    /// kuralları da bu içerikle güncellenir (hot-reload eşdeğeri, tasarım gereği).
+    /// `src` kural dosyasını geçici kopya üzerinde rj_validate_rules ile
+    /// doğrular — asıl rules.json'a VE canlı motora dokunmaz (V10/L1: eski
+    /// rj_reload_rules yolu her doğrulamada motoru geçici-dosya kurallarına
+    /// çeviriyordu; hata yolunda "eski kurallar korunuyor" mesajı yanlıştı).
     /// Başarıda true; hatada `errMsg` doldurulur. writeValidatedRules'ın 1. adımı
     /// ve exportRules'un kör-kopya koruması ortak kullanır.
     bool validateRulesFile(const QString& src, QString& errMsg);
@@ -166,6 +172,12 @@ private:
     void saveWindowState();
     void loadWindowState();
     void stopFrameThread();
+    // V10/L5: initPipeline'ın parçaları — init-sonrası GUI wiring (preview/
+    // callback bağlantıları) ve frame thread başlatma (idempotent). Ctor
+    // dahil TÜM init'ler initPipeline üzerinden geçer; iki yan etki kümesi
+    // (öneri singleShot'ı vs frame thread) bir daha ayrışamaz.
+    void wireUpPipeline();
+    void startFrameThread();
 
     // ── Video monitors ─────────────────────────────────────────────────────
     reji::PreviewWidget* preview_widget_{nullptr};

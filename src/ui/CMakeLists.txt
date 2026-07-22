@@ -24,6 +24,7 @@ if(Qt6_FOUND)
         shader_cache.cpp
         vulkan_render_path.cpp
         qrhi_window_wrapper.cpp
+        resource_init.cpp    # V10/L1-ek: qrc kaydı (statik-lib linker-drop) — ayrı TU, bkz. resource_init.h
         rules_template.qrc   # AUTORCC — kural şablonunu gömer (Kuralları Düzenle tohumlama)
     )
 

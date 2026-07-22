@@ -23,6 +23,7 @@
 #include "include/metrics_subsystem.h"
 #include "include/command_router.h"
 #include "include/bitrate_policy.h"
+#include "include/frame_drop_policy.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
 #ifndef REJI_VULKAN_MOCK
@@ -228,6 +229,12 @@ struct Pipeline::Impl {
                 if (cmd.param1 > 0) {
                     (void)encode_sub_.set_bitrate(static_cast<uint32_t>(cmd.param1));
                     bitrate_kbps.store(static_cast<uint32_t>(cmd.param1), std::memory_order_relaxed);
+                    // SIYAH_KUTU kök düzeltmesi: konfigüre bitrate durumu Rust
+                    // kural katmanına bildirilir — BitrateRecover yalnız gerçek
+                    // düşüş varken üretilir (bkz. healing.rs recovery_has_deficit).
+                    // bitrate_kbps.store ile AYNI noktada: tüm yollar kapsanır.
+                    ::rj_update_bitrate_state(static_cast<uint32_t>(cmd.param1),
+                                              cfg.original_bitrate_kbps);
                 }
                 break;
             case RJ_ACTION_SCALE_RESOLUTION:
@@ -272,6 +279,9 @@ struct Pipeline::Impl {
                 if (encode_sub_.raw() && c.param_u32 > 0) {
                     (void)encode_sub_.set_bitrate(c.param_u32);
                     bitrate_kbps.store(c.param_u32, std::memory_order_relaxed);
+                    // SIYAH_KUTU: predictive/WS komut yolu da bitrate'i değiştirir —
+                    // Rust durumu store ile aynı noktada senkron tutulur.
+                    ::rj_update_bitrate_state(c.param_u32, cfg.original_bitrate_kbps);
                 }
                 break;
             case RJ_CMD_SCENE_SWITCH: break;  // v0.1 no-op
@@ -368,8 +378,11 @@ bool Pipeline::init(const Config& cfg_in) {
     s.cfg.min_bitrate_kbps         = reduce_floor_for_target(s.cfg.min_bitrate_kbps,
                                                              cfg_in.bitrate_kbps);
     s.bitrate_kbps.store(cfg_in.bitrate_kbps, std::memory_order_relaxed);
+    // SIYAH_KUTU kök düzeltmesi: başlangıç durumu Rust'a bildirilir
+    // (current == original → kurtarılacak düşüş yok, recovery üretilmez).
+    ::rj_update_bitrate_state(cfg_in.bitrate_kbps, cfg_in.bitrate_kbps);
 
-    //  COM 
+    //  COM
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (hr == RPC_E_CHANGED_MODE) {
         dbglog("[Pipeline] COM apartment set by caller  uninit skipped");
@@ -651,7 +664,8 @@ bool Pipeline::run_frame() {
             // encode_frame(): encoder yoksa true (no-op) — eski `s.encoder && ...`
             // koşuluyla aynı: yalnızca gerçek encode hatasında drop + TDR recovery.
             if (!s.encode_sub_.encode_frame(tex, pts_us)) {
-                s.frame_drops.fetch_add(1, std::memory_order_relaxed);
+                if (counts_as_frame_drop(FrameOutcome::EncodeFailed))
+                    s.frame_drops.fetch_add(1, std::memory_order_relaxed);
                 // 3) GPU TDR check  outside __try, free to use C++ objects
                 (void)RecoveryCoordinator::handle_device_lost(
                     s.capture_sub_, s.encode_sub_, s.cfg,
@@ -705,7 +719,11 @@ bool Pipeline::run_frame() {
             }
 
         } else {
-            s.frame_drops.fetch_add(1, std::memory_order_relaxed);
+            // S1-ek4: null frame ("yeni kare yok") drop DEĞİL — sayaç artmaz
+            // (frame_drop_policy.h). Boşta bu sayaç predictive healing'i sahte
+            // besleyip START'sız recovery banner döngüsü üretiyordu.
+            if (counts_as_frame_drop(FrameOutcome::NoNewFrame))
+                s.frame_drops.fetch_add(1, std::memory_order_relaxed);
             // Null-streak sayacı CaptureSubsystem'de; eşiğe (60) ulaşınca true döner.
             // Gerçek reinit RecoveryCoordinator'a delege edilir (cross-subsystem).
             if (s.capture_sub_.handle_null_frame()) {

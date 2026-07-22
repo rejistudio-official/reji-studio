@@ -356,6 +356,16 @@ impl RuleEngine {
         Ok(engine)
     }
 
+    /// V10/L3: kalibrasyon tablosunu başka bir engine'den devral (Arc paylaşımı).
+    /// `rj_reload_rules` yeni engine'i kurup swap etmeden önce çağırır — aksi
+    /// halde Özellik#5'in kalibre eşiği her hot-reload/import/profil
+    /// uygulamasında sessizce kaybolur (HealingMonitor `calibration_done=true`
+    /// olduğundan bir daha uygulamaz). Arc klonu sayesinde devirden sonra
+    /// yapılan `set_calibrated_threshold` yazmaları da her iki nesnede görünür.
+    pub fn adopt_calibration(&mut self, from: &RuleEngine) {
+        self.calibration = from.calibration.clone();
+    }
+
     /// Özellik#5: bir metriğin çalışma-zamanı eşiğini kalibre değere ayarlar.
     /// `HealingMonitor`, kalibrasyon penceresi başarıyla tamamlanınca çağırır.
     /// Sonraki `evaluate`'ler bu metrik için literal yerine `threshold` kullanır.
@@ -864,6 +874,27 @@ mod tests {
             engine.evaluate(&m, "auto-pilot").unwrap().len(),
             1,
             "kalibre eşik 70 ile 75 tetiklemeli"
+        );
+    }
+
+    #[test]
+    fn adopt_calibration_survives_engine_swap() {
+        // V10/L3: rj_reload_rules yepyeni RuleEngine kurar; kalibre eşik
+        // engine-içi tabloda kaldığından her hot-reload/import/profil
+        // uygulamasında sessizce kayboluyordu (calibration_done=true olduğu
+        // için HealingMonitor bir daha uygulamaz). Yeni engine tabloyu eski
+        // engine'den devralmalı.
+        let old = RuleEngine::new_test(vec![mem_rule()], 0);
+        old.set_calibrated_threshold("memory_usage_pct", 70);
+
+        let mut new = RuleEngine::new_test(vec![mem_rule()], 0);
+        new.adopt_calibration(&old);
+
+        let m = RuleMetrics { memory_usage_pct: 75, ..Default::default() };
+        assert_eq!(
+            new.evaluate(&m, "auto-pilot").unwrap().len(),
+            1,
+            "devralınan kalibre eşik 70 ile mem=75 tetiklemeli (literal 85 değil)"
         );
     }
 

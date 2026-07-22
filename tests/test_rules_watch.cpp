@@ -56,7 +56,7 @@ TEST_F(RulesWatchTest, ArmBeforeFileExistsThenReArmAfterCreate) {
   QFileSystemWatcher watcher;
 
   // 1) Checkbox işaretlendi — ama dosya/dizin daha yok. Watcher BOŞ kalmalı.
-  reji::ui::armRulesWatchOn(watcher, rules_file_);
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/true);
   EXPECT_TRUE(watcher.files().isEmpty())
       << "Dosya yokken izlenmemeli (QFileSystemWatcher var olmayan yolu reddeder)";
   EXPECT_TRUE(watcher.directories().isEmpty())
@@ -66,7 +66,7 @@ TEST_F(RulesWatchTest, ArmBeforeFileExistsThenReArmAfterCreate) {
   seedRulesFile();
 
   // 3) DÜZELTME: openRulesInEditor() bu noktada armRulesWatch'ı yeniden çağırır.
-  reji::ui::armRulesWatchOn(watcher, rules_file_);
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/true);
   EXPECT_EQ(watcher.files().size(), 1)
       << "Re-arm sonrası kural dosyası izlenmeli — regresyonun düzeldiği nokta";
   EXPECT_EQ(watcher.directories().size(), 1)
@@ -79,12 +79,12 @@ TEST_F(RulesWatchTest, DirExistsFileMissingThenReArm) {
   ASSERT_TRUE(QDir().mkpath(rules_dir_));
   QFileSystemWatcher watcher;
 
-  reji::ui::armRulesWatchOn(watcher, rules_file_);
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/true);
   EXPECT_TRUE(watcher.files().isEmpty()) << "Dosya yok — henüz izlenmemeli";
   EXPECT_EQ(watcher.directories().size(), 1) << "Var olan üst dizin izlenmeli";
 
   seedRulesFile();
-  reji::ui::armRulesWatchOn(watcher, rules_file_);
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/true);
   EXPECT_EQ(watcher.files().size(), 1) << "Dosya oluşup re-arm edilince izlenmeli";
   EXPECT_EQ(watcher.directories().size(), 1);
 }
@@ -95,12 +95,28 @@ TEST_F(RulesWatchTest, ReArmIsIdempotent) {
   seedRulesFile();
   QFileSystemWatcher watcher;
 
-  reji::ui::armRulesWatchOn(watcher, rules_file_);
-  reji::ui::armRulesWatchOn(watcher, rules_file_);
-  reji::ui::armRulesWatchOn(watcher, rules_file_);
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/true);
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/true);
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/true);
 
   EXPECT_EQ(watcher.files().size(), 1) << "Aynı dosya birden çok kez eklenmemeli";
   EXPECT_EQ(watcher.directories().size(), 1) << "Aynı dizin birden çok kez eklenmemeli";
+}
+
+// V10/L4: auto-reload KAPALIYKEN arm hiçbir yol eklememeli. Aksi halde
+// import/manuel-reload yolundaki re-arm çağrıları (writeValidatedRules/
+// reloadRulesNow), toggle-off'un temizlediği path'leri geri ekliyor ve
+// checkbox kapalıyken harici düzenlemeler sessizce hot-reload oluyordu
+// (449c084 re-arm düzeltmesinin etkileşim alanı).
+TEST_F(RulesWatchTest, DisabledArmAddsNothingEvenWhenFileExists) {
+  seedRulesFile();
+  QFileSystemWatcher watcher;
+
+  reji::ui::armRulesWatchOn(watcher, rules_file_, /*enabled=*/false);
+  EXPECT_TRUE(watcher.files().isEmpty())
+      << "Auto-reload kapalıyken dosya izlenmemeli";
+  EXPECT_TRUE(watcher.directories().isEmpty())
+      << "Auto-reload kapalıyken dizin de izlenmemeli";
 }
 
 }  // namespace

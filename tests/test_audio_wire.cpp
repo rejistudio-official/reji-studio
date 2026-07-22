@@ -2,6 +2,7 @@
 // float32->S16 PCM donusumu. Header-only (yalniz <cstdint>/<array>) —
 // reji_pipeline/Rust/Media Foundation link gerekmez, sadece gtest.
 #include <gtest/gtest.h>
+#include "asc_state.h"
 #include "flv_audio_tag.h"
 #include "pcm_convert.h"
 
@@ -47,4 +48,20 @@ TEST(PcmConvertTest, OverflowClamps) {
 // Yari olcek: 0.5 * 32768 = 16384 (yuvarlama).
 TEST(PcmConvertTest, HalfScale) {
     EXPECT_EQ(float_to_s16(0.5f), 16384);
+}
+
+// V10/L6: ASC durum makinesi — encoder hazir olmak ASC'nin gittigi anlamina
+// GELMEZ (eski bug: set_audio_config donusu (void)'e atilip encoder_ready_
+// "ASC isi bitti" sayiliyordu; transport o an null'sa ses kalici oluyordu).
+using reji::pipeline::audio::asc_retry_needed;
+
+TEST(AscStateTest, NoRetryBeforeEncoderReady) {
+    EXPECT_FALSE(asc_retry_needed(/*encoder_ready=*/false, /*asc_sent=*/false));
+}
+TEST(AscStateTest, RetryWhenReadyButNotSent) {
+    EXPECT_TRUE(asc_retry_needed(/*encoder_ready=*/true, /*asc_sent=*/false))
+        << "ASC gidememisse (stop_stream yarisi) sonraki drain yeniden denemeli";
+}
+TEST(AscStateTest, NoRetryAfterAscSent) {
+    EXPECT_FALSE(asc_retry_needed(/*encoder_ready=*/true, /*asc_sent=*/true));
 }

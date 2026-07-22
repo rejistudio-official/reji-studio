@@ -51,15 +51,27 @@ bool AudioEncodeBridge::ensure_encoder() {
         return false;
     }
     // AudioSpecificConfig'i transport'a ver (ilk send_audio'dan önce).
-    const auto& asc = encoder_.audio_specific_config();
-    if (out_ && !asc.empty()) (void)out_->set_audio_config(asc.data(), asc.size());
+    // V10/L6: dönüş asc_sent_'e saklanır — transport o an null'sa (stop_stream
+    // yarışı) deneme başarısızdır ve drain sonraki turda yeniden dener; eski
+    // (void) hâli encoder_ready_'yi "ASC gitti" sayıp sesi kalıcı öldürüyordu.
+    send_asc_if_ready();
     encoder_ready_ = true;
     return true;
+}
+
+void AudioEncodeBridge::send_asc_if_ready() noexcept {
+    const auto& asc = encoder_.audio_specific_config();
+    if (out_ && !asc.empty())
+        asc_sent_ = out_->set_audio_config(asc.data(), asc.size());
 }
 
 void AudioEncodeBridge::drain(int64_t video_pts_us) noexcept {
     if (!enabled_.load(std::memory_order_acquire)) return;
     if (!ensure_encoder()) return;
+
+    // V10/L6: ASC ilk denemede gidememişse (transport null yarışı) yeniden
+    // dene — aksi halde rj_rtmp_send_audio tüm frame'leri kalıcı reddeder.
+    if (asc_retry_needed(encoder_ready_, asc_sent_)) send_asc_if_ready();
 
     // Ring'i boşalt: her PCM chunk'ı AAC'ye kodla (on_aac → send_audio).
     while (ring_.consume([&](const float* s, uint32_t frames, uint32_t /*ch*/,
@@ -82,6 +94,7 @@ void AudioEncodeBridge::shutdown() noexcept {
         (void)encoder_.drain();
         encoder_.shutdown();
         encoder_ready_ = false;
+        asc_sent_ = false;  // V10/L6: yeniden init'te ASC baştan gönderilir
     }
 }
 

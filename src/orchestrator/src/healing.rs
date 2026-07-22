@@ -500,6 +500,20 @@ impl HealingMonitor {
     /// otomatik uygulanır; kritik olmayanlar loglanır ("kritik otomatik,
     /// diğerleri log" — UI sözü).
     fn collect_rule_actions(&self, mode: HealingMode) -> Vec<RoutedAction> {
+        self.collect_rule_actions_with_bitrate(mode, crate::ffi::bitrate_state())
+    }
+
+    /// SIYAH_KUTU kök düzeltmesi: `bitrate_state = (current_kbps, original_kbps)`
+    /// — aktüatörün konfigüre değerleri (C++ `rj_update_bitrate_state` bildirir;
+    /// ölçülen kbps DEĞİL, dalgalanma sahte tetik üretirdi). `BitrateRecover`
+    /// aksiyonları yalnız `recovery_has_deficit` doğruyken üretilir; diğer
+    /// aksiyon tipleri ve hysteresis/mod davranışı DEĞİŞMEZ. Test edilebilirlik
+    /// için ayrı imza — global atomics yalnız yukarıdaki sarmalayıcıda okunur.
+    fn collect_rule_actions_with_bitrate(
+        &self,
+        mode: HealingMode,
+        bitrate_state: (u32, u32),
+    ) -> Vec<RoutedAction> {
         // Manual: adaptasyon tamamen kapalı — motoru hiç çağırma.
         if mode == HealingMode::Manual {
             return Vec::new();
@@ -535,6 +549,21 @@ impl HealingMonitor {
         actions
             .into_iter()
             .filter_map(|a| {
+                // SIYAH_KUTU: kurtarılacak düşüş yoksa recovery aksiyonu hiç
+                // üretilmez — aktüatör (pipeline.cpp apply_action) zaten no-op
+                // yapardı ama UI event'i çoktan kuyruğa düşüp her hysteresis
+                // penceresinde sahte healing banner'ı gösteriyordu.
+                if a.action_type == ActionType::BitrateRecover
+                    && !recovery_has_deficit(bitrate_state.0, bitrate_state.1)
+                {
+                    debug!(
+                        rule_id = %a.rule_id,
+                        current_kbps = bitrate_state.0,
+                        original_kbps = bitrate_state.1,
+                        "bitrate_recover atlandı — kurtarılacak düşüş yok"
+                    );
+                    return None;
+                }
                 // Assist: yalnız kritik aksiyonlar otomatik; gerisi loglanıp bırakılır.
                 if mode == HealingMode::Assist && !a.is_critical {
                     info!(
@@ -666,6 +695,18 @@ impl HealingMonitor {
         debug!(?event, ?layer, "emitting healing event");
         let _ = self.healing_tx.send(event);
     }
+}
+
+/// SIYAH_KUTU kök düzeltmesi: "kurtarılacak düşüş var mı" saf kararı.
+/// Yalnız `0 < current < original` iken doğru:
+///  - `current == 0`  → veri yok/durum bildirilmemiş — üretme,
+///  - `original == 0` → referans bilinmiyor — üretme (aktüatör no-op'lardı,
+///    sahte UI event'i de üretilmesin),
+///  - `current >= original` → bitrate zaten orijinalde/üstünde — düşüş yok.
+/// Konfigüre değerlerle çalışır (C++ `rj_update_bitrate_state`); ölçülen kbps
+/// kullanılmaz — sağlıklı yayında nominal altı dalgalanma sahte tetik üretirdi.
+fn recovery_has_deficit(current_kbps: u32, original_kbps: u32) -> bool {
+    current_kbps > 0 && original_kbps > 0 && current_kbps < original_kbps
 }
 
 /// V8/I1: rules::ActionType → ffi::RjActionType mekanik dönüşümü.
@@ -951,6 +992,89 @@ mod tests {
         );
     }
 
+    // ===== SIYAH_KUTU kök düzeltmesi: recovery yalnız gerçek düşüş varken =====
+    //
+    // bitrate_recover kuralları yalnız metrik eşiğine bakar (frame_drop_pct < 3
+    // gibi) — bitrate zaten orijinaldeyken de koşul doğru olduğundan her
+    // hysteresis penceresinde aksiyon + UI banner'ı üretiliyordu (aktüatör
+    // no-op'luyordu ama event çoktan kuyruğa düşmüştü). Üretim kaynağında
+    // kesilir: aktüatör durumu (C++ rj_update_bitrate_state) düşüş
+    // göstermiyorsa BitrateRecover aksiyonu hiç üretilmez.
+
+    #[test]
+    fn recovery_deficit_semantics() {
+        // Saf karar fonksiyonu: yalnız 0 < current < original iken düşüş var.
+        assert!(!recovery_has_deficit(0, 6000), "current=0 → veri yok, düşüş sayılmaz");
+        assert!(!recovery_has_deficit(6000, 0), "original=0 → durum bilinmiyor, üretme");
+        assert!(!recovery_has_deficit(0, 0), "ikisi de bilinmiyor → üretme");
+        assert!(!recovery_has_deficit(6000, 6000), "orijinalde → düşüş yok");
+        assert!(!recovery_has_deficit(6500, 6000), "orijinalin üstünde → düşüş yok");
+        assert!(recovery_has_deficit(5100, 6000), "düşürülmüş → düşüş var");
+    }
+
+    #[test]
+    fn recovery_suppressed_when_bitrate_at_original() {
+        // Canlı bulgu senaryosu: yayın sağlıklı (pct=0), bitrate orijinalde →
+        // recovery koşulu doğru ama üretilecek aksiyon YOK.
+        let rule = make_rule("frame_drop_recovery", "frame_drop_pct < 3",
+            "bitrate_recover", 150, &["auto-pilot"]);
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+        monitor.current_metrics.frame_drop_pct = 0;
+
+        let actions = monitor.collect_rule_actions_with_bitrate(
+            HealingMode::AutoPilot, (6000, 6000));
+        assert!(actions.is_empty(),
+            "bitrate orijinaldeyken bitrate_recover üretilmemeli");
+    }
+
+    #[test]
+    fn recovery_suppressed_when_bitrate_state_unknown() {
+        // Durum hiç bildirilmemişse (0,0) üretme — aktüatör zaten no-op'lardı,
+        // sahte UI event'i de üretilmesin.
+        let rule = make_rule("frame_drop_recovery", "frame_drop_pct < 3",
+            "bitrate_recover", 150, &["auto-pilot"]);
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+        monitor.current_metrics.frame_drop_pct = 0;
+
+        let actions = monitor.collect_rule_actions_with_bitrate(
+            HealingMode::AutoPilot, (0, 0));
+        assert!(actions.is_empty(), "durum bilinmiyorken recovery üretilmemeli");
+    }
+
+    #[test]
+    fn recovery_produced_when_bitrate_reduced() {
+        // Regresyon kilidi: GERÇEK düşüş varken recovery aynen üretilmeli —
+        // asıl işlevsellik korunur.
+        let rule = make_rule("frame_drop_recovery", "frame_drop_pct < 3",
+            "bitrate_recover", 150, &["auto-pilot"]);
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+        monitor.current_metrics.frame_drop_pct = 0;
+
+        let actions = monitor.collect_rule_actions_with_bitrate(
+            HealingMode::AutoPilot, (5100, 6000));
+        assert_eq!(actions.len(), 1, "düşürülmüş bitrate'te recovery üretilmeli");
+        assert!(matches!(actions[0].rj.action_type, RjActionType::BitrateRecover));
+    }
+
+    #[test]
+    fn non_recovery_actions_unaffected_by_bitrate_state() {
+        // Kapsam sınırı: filtre YALNIZ BitrateRecover'a dokunur — reduce,
+        // bitrate orijinaldeyken de üretilir.
+        let rule = make_rule("fd_high", "frame_drop_pct > 10",
+            "bitrate_reduce", 500, &["auto-pilot"]);
+        let engine = RuleEngine::new_test(vec![rule], 0);
+        let mut monitor = make_monitor(Arc::new(Mutex::new(Some(engine))));
+        monitor.current_metrics.frame_drop_pct = 12;
+
+        let actions = monitor.collect_rule_actions_with_bitrate(
+            HealingMode::AutoPilot, (6000, 6000));
+        assert_eq!(actions.len(), 1, "reduce bitrate durumundan bağımsız üretilmeli");
+        assert!(matches!(actions[0].rj.action_type, RjActionType::BitrateReduce));
+    }
+
     // ===== frame_drop_pct plumbing (TALIMAT_FRAME_DROP_PLUMBING) =====
     //
     // `memory_usage_pct`'in `handle_system`'de yaptığının birebir mirror'ı:
@@ -1008,9 +1132,12 @@ mod tests {
         assert!(matches!(mild[0].rj.action_type, RjActionType::BitrateReduce));
         assert_eq!(mild[0].rj.param1, 250, "mild → step_kbps 250");
 
-        // recovery (< 5) → bitrate_recover 250
+        // recovery (< 5) → bitrate_recover 250. SIYAH_KUTU: recovery artık
+        // yalnız gerçek düşüş varken üretilir — deficit durumu açıkça verilir
+        // (global durum değil; paralel testlerle yarışmasın).
         monitor.handle_media(MediaEvent::FrameDropPct { pct: 2 });
-        let recovery = monitor.collect_rule_actions(HealingMode::AutoPilot);
+        let recovery = monitor.collect_rule_actions_with_bitrate(
+            HealingMode::AutoPilot, (4000, 6000));
         assert_eq!(recovery.len(), 1, "2%'de yalnız recovery tetiklenmeli");
         assert!(matches!(recovery[0].rj.action_type, RjActionType::BitrateRecover));
     }
@@ -1033,7 +1160,10 @@ mod tests {
             monitor.current_metrics.frame_drop_pct, 0,
             "gerçek %0 current_metrics'e yansımalı (guard kopyalanmış olsaydı 12'de takılırdı)"
         );
-        let recovery = monitor.collect_rule_actions(HealingMode::AutoPilot);
+        // SIYAH_KUTU: deficit durumu açıkça verilir — tepe sırasında bitrate
+        // düşürülmüştü, kurtarılacak gerçek fark var.
+        let recovery = monitor.collect_rule_actions_with_bitrate(
+            HealingMode::AutoPilot, (4000, 6000));
         assert_eq!(recovery.len(), 1, "%0'da recovery tetiklenmeli");
         assert!(
             matches!(recovery[0].rj.action_type, RjActionType::BitrateRecover),

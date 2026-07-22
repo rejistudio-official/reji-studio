@@ -12,6 +12,7 @@
 #include "settings_dialog.h"
 #include "profile_advisor.h"   // reji::ProfileId, preset_for, profile_resource_name
 #include "rules_watch.h"        // reji::ui::armRulesWatchOn (kuruluş-sırası seam'i)
+#include "resource_init.h"      // reji::ui::ensureResourcesRegistered (qrc kaydı)
 #include "../pipeline/gpu/vulkan_initializer.h"
 
 #include <vector>
@@ -40,6 +41,7 @@
 #include <QTimer>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QSaveFile>
 #include <QTemporaryFile>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -71,6 +73,9 @@ QString vendorName(uint32_t vendor_id) {
 // Construction / destruction
 // ---------------------------------------------------------------------------
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+    // V10/L1-ek: qrc kaydını her şeyden önce zorla — seedRulesFromTemplate,
+    // applyProfile ve validateRulesFile ":/config/..." kaynaklarını okur.
+    reji::ui::ensureResourcesRegistered();
     setWindowTitle("Reji Studio");
     setMinimumSize(1280, 720);
 
@@ -169,97 +174,110 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         strncpy_s(pcfg.srt_host, sizeof(pcfg.srt_host), "127.0.0.1", _TRUNCATE);
         pcfg.srt_port = 9000;
     }
-    if (!pipeline_->init(pcfg)) {
+    // V10/L5: TEK init yolu — wiring + frame thread + ilk-kurulum önerisi
+    // initPipeline içinde. Eskiden ctor kendi pipeline_->init() yolunu
+    // kullandığından initPipeline'daki öneri singleShot'ı HİÇBİR akışta
+    // tetiklenmiyordu (initPipeline'ın çağıranı yoktu — ölü koddu).
+    if (!initPipeline(pcfg)) {
         qDebug() << "Pipeline init failed";
         lbl_status_->setText(tr("Pipeline init başarısız — NVENC SDK eksik olabilir"));
-    } else {
-        preview_widget_->setPipeline(pipeline_.get());
-        preview_widget_->selectRenderPath(pipeline_->display_vendor_id());
-        // v0.5.1: Vulkan device handle late-binding
-        {
-            auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
-            if (vk && vk->device()) {
-                pipeline_->notify_vulkan_ready(vk->device(), vk->physical_device());
-                fprintf(stderr, "[MainWindow] notify_vulkan_ready\n");
-                fflush(stderr);
-
-                // v0.5.1: Initialize GpuCopyOptimizer with Vulkan device + queue
-                if (vk->graphics_queue() != VK_NULL_HANDLE) {
-                    GpuCopyOptimizer::Config copy_cfg;
-                    if (copy_optimizer_.init(vk->device(), vk->graphics_queue(), vk->physical_device(),
-                                             vk->graphics_queue_family(), copy_cfg)) {
-                        copy_optimizer_initialized_ = true;
-                        preview_widget_->setCopyOptimizer(&copy_optimizer_);
-                        // v0.5.2: Wire GL interop bridge for NT handle import
-                        auto* bridge = pipeline_->get_external_memory_bridge();
-                        preview_widget_->setBridge(bridge);
-                        fprintf(stderr, "[MainWindow] GpuCopyOptimizer initialized, bridge=%p\n", (void*)bridge);
-                        fflush(stderr);
-                    } else {
-                        fprintf(stderr, "[MainWindow] GpuCopyOptimizer init failed\n");
-                    }
-                }
-            }
-        }
-        // Wire profiler to preview widget
-        if (pipeline_->profiler()) {
-            preview_widget_->setProfiler(pipeline_->profiler());
-        }
-
-        // v0.5.1: Zero-copy D3D11 frame callback → PreviewWidget::submitD3D11Frame
-        // Pipeline calls this for each captured frame (D3D11→VkImage)
-        pipeline_->set_d3d11_frame_callback(
-            [this](void* staging_texture, uint32_t width, uint32_t height) {
-                // v0.5.1: Get cached frame images from ExternalMemoryBridge
-                VkImage staging_vk = VK_NULL_HANDLE;
-                VkImage target_vk = VK_NULL_HANDLE;
-                uint32_t pool_slot = 0;  // I23: bridge pool slot'u (tek doğruluk kaynağı)
-                bool got = pipeline_->get_last_frame_images(&staging_vk, &target_vk, &pool_slot);
-                if (got) {
-                    preview_widget_->submitD3D11Frame(staging_vk, target_vk, width, height, pool_slot);
-                }
-                (void)staging_texture;
-            }
-        );
-
-        // CPU staging path: WGC → PreviewWidget (left panel) + ProgramWidget (right panel)
-        pipeline_->set_preview_callback(
-            [this](const void* bgra, int width, int height, int pitch) {
-                preview_widget_->uploadCpuFrame(bgra, width, height, pitch);
-                program_widget_->uploadFrame(bgra, width, height, pitch);
-            }
-        );
-
-        // WebSocket scene commands → GUI thread via QueuedConnection
-        pipeline_->set_scene_command_callback([this](int cmd, uint32_t param) {
-            QMetaObject::invokeMethod(this, [this, cmd, param]() {
-                if (cmd == 3) onCutTransition();
-                if (cmd == 4) onFadeTransition();
-                if (cmd == 5) {  // SetCurrentProgramScene → satırı seç + cut
-                    if (param < static_cast<uint32_t>(scene_list_->count())) {
-                        scene_list_->setCurrentRow(static_cast<int>(param));
-                        onCutTransition();  // sendSceneSwitchEvent zaten içinde (tek gerçek kaynak)
-                    } else {
-                        qWarning("[MainWindow] SetScene: idx %u sınır dışı (count=%d), yok sayıldı",
-                                 param, scene_list_->count());
-                    }
-                }
-            }, Qt::QueuedConnection);
-        });
-
-        // run_frame() ayrı thread'de çalışsın — sadece init() başarılıysa başlat
-        frame_thread_ = new QThread(this);
-        auto* worker = new QObject();
-        worker->moveToThread(frame_thread_);
-        connect(frame_thread_, &QThread::started, worker, [this, worker] {
-            while (!frame_thread_->isInterruptionRequested()) {
-                pipeline_->run_frame();
-                // D10b: AcquireNextFrame timeout_ms=17>0 — DXGI zaten pacing yapar, msleep gereksiz
-            }
-            delete worker;
-        });
-        frame_thread_->start();
     }
+}
+
+// V10/L5: init-sonrası GUI wiring — initPipeline'ın parçası (eski ctor
+// else-bloğu, birebir taşındı).
+void MainWindow::wireUpPipeline() {
+    preview_widget_->setPipeline(pipeline_.get());
+    preview_widget_->selectRenderPath(pipeline_->display_vendor_id());
+    // v0.5.1: Vulkan device handle late-binding
+    {
+        auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
+        if (vk && vk->device()) {
+            pipeline_->notify_vulkan_ready(vk->device(), vk->physical_device());
+            fprintf(stderr, "[MainWindow] notify_vulkan_ready\n");
+            fflush(stderr);
+
+            // v0.5.1: Initialize GpuCopyOptimizer with Vulkan device + queue
+            if (vk->graphics_queue() != VK_NULL_HANDLE) {
+                GpuCopyOptimizer::Config copy_cfg;
+                if (copy_optimizer_.init(vk->device(), vk->graphics_queue(), vk->physical_device(),
+                                         vk->graphics_queue_family(), copy_cfg)) {
+                    copy_optimizer_initialized_ = true;
+                    preview_widget_->setCopyOptimizer(&copy_optimizer_);
+                    // v0.5.2: Wire GL interop bridge for NT handle import
+                    auto* bridge = pipeline_->get_external_memory_bridge();
+                    preview_widget_->setBridge(bridge);
+                    fprintf(stderr, "[MainWindow] GpuCopyOptimizer initialized, bridge=%p\n", (void*)bridge);
+                    fflush(stderr);
+                } else {
+                    fprintf(stderr, "[MainWindow] GpuCopyOptimizer init failed\n");
+                }
+            }
+        }
+    }
+    // Wire profiler to preview widget
+    if (pipeline_->profiler()) {
+        preview_widget_->setProfiler(pipeline_->profiler());
+    }
+
+    // v0.5.1: Zero-copy D3D11 frame callback → PreviewWidget::submitD3D11Frame
+    // Pipeline calls this for each captured frame (D3D11→VkImage)
+    pipeline_->set_d3d11_frame_callback(
+        [this](void* staging_texture, uint32_t width, uint32_t height) {
+            // v0.5.1: Get cached frame images from ExternalMemoryBridge
+            VkImage staging_vk = VK_NULL_HANDLE;
+            VkImage target_vk = VK_NULL_HANDLE;
+            uint32_t pool_slot = 0;  // I23: bridge pool slot'u (tek doğruluk kaynağı)
+            bool got = pipeline_->get_last_frame_images(&staging_vk, &target_vk, &pool_slot);
+            if (got) {
+                preview_widget_->submitD3D11Frame(staging_vk, target_vk, width, height, pool_slot);
+            }
+            (void)staging_texture;
+        }
+    );
+
+    // CPU staging path: WGC → PreviewWidget (left panel) + ProgramWidget (right panel)
+    pipeline_->set_preview_callback(
+        [this](const void* bgra, int width, int height, int pitch) {
+            preview_widget_->uploadCpuFrame(bgra, width, height, pitch);
+            program_widget_->uploadFrame(bgra, width, height, pitch);
+        }
+    );
+
+    // WebSocket scene commands → GUI thread via QueuedConnection
+    pipeline_->set_scene_command_callback([this](int cmd, uint32_t param) {
+        QMetaObject::invokeMethod(this, [this, cmd, param]() {
+            if (cmd == 3) onCutTransition();
+            if (cmd == 4) onFadeTransition();
+            if (cmd == 5) {  // SetCurrentProgramScene → satırı seç + cut
+                if (param < static_cast<uint32_t>(scene_list_->count())) {
+                    scene_list_->setCurrentRow(static_cast<int>(param));
+                    onCutTransition();  // sendSceneSwitchEvent zaten içinde (tek gerçek kaynak)
+                } else {
+                    qWarning("[MainWindow] SetScene: idx %u sınır dışı (count=%d), yok sayıldı",
+                             param, scene_list_->count());
+                }
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
+// V10/L5: run_frame() ayrı thread'de — yalnız init() başarılıysa ve bir kez
+// (idempotent; wiring TAMAMLANDIKTAN sonra çağrılmalı, callback'ler thread
+// başlamadan set edilmiş olur).
+void MainWindow::startFrameThread() {
+    if (frame_thread_) return;
+    frame_thread_ = new QThread(this);
+    auto* worker = new QObject();
+    worker->moveToThread(frame_thread_);
+    connect(frame_thread_, &QThread::started, worker, [this, worker] {
+        while (!frame_thread_->isInterruptionRequested()) {
+            pipeline_->run_frame();
+            // D10b: AcquireNextFrame timeout_ms=17>0 — DXGI zaten pacing yapar, msleep gereksiz
+        }
+        delete worker;
+    });
+    frame_thread_->start();
 }
 
 MainWindow::~MainWindow() {
@@ -290,9 +308,19 @@ void MainWindow::stopFrameThread() {
 }
 
 bool MainWindow::initPipeline(const rj::Pipeline::Config& cfg) {
+    // V10/L5: yeniden init desteklenmez — frame thread çalışırken pipeline'ı
+    // yeniden kurmak callback/thread yaşam döngüsünü bozar.
+    if (frame_thread_) {
+        qWarning("[MainWindow] initPipeline: yeniden init desteklenmez — yok sayıldı");
+        return false;
+    }
     pipeline_cfg_ = cfg;
+    if (!pipeline_) pipeline_ = std::make_shared<rj::Pipeline>();
     const bool ok = pipeline_->init(cfg);
     if (ok) {
+        // Wiring frame thread'den ÖNCE: callback'ler thread başlamadan set olur.
+        wireUpPipeline();
+        startFrameThread();
         // İlk kurulumda bir kez donanım profili öner — event-loop'a ertele ki
         // pencere görünür olsun ve GpuScan init sonrası hazır olsun.
         QTimer::singleShot(0, this, &MainWindow::maybeSuggestProfileOnFirstRun);
@@ -864,7 +892,10 @@ void MainWindow::armRulesWatch() {
     if (!rules_watcher_) return;
     // Saf çekirdek rules_watch.h'de — birim testiyle kilitlenen kuruluş-sırası
     // değişmezi (dosya yokken hiçbir yol eklenmez → re-arm şart) orada belgeli.
-    reji::ui::armRulesWatchOn(*rules_watcher_, rulesFilePath());
+    // V10/L4: checkbox durumu çekirdeğe geçirilir — auto-reload kapalıyken
+    // (writeValidatedRules/reloadRulesNow re-arm çağrıları dahil) yol eklenmez.
+    const bool enabled = settings_dialog_ && settings_dialog_->isAutoReloadEnabled();
+    reji::ui::armRulesWatchOn(*rules_watcher_, rulesFilePath(), enabled);
 }
 
 void MainWindow::onAutoReloadToggled(bool enabled) {
@@ -952,15 +983,24 @@ void MainWindow::exportRules() {
 
     if (dest.isEmpty()) return;
 
-    if (QFile::exists(dest) && !QFile::remove(dest)) {
+    // V10/L1(d): eski remove-sonra-copy deseni, copy başarısızsa kullanıcının
+    // hedefteki mevcut dosyasını geri dönüşsüz siliyordu (TOCTOU). QSaveFile
+    // temp+rename ile atomik — başarısızlıkta hedefteki eski dosya aynen kalır.
+    QFile in(src);
+    if (!in.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, tr("Dışa Aktar"),
-            tr("Hedef dosya silinemedi:\n%1").arg(dest));
+            tr("Kaynak dosya okunamadı:\n%1\n(%2)").arg(src, in.errorString()));
         return;
     }
-
-    if (!QFile::copy(src, dest)) {
+    QSaveFile out(dest);
+    if (!out.open(QIODevice::WriteOnly)) {
         QMessageBox::warning(this, tr("Dışa Aktar"),
-            tr("Dosya kopyalanamadı:\n%1\n→ %2").arg(src, dest));
+            tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, out.errorString()));
+        return;
+    }
+    if (out.write(in.readAll()) < 0 || !out.commit()) {
+        QMessageBox::warning(this, tr("Dışa Aktar"),
+            tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, out.errorString()));
         return;
     }
 
@@ -973,9 +1013,9 @@ void MainWindow::exportRules() {
 }
 
 bool MainWindow::validateRulesFile(const QString& src, QString& errMsg) {
-    // Geçici konuma kopyala ve doğrula (asıl rules.json'a DOKUNMA).
+    // Geçici konuma kopyala ve doğrula (asıl rules.json'a VE motora DOKUNMA).
     // `src` bir kullanıcı dosyası VEYA gömülü qrc kaynağı (":/config/...") olabilir;
-    // QFile her ikisini de okur, rj_reload_rules yalnız gerçek dosyada çalışır.
+    // QFile her ikisini de okur, rj_validate_rules yalnız gerçek dosyada çalışır.
     // QFile::copy hedef dosya mevcutken false döner, QTemporaryFile::open() ise
     // dosyayı diskte oluşturur — bu yüzden kopya değil, içerik doğrudan yazılır.
     QFile in(src);
@@ -998,10 +1038,13 @@ bool MainWindow::validateRulesFile(const QString& src, QString& errMsg) {
         return false;
     }
     const QString tmpPath = tmp.fileName();
-    tmp.close();  // Windows'ta rj_reload_rules açarken paylaşım çakışması olmasın.
+    tmp.close();  // Windows'ta rj_validate_rules açarken paylaşım çakışması olmasın.
 
+    // V10/L1(c): yan-etkisiz doğrulama — eski rj_reload_rules yolu geçerli
+    // dosyada CANLI motoru geçici-dosya kurallarına çeviriyordu; hata yolunda
+    // motor orada kalıyor, "eski kurallar korunuyor" mesajı yalan oluyordu.
     const QByteArray tmpPathUtf8 = tmpPath.toUtf8();
-    if (rj_reload_rules(tmpPathUtf8.constData()) != 1) {
+    if (rj_validate_rules(tmpPathUtf8.constData()) != 1) {
         errMsg = tr("Dosya geçerli bir kural seti değil.\n\n"
                     "Beklenen format: geçerli JSON, her kuralda 'id', 'condition', 'action' alanları.");
         return false;
@@ -1014,20 +1057,37 @@ bool MainWindow::writeValidatedRules(const QString& src, QString& errMsg) {
     if (!validateRulesFile(src, errMsg)) return false;
 
     // Adım 2: Mevcut rules.json'ı yedekle (geri dönüşsüz kayıp yok — I10).
+    // V10/L1(a): copy dönüşü kontrol edilir — yedek alınamazsa asıl dosyaya
+    // hiç dokunmadan iptal (eskiden sessizce yedeksiz devam ediliyordu).
     const QString dest    = rulesFilePath();
     const QString backup  = dest + QStringLiteral(".backup");
     if (QFileInfo::exists(dest)) {
         QFile::remove(backup);
-        QFile::copy(dest, backup);
+        if (!QFile::copy(dest, backup)) {
+            errMsg = tr("Yedek alınamadı:\n%1\nMevcut kurallara dokunulmadı.").arg(backup);
+            return false;
+        }
     }
 
-    // Adım 3: Üst dizini oluştur (henüz yoksa) ve yeni dosyayı yaz.
+    // Adım 3: Üst dizini oluştur (henüz yoksa) ve yeni dosyayı ATOMİK yaz.
+    // V10/L1(b): eski remove+copy deseni copy-başarısızlığında rules.json'u
+    // diskte bırakmıyordu (backup'tan restore da yoktu). QSaveFile geçici ada
+    // yazıp commit'te rename eder — başarısızlıkta eski dosya aynen kalır.
     const QDir parentDir = QFileInfo(dest).dir();
     if (!parentDir.exists()) parentDir.mkpath(QStringLiteral("."));
 
-    QFile::remove(dest);
-    if (!QFile::copy(src, dest)) {
-        errMsg = tr("Dosya yazılamadı:\n%1").arg(dest);
+    QFile in(src);
+    if (!in.open(QIODevice::ReadOnly)) {
+        errMsg = tr("Kaynak dosya okunamadı:\n%1\n(%2)").arg(src, in.errorString());
+        return false;
+    }
+    QSaveFile outFile(dest);
+    if (!outFile.open(QIODevice::WriteOnly)) {
+        errMsg = tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, outFile.errorString());
+        return false;
+    }
+    if (outFile.write(in.readAll()) < 0 || !outFile.commit()) {
+        errMsg = tr("Dosya yazılamadı:\n%1\n(%2)").arg(dest, outFile.errorString());
         return false;
     }
 
@@ -1233,6 +1293,12 @@ void MainWindow::pollHealingActions() {
     }
 
     if (healing_overlay_) {
+        // SIYAH_KUTU kök düzeltmesi: stream_active_ bazlı UI gate KALDIRILDI —
+        // canlı test yanlış boyutu hedeflediğini gösterdi (kutu yayın
+        // sırasında çıkmaya başladı). Sahte recovery aksiyonları artık
+        // kaynağında (Rust, recovery_has_deficit) üretilmiyor; buraya ulaşan
+        // her event meşru bir healing bilgisidir ve gösterilmelidir
+        // (sessizce yutma yok — Healing Plumbing dersi).
         healing_overlay_->move(
             width() - healing_overlay_->width() - 16,
             menuBar()->height() + 8);

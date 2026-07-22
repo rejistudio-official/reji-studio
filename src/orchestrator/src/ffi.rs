@@ -283,6 +283,21 @@ struct FfiState {
 static FFI_STATE: OnceLock<FfiState> = OnceLock::new();
 pub(crate) static HEALING_MODE: AtomicU32 = AtomicU32::new(0);
 
+// SIYAH_KUTU kök düzeltmesi: aktüatörün KONFİGÜRE bitrate durumu (C++
+// apply_action / pipeline init bildirir). Kural katmanı BitrateRecover
+// üretmeden önce "kurtarılacak düşüş var mı" diye buraya bakar
+// (healing::recovery_has_deficit). 0 = henüz bildirilmedi/bilinmiyor.
+pub(crate) static CURRENT_BITRATE_KBPS: AtomicU32 = AtomicU32::new(0);
+pub(crate) static ORIGINAL_BITRATE_KBPS: AtomicU32 = AtomicU32::new(0);
+
+/// Kural katmanının okuduğu (current, original) çifti.
+pub(crate) fn bitrate_state() -> (u32, u32) {
+    (
+        CURRENT_BITRATE_KBPS.load(Ordering::Relaxed),
+        ORIGINAL_BITRATE_KBPS.load(Ordering::Relaxed),
+    )
+}
+
 /// V8/I33: Süreç-global, monoton aksiyon ID sayacı. Eskiden ID'ler
 /// `RuleEngine::evaluate()` içinde her tick `1`'den başlıyordu (tick-yerel) —
 /// pending-onay deposu ID ile anahtarlanacağından tick'ler arası çakışma
@@ -380,6 +395,13 @@ pub extern "C" fn rj_start_monitor() {
 fn system_events_for_sample(sample: &MetricSample) -> Vec<SystemEvent> {
     let mut events = Vec::new();
 
+    // V10/L2-EK: yalnız video örnekleri (source_id=0) sistem event'i üretir.
+    // Audio örneklerinde (source_id=1) cpu_load_pct/gpu/mem/network alanları
+    // sıfır-init'tir; koşulsuz CpuUsage sahte CpuUsage{0} enjekte ediyordu.
+    if sample.source_id != 0 {
+        return events;
+    }
+
     // cpu_load_pct: C++ PDH sistem yükü (offset +44); cpu_percent (offset +24)
     // burada OKUNMAZ — o alan MetricState/UI snapshot yoluna (rj_metrics_poll)
     // aittir. RuleEngine cpu_load_high kuralını cpu_load_pct üzerinden çalıştırır.
@@ -420,6 +442,15 @@ fn system_events_for_sample(sample: &MetricSample) -> Vec<SystemEvent> {
 /// `FrameDropped` ile `FrameDropPct` AYRI event'ler — gate paylaşmazlar.
 fn media_events_for_sample(sample: &MetricSample) -> Vec<MediaEvent> {
     let mut events = Vec::new();
+
+    // V10/L2: yalnız video örnekleri (source_id=0) medya event'i üretir. Audio
+    // örnekleri (1Hz, frame_drop_pct=0) videonun drop sinyalini sıfırlayıp
+    // sahte frame_drop_recovery tetikliyor, ses glitch sayacı (frame_drops)
+    // video FrameDropped trendine karışıyordu.
+    if sample.source_id != 0 {
+        return events;
+    }
+
     events.push(MediaEvent::FrameDropPct {
         pct: sample.frame_drop_pct,
     });
@@ -479,7 +510,10 @@ fn rj_start_monitor_impl() {
                         state.update(&sample);
                         // V8/I15: eskiden rj_metrics_push içinde inline yapılan JSON
                         // formatlama + broadcast — çıktı formatı birebir korundu.
-                        {
+                        // V10/L2-EK: yalnız video örnekleri (source_id=0) yayınlanır —
+                        // JSON şemasında kaynak alanı yok, audio örnekleri (1Hz)
+                        // istemcilere sahte fps/kbps olarak karışıyordu.
+                        if sample.source_id == 0 {
                             json_buf.clear();
                             use std::fmt::Write as _;
                             let _ = write!(json_buf,
@@ -1333,6 +1367,55 @@ pub extern "C" fn rj_get_healing_mode() -> u32 {
     .unwrap_or(0)
 }
 
+/// V10/L1(c): kural dosyasını YAN ETKİSİZ doğrular — canlı motora dokunmaz.
+/// `rj_reload_rules`'tan tek farkı: başarılı parse sonucu `FFI_STATE`'e
+/// yazılmaz (sonuç bilinçli atılır). GUI `validateRulesFile` bunu kullanır;
+/// eskiden doğrulama `rj_reload_rules(tmpPath)` ile yapıldığından her
+/// import/export/profil doğrulaması motoru geçici-dosya kurallarına
+/// çeviriyordu (motor-disk ayrışması). `FFI_STATE` gerektirmez — monitör
+/// başlamadan da çağrılabilir. Dönüş: 1 = geçerli, 0 = geçersiz/null.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_validate_rules(path: *const c_char) -> i32 {
+    catch_unwind(AssertUnwindSafe(move || {
+        if path.is_null() {
+            return 0;
+        }
+        // I24 deseni: sınırlı okuma — aşırı uzun/NUL'suz path güvenli reddedilir.
+        let path_str = match unsafe { cstr_bounded(path, MAX_FFI_PATH_LEN) } {
+            Some(s) => PathBuf::from(s),
+            None => {
+                warn!("rj_validate_rules: geçersiz/aşırı uzun path (>{}B) — reddedildi", MAX_FFI_PATH_LEN);
+                return 0;
+            }
+        };
+        match RuleEngine::new(&path_str) {
+            Ok(_) => 1, // sonuç bilinçli atılır — canlı motor değişmez
+            Err(e) => {
+                warn!(path = ?path_str, error = %e, "rules validation failed");
+                0
+            }
+        }
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!("[PANIC] rj_validate_rules caught panic");
+        0
+    })
+}
+
+/// SIYAH_KUTU kök düzeltmesi: C++ aktüatörü konfigüre bitrate durumunu
+/// bildirir — `Pipeline::apply_action` her REDUCE/RECOVER kararında ve
+/// pipeline init'te çağırır. Kural katmanı bu duruma bakarak "kurtarılacak
+/// düşüş yokken" BitrateRecover aksiyonu (ve sahte healing banner'ını) hiç
+/// üretmez. Ölçülen kbps DEĞİL, konfigüre değerler beklenir (dalgalanma
+/// sahte tetik üretirdi). FFI_STATE gerektirmez; idempotent/yarışsız
+/// (iki bağımsız atomic store).
+#[no_mangle]
+pub extern "C" fn rj_update_bitrate_state(current_kbps: u32, original_kbps: u32) {
+    CURRENT_BITRATE_KBPS.store(current_kbps, Ordering::Relaxed);
+    ORIGINAL_BITRATE_KBPS.store(original_kbps, Ordering::Relaxed);
+}
+
 /// Reload rules from file (async hot-reload)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
@@ -1365,13 +1448,19 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
         };
 
         match RuleEngine::new(&path_str) {
-            Ok(new_engine) => {
+            Ok(mut new_engine) => {
                 let mut engine_lock = state.rule_engine
                     .lock()
                     .unwrap_or_else(|poisoned| {
                         warn!("rule_engine mutex poison — recovering");
                         poisoned.into_inner()
                     });
+                // V10/L3: kalibre eşik tablosu engine-içi yaşar — devralınmazsa
+                // her reload Özellik#5 kalibrasyonunu sessizce siler
+                // (calibration_done=true → HealingMonitor yeniden uygulamaz).
+                if let Some(old_engine) = engine_lock.as_ref() {
+                    new_engine.adopt_calibration(old_engine);
+                }
                 *engine_lock = Some(new_engine);
                 info!(path = ?path_str, "Rules reloaded successfully");
                 1
@@ -1708,6 +1797,91 @@ mod tests {
             events.iter().any(|e| matches!(e, MediaEvent::FrameDropped { count: 7 })),
             "frame_drops > 0 iken FrameDropped yayılmalı"
         );
+    }
+
+    // --- V10/L2: audio örnekleri event türetimine karışmamalı ---
+
+    #[test]
+    fn audio_sample_emits_no_media_events() {
+        // V10/L2: ses metrik örneği (source_id=1, 1Hz) frame_drop_pct=0 taşır;
+        // ayrımsız türetim videonun gerçek drop sinyalini sıfırlayıp sahte
+        // frame_drop_recovery tetikliyordu. Ses glitch sayacı (frame_drops)
+        // da video FrameDropped trendine karışmamalı.
+        let mut s = sample_for_events();
+        s.source_id = 1;
+        s.frame_drops = 7;
+        s.frame_drop_pct = 0;
+        let events = media_events_for_sample(&s);
+        assert!(
+            events.is_empty(),
+            "audio örneğinden media event yayılmamalı: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn audio_sample_emits_no_system_events() {
+        // V10/L2-EK: audio örneğinde cpu_load_pct=0 → koşulsuz CpuUsage,
+        // sahte CpuUsage{0} enjekte ediyordu (MemUsage'ın >0 guard'ı ile
+        // asimetri). Sistem event türetimi de source_id==0'a sınırlı.
+        let mut s = sample_for_events();
+        s.source_id = 1;
+        let events = system_events_for_sample(&s);
+        assert!(
+            events.is_empty(),
+            "audio örneğinden system event yayılmamalı: {:?}",
+            events
+        );
+    }
+
+    // --- V10/L1(c): rj_validate_rules — yan etkisiz doğrulama ---
+
+    const L1_VALID_RULES_JSON: &str = r#"{"hysteresis_ms":0,"rules":[{"id":"l1_validate_probe","description":"L1 test kuralı","condition":"frame_drop_pct > 10","action":"bitrate_reduce","params":{},"modes":["auto-pilot"]}]}"#;
+
+    #[test]
+    fn validate_rules_accepts_valid_rejects_invalid_and_null() {
+        // V10/L1(c): GUI doğrulaması rj_reload_rules yan etkisi olmadan
+        // yapılabilmeli — geçerli 1, bozuk 0, null 0.
+        let dir = std::env::temp_dir();
+
+        let valid = dir.join("reji_l1_valid.json");
+        std::fs::write(&valid, L1_VALID_RULES_JSON).unwrap();
+        let c = std::ffi::CString::new(valid.to_str().unwrap()).unwrap();
+        assert_eq!(rj_validate_rules(c.as_ptr()), 1, "geçerli dosya 1 dönmeli");
+
+        let invalid = dir.join("reji_l1_invalid.json");
+        std::fs::write(&invalid, "{ bozuk json").unwrap();
+        let c = std::ffi::CString::new(invalid.to_str().unwrap()).unwrap();
+        assert_eq!(rj_validate_rules(c.as_ptr()), 0, "bozuk dosya 0 dönmeli");
+
+        assert_eq!(rj_validate_rules(std::ptr::null()), 0, "null path 0 dönmeli");
+    }
+
+    #[test]
+    fn validate_rules_does_not_touch_live_engine() {
+        // V10/L1(c) kök neden: validateRulesFile doğrulamayı rj_reload_rules
+        // ile yapınca CANLI motor geçici-dosya kurallarına dönüyordu
+        // (motor-disk ayrışması). rj_validate_rules motoru DEĞİŞTİRMEMELİ.
+        rj_start_monitor();
+
+        let mut before = vec![0 as c_char; 16384];
+        let n1 = rj_rules_snapshot_json(before.as_mut_ptr(), 16384);
+        assert!(n1 >= 0, "canlı snapshot alınabilmeli");
+
+        let dir = std::env::temp_dir();
+        let probe = dir.join("reji_l1_probe.json");
+        std::fs::write(&probe, L1_VALID_RULES_JSON).unwrap();
+        let c = std::ffi::CString::new(probe.to_str().unwrap()).unwrap();
+        assert_eq!(rj_validate_rules(c.as_ptr()), 1);
+
+        let mut after = vec![0 as c_char; 16384];
+        let n2 = rj_rules_snapshot_json(after.as_mut_ptr(), 16384);
+        assert_eq!(n1, n2, "doğrulama canlı motorun snapshot boyutunu değiştirmemeli");
+        assert_eq!(before[..n1 as usize], after[..n2 as usize],
+            "doğrulama canlı motorun kural setini değiştirmemeli");
+        let after_str = unsafe { std::ffi::CStr::from_ptr(after.as_ptr()) }.to_string_lossy();
+        assert!(!after_str.contains("l1_validate_probe"),
+            "probe kuralı canlı motora sızmamalı");
     }
 
     // --- I24: cstr_bounded sınırlı okuma ---

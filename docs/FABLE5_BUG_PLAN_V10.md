@@ -1,7 +1,8 @@
 # FABLE5_BUG_PLAN_V10.md — Reji Studio Dördüncü Nesil Bug Planı (V9-Sonrası Yeni Kod)
 
-**Durum:** 🟠 SENTEZ İŞLENDİ — dört model taraması tamamlandı, L1-L20
-atandı. Faz 0 doğrulamaları Sprint 1'den başlıyor.
+**Durum:** 🟠 SPRINT 1 KAPANDI (merge edildi) — dört model taraması
+tamamlandı, L1-L20 atandı; L21-L23 canlı Faz 0 teşhisinden Sprint 2'ye
+eklendi. Sıradaki: Sprint 2.
 
 **Hazırlayan:** Sentez sohbeti (dört bağımsız model raporunun
 triyajı — `docs/V10_SENTEZ_TRIYAJ.md` kanonik ara belge).
@@ -69,12 +70,12 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 
 | # | Madde | Doğrulama | Sprint | Durum |
 |---|---|---|---|---|
-| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | ✅ Faz 0 DOĞRULANDI (a,b,c,d — c rapordan geniş) |
-| L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | ✅ Faz 0 DOĞRULANDI (+CpuUsage{0} ve WS broadcast kirliliği) |
-| L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | ✅ Faz 0 DOĞRULANDI |
-| L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | ✅ Faz 0 DOĞRULANDI |
-| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ Faz 0 DOĞRULANDI — initPipeline ölü kod (0 çağıran) |
-| L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | ✅ Faz 0 DOĞRULANDI |
+| L1 | writeValidatedRules hata-yolu zinciri (backup/restore/motor-disk ayrışması/exportRules TOCTOU) | 🟢 4/4 | 1 | ✅ FIXED c528b7c (+L1-ek 72b4b09: statik-lib qrc kaydı — L5'in açığa çıkardığı latent bug, L1 regresyonu değil) |
+| L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | ✅ FIXED 3e1fcd4 (+CpuUsage{0} ve WS broadcast dahil) |
+| L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 73d0137 (adopt_calibration) |
+| L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 8af4f3c (enabled parametresi) |
+| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ FIXED 758d155 (tek init yolu) — canlı doğrulama kullanıcıda |
+| L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | ✅ FIXED fcdcb9e (asc_sent_ retry) |
 | L7 | Shutdown-flush sırasında MF lazy-init SEH ihlali | 🔵 1/4 (Fable) | 1 | ❌ ÇÜRÜTÜLDÜ — on_packet streaming guard'ı drain'i keser |
 | L8 | Zig ABI üst-sınır eksikliği + writeFlvTag sessiz kırpma | 🔵 1/4 (tavan) / 🟢 3/4 (kırpma) | 2 | Faz 0 bekliyor |
 | L9 | MFT CAN_PROVIDE_SAMPLES yanlış yorumu + hata-yolu pSample sızıntısı | 🔵 1/4 (Fable) | 2 | Faz 0 bekliyor |
@@ -303,6 +304,50 @@ saatlerce kayar; drift valfi sürekli uyarır ama düzeltmez.
 çürüt, farklıysa düzelt. (Fable raporunun kendisi de "pacer görülmeden
 kesinleşmez" diye işaretledi.)
 
+### L21 — Predictive katman gönderim-hatasını yük sanıyor 🟢 canlı kanıt (Faz 0 reduce-tetikleyici teşhisi)
+**Konum:** `src/orchestrator/src/healing.rs:657-664` (frame-drop trendi),
+`src/pipeline/pipeline.cpp:307-310` (`on_packet` send-fail → drop),
+`src/pipeline/output/srt_output.cpp:390` (`connected=false` → her send false)
+**Açıklama:** START'a basıldığında SRT bağlantısı yoksa (caller-mode
+bağlanamamış, `connected=false`) her encode paketi drop sayılır →
+`FrameDropped` seli → predictive `ReduceBitrate(3500)`. Canlı kanıt
+(`run.log` 22.07 22:28): cpu %14-18, gpu %20-22, drop %0 iken
+"streaming started"dan ~2-3 sn sonra 6000→3500. Bitrate düşürmek
+tıkanıklık tedavisidir, "bağlantı yok"u çözmez; streaming alıcısız
+sürseydi 60 sn cooldown'la salınım üretirdi. S1-ek4 ikincil bulgusu
+(b) (healing aktüasyonunda yayın-durumu kapısı yok) bu maddenin
+kapsamına komşu.
+**Önerilen düzeltme:** Gönderim-hatası drop'larını predictive
+trendden ayır; bağlantı-yok/koptu durumunu mevcut
+`notify_connection_lost` → fallback yoluna yönlendir. Kendi Faz
+0/1'ini hak eden orta-büyük mimari iş.
+
+### L22 — frame_drop_pct ölü metrik: kural motoru kör 🟢 canlı kanıt (S1-ek4 ikincil bulgu (a)'nın resmileşmesi)
+**Konum:** `src/pipeline/metrics_collector.cpp:93-101`
+(`record_frame`/`record_frame_drop` — çağıran YOK),
+`docs/config/profiles/*.json` (üç frame_drop kuralı)
+**Açıklama:** `frame_drop_pct` daima 0 → `frame_drop_mild/high`
+reduce kuralları HİÇ tetiklenmez, `frame_drop_recovery` (`< 3`)
+KOŞULSUZ tetiklenir (healing_log.sqlite: 54/54 kayıt
+frame_drop_recovery, current_value=0). S1 turundaki 3500→6000
+iyileşmesi bu koşulsuz kural sayesinde çalıştı — tasarım gereği
+değil, tesadüfen.
+**Faz 0 sorusu:** Metrik diriltilmeli mi (Impl::frame_drops
+zincirinden beslemek bir aday) yoksa üç kural profillerden
+çıkarılmalı mı? İkisi birden olmaz — koşulsuz recovery şu an
+fiili emniyet supabı, kaldırmadan önce recovery'nin gerçek
+tetikleyicisi tanımlanmalı.
+
+### L23 — SRT bağlantı durumu gözlemlenebilirliği 🔵 hijyen (L21 teşhisinin açık bıraktığı nokta)
+**Konum:** `src/pipeline/output/srt_output.cpp` (durum geçişleri
+yalnız `OutputDebugStringA`; `run.log`'a hiçbir şey yazılmıyor)
+**Açıklama:** Faz 0 teşhisinde SRT bağlantı durumu loglardan
+doğrulanamadı — "alıcı yoktu" sonucu eleme yöntemiyle kuruldu.
+connect başarı/başarısızlık ve `connected` geçişleri (kayıp dahil)
+run.log'a yazılırsa bu sınıf teşhisler doğrudan kanıtla kapanır.
+**Önerilen düzeltme:** Bağlantı durum geçişlerinde tek satır dbglog
+(hot-path `send_internal`'a log koyma — yalnız geçiş anları).
+
 ---
 
 ## Sprint 3 — Düşük öncelik / hijyen
@@ -369,6 +414,82 @@ kesinleşmez" diye işaretledi.)
       spekülatif havuz)
 - [ ] Linear'da V10 issue açıldı _(bkz. talimat Bölüm D)_
 - [x] Sprint'lere bölündü (S1: L1-L7, S2: L8-L12, S3: L13-L20)
-- [ ] Faz 0 doğrulamaları — Sprint 1'den başlıyor
+- [x] Sprint 1 Faz 0 tamamlandı (L1-L6 doğrulandı, L7 çürütüldü)
+- [x] Sprint 1 düzeltmeleri `feat/v10-sprint1` dalında (Bölüm 8b: çok
+      commit + güvenlik-hassas → feature dalı): L2 3e1fcd4, L3 73d0137,
+      L1 c528b7c, L4 8af4f3c, L6 fcdcb9e, L5 758d155. Testler: Rust
+      132+5+35 PASS, RulesWatchTest 4/4, AudioWireTest 10/10,
+      OutputSubsystemTest 7/7, PipelineCharacterization 1/1, reji_app
+      build OK. Merge + push kullanıcı onayı bekliyor; L5/L1 GUI
+      akışları canlı testte doğrulanacak.
+- [x] S1-ek3 (7665cb0, `docs/HEALING_RECOVERY_KOK_DUZELTME.md`): S1-ek2'nin
+      UI gate'i yanlış boyutu hedefledi (canlıda kutu yayın SIRASINDA çıktı)
+      → kök çözüm Rust'ta: rj_update_bitrate_state FFI'sı ile C++ konfigüre
+      bitrate durumunu bildirir (bitrate_kbps.store noktalarında + init);
+      collect_rule_actions, recovery_has_deficit (0<current<original) doğru
+      değilse BitrateRecover'ı hiç üretmez. UI gate kaldırıldı (gerekçe:
+      meşru banner'ları da yutuyordu; kök kaynakta kesildi). 5 yeni Rust
+      testi + 2 mevcut test açık-deficit imzasına taşındı; Rust 137+5+35,
+      HealingOverlayTest 2/2 (geometri kilitleri), Characterization 1/1,
+      OutputSubsystem 7/7. Kullanıcı: boşta VE yayında gözlem gerekli.
+      "Sprint 2'ye ertelendi" kararı geri alındı — kapsam bu turda kapandı.
+- [x] S1-ek4 (13be1ab, `docs/BITRATE_STATE_SENKRON.md`): 7665cb0 sonrası kutu
+      START'sız belirdi. Faz 0: kullanıcı hipotezi (3500 = kalıcı ayar,
+      current/original farklı kaynaklar) ÇÜRÜTÜLDÜ (registry bitrate=6000;
+      rj_update_bitrate_state iki atomiği daima birlikte yazar, tek yazar).
+      Kök neden: null capture frame ("yeni kare yok" — durağan ekranda normal)
+      run_frame'de frame_drops sayılıyordu → boşta FrameDropped event'leri
+      predictive katmanı besliyor → ReduceBitrate(3500) encoder'a GERÇEKTEN
+      uygulanıyor (status bar "3500"ün kaynağı) → (3500,6000) gerçek açık →
+      frame_drop_recovery (ölü frame_drop_pct=0 → koşul hep doğru) her 6s'de
+      BitrateRecover + banner. Eski baseline_metrics.txt bunu canlı kaydetmişti
+      (boşta drops=1/örnek, ~60. frame'de 6000→3500). Düzeltme:
+      frame_drop_policy.h saf seam — yalnız EncodeFailed drop sayılır;
+      NoNewFrame sayılmaz. FrameDropPolicyTest 3/3 (RED-GREEN), ctest 22/24
+      (bilinen 2), yeni baseline boşta drops=0 / 6000 sabit (davranış bilinçli
+      değişti → baseline bu kez commit'e SOKULDU). Kullanıcı: 3 senaryo gözlemi
+      gerekli (boşta / yayında / gerçek düşüşte recovery). SONRAKİ SPRİNT:
+      (a) frame_drop_pct ölü metrik (record_frame/record_frame_drop çağrılmıyor
+      — reduce kuralları hiç, recovery daima tetiklenir), (b) healing
+      aktüasyonunda yayın-durumu kapısı yok, (c) DERS — dört ardışık
+      merge-öncesi bulgunun ortak paydası: mutlu-yol testleri "uygulama açık
+      ama yayın yok" başlangıç durumunu hiç kapsamıyor; boşta-durum testleri
+      sprint planına ayrı kalem olarak girmeli.
+- [x] S1-ek2 (6c6fce1, `docs/SIYAH_KUTU_REGRESYON.md`): boşta her ~6s'de
+      sahne paneli üstünde beliren kutu. ~5s timer YOK, L5 ile İLGİSİZ;
+      periyot = hysteresis_ms 6000. Zincir: eski ~/.reji/rules.json mode
+      adları (auto/co_pilot) motorla hiç eşleşmiyordu → L1-ek applyProfile'ı
+      canlandırınca stabilite ilk EŞLEŞEN set oldu → frame_drop_recovery
+      boşta her pencerede tetiklendi → healing overlay banner'ı. Düzeltme
+      (onaylı): yayın yokken bilgi banner'ı bastırılır (geçmiş tutulur,
+      onay prompt'ları muaf). Dürüst sınır: "içeriksiz siyah" render
+      ayrıntısı doğrulanamadı — adjustSize hipotezi offscreen testle
+      çürüdü; en olası açıklama 3s'lik koyu banner'ın kendisi (canlı
+      teyit bekliyor). HealingOverlayTest 4/4 (yeni widget test altyapısı).
+      SPRINT 2 NOTU: boşta (yayın yokken) kural değerlendirmesi/recovery
+      üretimi tasarım sorusu — Rust tarafı kök çözüm adayı (L11 komşusu).
+- [x] L1-ek (72b4b09, `docs/ACIL_L1_QRC_REGRESYON.md`): canlı profil-uygula
+      denemesi ":/config/profiles/*.json bulunamadı" verdi. Kök neden L1
+      regresyonu DEĞİL — statik reji_ui.lib'de qrc nesnesi linker'ca
+      atılıyordu (self-registration hiç çalışmadı); applyProfile L5'e dek
+      ölü yol olduğundan hiç görünmemişti, şablon tohumlama da latent
+      kırıktı. Düzeltme: ensureResourcesRegistered (Q_INIT_RESOURCE).
+      Test boşluğu kapatıldı: QrcResourcesTest reji_ui'yi uygulamayla aynı
+      biçimde link'ler; negatif kontrol canlı hatayı birebir üretti.
+      Kullanıcı yeniden denemeli: öneri diyaloğunda "Uygula".
+- [x] Faz 0 reduce-tetikleyici araştırması
+      (`docs/REDUCE_TETIKLEYICI_ARASTIRMA.md`, kod değişikliği YOK):
+      6000→3500 düşüşünün kaynağı kural motoru DEĞİL — predictive katman
+      (hedef 3500 = REDUCED_BITRATE_KBPS imzası), besleyen sinyal START
+      sonrası SRT gönderim-hatası drop'ları (127.0.0.1:9000'de dinleyici
+      yok, `connected=false` → her paket drop). Gerçek CPU/GPU yükü YOKTU
+      (cpu ≤%22, gpu ≤%22, mem %58, drop_pct %0). healing_log.sqlite:
+      hiç reduce kaydı yok (predictive log'a yazmıyor), 4 recovery kaydı
+      4 healing adımıyla birebir. Hibrit-GPU ölçümü bu olayda temiz
+      (PDH engtype_3D max — ama NVENC encode motorunu ölçmüyor, ileri
+      not). S1-ek4 düzeltmesinin boşta-doğrulaması BAŞARILI (boşta
+      drop=0, 6000 sabit). KARAR (kullanıcı): Sprint 1 merge edilir;
+      bulgular L21-L23 olarak Sprint 2'ye — "madem buradayız" tuzağından
+      bilinçli kaçınma.
 - Tamamlanınca `TALIMAT_V10_TARAMA_HAZIRLIK.md` → `docs/talimatlar/`
   arşivine taşınacak.
