@@ -9,6 +9,11 @@
 
 namespace reji::pipeline::audio {
 
+// V10/L16: encoder'in init'te ayirdigi scratch, ring'den gelebilecek en buyuk
+// chunk'i kapsamali — aksi halde encode hot-path'i realloc'a duser.
+static_assert(AudioRing::kMaxSamplesPerChunk <= AacEncoder::kMaxExpectedSamplesPerCall,
+              "AudioRing chunk ust siniri AacEncoder scratch rezervini asamaz");
+
 namespace {
 inline void dlog(const char* msg) noexcept {
 #ifdef _WIN32
