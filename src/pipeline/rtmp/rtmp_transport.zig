@@ -155,6 +155,20 @@ fn buildAvcConfig(out: *Buf, sps: []const u8, pps: []const u8) !void {
 const flv_video_tag: u8 = 0x09;
 const flv_audio_tag: u8 = 0x08;
 
+// V10/L8: ABI üst sınırları — C tarafından gelen bozuk usize sınırsız slice
+// kurmasın (J1 cstr_bounded dersinin bu yüzeydeki karşılığı). Sınırlar spec'ten:
+// video = FLV tag DataSize 24-bit tavanı; AAC = ADTS 13-bit frame üst sınırı;
+// ASC = AudioSpecificConfig için cömert tavan (tipik 2-5 bayt).
+const max_video_packet_bytes: usize = 0xFFFFFF;
+const max_aac_frame_bytes: usize = 8192;
+const max_asc_bytes: usize = 256;
+
+// V10/L8: FLV DataSize 24-bit — sığmayan gövde kırpılMAZ, reddedilir.
+// (Eski `body.len & 0xFFFFFF` maskesi 16MB üstünde sessiz bozuk tag üretirdi.)
+fn withinTagLimit(body_len: usize) bool {
+    return body_len <= 0xFFFFFF;
+}
+
 // FLV AAC AUDIODATA gövdesi: AudioTagHeader (0xAF = AAC|44k+|16bit|stereo, Flash
 // AAC için sabit) + AACPacketType (0 = sequence header/ASC, 1 = ham AAC frame) +
 // payload. Saf/yan-etkisiz — birim testli (bkz. aşağıdaki testler).
@@ -166,10 +180,11 @@ fn buildAudioTagBody(out: *Buf, packet_type: u8, payload: []const u8) !void {
 }
 
 fn writeFlvTag(t: *Transport, r: *rt.RTMP, tag_type: u8, ts_ms: u32, body: []const u8) bool {
+    if (!withinTagLimit(body.len)) return false;
     t.tag.len = 0;
     const ok = blk: {
         t.tag.appendByte(tag_type) catch break :blk false;
-        t.tag.appendBe24(@intCast(body.len & 0xFFFFFF)) catch break :blk false;
+        t.tag.appendBe24(@intCast(body.len)) catch break :blk false;
         t.tag.appendBe24(ts_ms & 0xFFFFFF) catch break :blk false;
         t.tag.appendByte(@intCast((ts_ms >> 24) & 0xFF)) catch break :blk false;
         t.tag.appendBe24(0) catch break :blk false; // StreamID
@@ -290,6 +305,10 @@ export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize,
         return false;
     }
     if (size == 0) return true;
+    if (size > max_video_packet_bytes) {
+        dlog("send: size={d} tavani asti, paket reddedildi", .{size});
+        return false;
+    }
     const data = (data_ptr orelse return false)[0..size];
 
     const diag = send_diag_count < 10;
@@ -364,7 +383,7 @@ export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize,
 // sequence header olarak gönderilir. Yeniden çağrı ASC'yi günceller + seq_sent sıfırlar.
 export fn rj_rtmp_set_audio_config(handle: ?*anyopaque, asc_ptr: ?[*]const u8, asc_len: usize) bool {
     const t = get(handle) orelse return false;
-    if (asc_len == 0) return false;
+    if (asc_len == 0 or asc_len > max_asc_bytes) return false;
     const src = (asc_ptr orelse return false)[0..asc_len];
     if (t.asc) |old| allocator.free(old);
     t.asc = allocator.dupe(u8, src) catch {
@@ -383,6 +402,7 @@ export fn rj_rtmp_send_audio(handle: ?*anyopaque, aac_ptr: ?[*]const u8, aac_len
     const r = t.rtmp orelse return false;
     if (rt.RTMP_IsConnected(r) == 0) return false;
     if (aac_len == 0) return true;
+    if (aac_len > max_aac_frame_bytes) return false;
     const aac = (aac_ptr orelse return false)[0..aac_len];
 
     // Sequence header — ASC hazırsa bir kez, ts=0.
@@ -550,4 +570,20 @@ test "Buf büyür ve içerik korunur" {
     while (i < 10_000) : (i += 1) try buf.appendByte(@truncate(i));
     try std.testing.expectEqual(@as(usize, 10_000), buf.len);
     try std.testing.expectEqual(@as(u8, @truncate(9_999)), buf.items()[9_999]);
+}
+
+test "withinTagLimit FLV 24-bit sınırında kabul, üstünde ret" {
+    // V10/L8: writeFlvTag'in eski `& 0xFFFFFF` maskesi 16MB üstü gövdeyi sessizce
+    // kırpıyordu; artık sınır aşımı reddedilir (bozuk tag hiç üretilmez).
+    try std.testing.expect(withinTagLimit(0));
+    try std.testing.expect(withinTagLimit(0xFFFFFF));
+    try std.testing.expect(!withinTagLimit(0x1000000));
+}
+
+test "ABI tavanları FLV/ADTS spec sınırlarıyla tutarlı" {
+    // Video tavanı FLV tag gövde sınırını aşamaz (aşarsa writeFlvTag zaten
+    // reddeder ama giriş noktasında erken ret teşhisi netleştirir).
+    try std.testing.expect(withinTagLimit(max_video_packet_bytes));
+    try std.testing.expect(max_aac_frame_bytes <= max_video_packet_bytes);
+    try std.testing.expect(max_asc_bytes <= max_aac_frame_bytes);
 }
