@@ -117,6 +117,12 @@ public:
     /// için "makinede kapasiteli GPU var mı" vekili. 0 = init edilmedi / adaptör yok.
     uint64_t max_gpu_vram_mb() const;
 
+    /// V10/L18: `max_gpu_vram_mb`'yi veren ADAPTÖRÜN vendor_id'si. Profil önerisi
+    /// diyaloğu vendor+VRAM'i aynı adaptörden göstersin diye — display vendor
+    /// (iGPU) ile max VRAM (dGPU) yan yana "Intel 12GB" gibi anlamsız bir
+    /// kombinasyon üretebiliyordu. 0 = init edilmedi / adaptör yok.
+    uint32_t max_vram_vendor_id() const;
+
     /// Accessor for the frame profiler (initialized during init).
     /// Returns nullptr before init() or if profiler creation failed.
     rj::FrameProfiler* profiler() { return profiler_.get(); }

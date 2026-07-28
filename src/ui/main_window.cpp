@@ -337,9 +337,11 @@ void MainWindow::maybeSuggestProfileOnFirstRun() {
     if (settings_.value(QStringLiteral("profile/asked"), false).toBool()) return;
 
     // Donanım sinyalleri: vendor/VRAM pipeline GpuScan'den (donanım izolasyonu),
-    // RAM/batarya profile_advisor'dan.
-    const uint32_t vendor = pipeline_ ? pipeline_->display_vendor_id() : 0;
-    const uint64_t vram   = pipeline_ ? pipeline_->max_gpu_vram_mb()   : 0;
+    // RAM/batarya profile_advisor'dan. V10/L18: vendor, VRAM'i veren adaptörden
+    // alınır — display vendor (iGPU) + max VRAM (dGPU) karışımı hibrit-GPU'da
+    // "Intel 12GB" gibi anlamsız bir gösterim üretiyordu.
+    const uint32_t vendor = pipeline_ ? pipeline_->max_vram_vendor_id() : 0;
+    const uint64_t vram   = pipeline_ ? pipeline_->max_gpu_vram_mb()    : 0;
     const reji::HwSignals sig = reji::collect_hw_signals(vendor, vram);
     const reji::ProfileId suggested = reji::suggest_profile(sig);
 
