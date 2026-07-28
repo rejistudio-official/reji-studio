@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -108,6 +108,31 @@ fn now_us() -> u64 {
 /// Süreç-global yazma kuyruğu. `start_writer` bir kez kurar; `log_healing` push eder.
 static QUEUE: OnceLock<Arc<ArrayQueue<HealingLogRecord>>> = OnceLock::new();
 
+/// V10/L14: writer thread'inin kontrol kulpu — `shutdown_writer` sinyal + join
+/// için tutar. `start_writer` doldurur; shutdown `take` ile idempotent boşaltır.
+static CONTROL: Mutex<Option<WriterControl>> = Mutex::new(None);
+
+/// V10/L14: shutdown sinyali (Condvar — writer FLUSH_INTERVAL uykusundan anında
+/// uyanır) + join edilecek thread kulpu.
+struct WriterControl {
+    stop: Arc<(Mutex<bool>, Condvar)>,
+    handle: thread::JoinHandle<()>,
+}
+
+impl WriterControl {
+    /// Sinyali kaldırır, writer'ı uyandırır ve son flush'ını bekler (join).
+    fn shutdown(self) {
+        {
+            let (lock, cvar) = &*self.stop;
+            *lock.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            cvar.notify_all();
+        }
+        if self.handle.join().is_err() {
+            eprintln!("[HealingLog] writer thread join panik ile bitti");
+        }
+    }
+}
+
 /// Kuyruk dolu (writer geride/kapalı/başlatılmamış) olduğu için düşürülen kayıt
 /// sayısı — `ffi::DROPPED_*_COUNT` emsali (sesli/sayılabilir kayıp, sessiz değil).
 pub static DROPPED_LOGS_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -134,16 +159,47 @@ pub fn start_writer(db_path: PathBuf) {
         return; // yarış: başka çağrı kurdu
     }
 
-    if let Err(e) = thread::Builder::new()
-        .name("healing-log-writer".into())
-        .spawn(move || writer_loop(queue, db_path))
-    {
-        // Thread kurulamazsa kuyruk dolar ve push'lar drop+sayılır (yut ama sesli).
-        eprintln!("[HealingLog] writer thread spawn edilemedi: {} — log devre dışı", e);
+    if let Some(ctrl) = spawn_writer(db_path, queue) {
+        *CONTROL.lock().unwrap_or_else(|e| e.into_inner()) = Some(ctrl);
     }
 }
 
-fn writer_loop(queue: Arc<ArrayQueue<HealingLogRecord>>, db_path: PathBuf) {
+/// V10/L14: düzenli kapanışta writer'ı durdurur — kuyruktaki son kayıtlar
+/// (son `FLUSH_INTERVAL` penceresine düşenler dahil) diske yazıldıktan sonra
+/// döner. İdempotent; writer hiç başlamadıysa no-op. Çağrı sonrası
+/// `log_healing` push'ları drop+sayılır (`DROPPED_LOGS_COUNT`).
+pub fn shutdown_writer() {
+    let ctrl = CONTROL.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(ctrl) = ctrl {
+        ctrl.shutdown();
+    }
+}
+
+/// Writer thread'ini kurar (test edilebilir çekirdek — global state'e dokunmaz).
+fn spawn_writer(
+    db_path: PathBuf,
+    queue: Arc<ArrayQueue<HealingLogRecord>>,
+) -> Option<WriterControl> {
+    let stop = Arc::new((Mutex::new(false), Condvar::new()));
+    let stop_thread = stop.clone();
+    match thread::Builder::new()
+        .name("healing-log-writer".into())
+        .spawn(move || writer_loop(queue, db_path, stop_thread))
+    {
+        Ok(handle) => Some(WriterControl { stop, handle }),
+        Err(e) => {
+            // Thread kurulamazsa kuyruk dolar ve push'lar drop+sayılır (yut ama sesli).
+            eprintln!("[HealingLog] writer thread spawn edilemedi: {} — log devre dışı", e);
+            None
+        }
+    }
+}
+
+fn writer_loop(
+    queue: Arc<ArrayQueue<HealingLogRecord>>,
+    db_path: PathBuf,
+    stop: Arc<(Mutex<bool>, Condvar)>,
+) {
     let conn = match open_db(&db_path) {
         Ok(c) => c,
         Err(e) => {
@@ -159,7 +215,20 @@ fn writer_loop(queue: Arc<ArrayQueue<HealingLogRecord>>, db_path: PathBuf) {
     let mut batch: Vec<HealingLogRecord> = Vec::with_capacity(QUEUE_CAP);
     let mut last_prune = Instant::now();
     loop {
-        thread::sleep(FLUSH_INTERVAL);
+        // V10/L14: sabit uyku yerine Condvar bekleyişi — shutdown sinyali
+        // FLUSH_INTERVAL uykusunu anında keser; kilit tutulurken sinyal
+        // atlanamaz (bekleme kilidi atomik bırakır — kayıp uyanma yok).
+        let stopping = {
+            let (lock, cvar) = &*stop;
+            let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+            if !*guard {
+                guard = cvar
+                    .wait_timeout(guard, FLUSH_INTERVAL)
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
+            }
+            *guard
+        };
 
         batch.clear();
         while let Some(rec) = queue.pop() {
@@ -173,6 +242,12 @@ fn writer_loop(queue: Arc<ArrayQueue<HealingLogRecord>>, db_path: PathBuf) {
                 // Batch kaybı sesli loglanır; healing akışı zaten push'u beklemedi.
                 eprintln!("[HealingLog] batch yazımı başarısız ({} kayıt düştü): {}", batch.len(), e);
             }
+        }
+
+        if stopping {
+            // Son flush yukarıda yapıldı — budamayı atla, düzenli çık.
+            info!("healing-log writer düzenli kapanışla durdu");
+            return;
         }
 
         if last_prune.elapsed() >= PRUNE_INTERVAL {
@@ -327,6 +402,38 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM healing_log", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn shutdown_flushes_pending_records_without_waiting_interval() {
+        // V10/L14: kapanış sinyali writer'ı FLUSH_INTERVAL uykusundan uyandırır,
+        // kuyruktaki son kayıtlar diske iner — eski `loop{sleep}` düzeninde bu
+        // pencere (son ~250ms) süreç çıkışında sessizce kayboluyordu.
+        let dir = std::env::temp_dir().join("reji_l14_flush");
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join(format!("healing_l14_{}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&db);
+
+        // Global QUEUE/CONTROL'e dokunmadan izole writer (test edilebilir çekirdek).
+        let queue: Arc<ArrayQueue<HealingLogRecord>> = Arc::new(ArrayQueue::new(QUEUE_CAP));
+        let ctrl = spawn_writer(db.clone(), queue.clone()).expect("writer spawn edilmeli");
+
+        queue.push(rec(1_000, 7, OUTCOME_APPLIED)).unwrap();
+        queue.push(rec(2_000, 8, OUTCOME_PENDING)).unwrap();
+
+        let started = Instant::now();
+        ctrl.shutdown();
+        // Sinyal uyandırma çalışıyorsa join FLUSH_INTERVAL'den belirgin kısa sürer
+        // (DB açılışı dahil pay bırakılır — kilit iddia aşağıdaki satır sayısı).
+        assert!(started.elapsed() < Duration::from_secs(5), "shutdown makul sürede dönmeli");
+
+        let conn = Connection::open(&db).unwrap();
+        let n: u32 = conn
+            .query_row("SELECT COUNT(*) FROM healing_log", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2, "kapanış öncesi push'lanan TÜM kayıtlar son flush ile diske inmeli");
+        drop(conn);
+        let _ = std::fs::remove_file(&db);
     }
 
     #[test]

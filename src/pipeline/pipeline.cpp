@@ -860,6 +860,21 @@ uint64_t Pipeline::max_gpu_vram_mb() const {
     return max_mb;
 }
 
+uint32_t Pipeline::max_vram_vendor_id() const {
+    if (!impl_ || !impl_->capture_sub_.dxgi()) return 0;
+    const auto& scan = impl_->capture_sub_.dxgi()->gpu_scan();
+    if (scan.count == 0) return 0;
+    // max_gpu_vram_mb ile aynı seçim: en büyük adanmış VRAM'li adaptör.
+    // Eşitlikte ilk adaptör kazanır (VRAM'ler eşitse vendor seçimi keyfidir).
+    uint32_t best = 0;
+    for (uint32_t i = 1; i < scan.count; ++i) {
+        if (scan.entries[i].dedicated_vram_mb > scan.entries[best].dedicated_vram_mb) {
+            best = i;
+        }
+    }
+    return scan.entries[best].vendor_id;
+}
+
 rj::pipeline::gpu::ExternalMemoryBridge* Pipeline::get_external_memory_bridge() const {
     if (!impl_) return nullptr;
     return impl_->gpu_sub_.raw();
