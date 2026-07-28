@@ -294,6 +294,10 @@ MainWindow::~MainWindow() {
     if (copy_optimizer_initialized_) {
         copy_optimizer_.shutdown();
     }
+    // V10/L14: healing-log writer'ına düzenli kapanış sinyali — kuyruktaki son
+    // kayıtlar (son ~250ms penceresi) flush edilir, süreç çıkışında thread
+    // ölümüyle kaybolmaz. İdempotent; sonrası push'lar sayılarak düşer.
+    rj_healing_log_shutdown();
 }
 
 void MainWindow::stopFrameThread() {

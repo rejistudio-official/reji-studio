@@ -1198,6 +1198,19 @@ fn clear_pending_on_mode_change() {
     }
 }
 
+/// V10/L14: düzenli kapanışta healing-log writer'ını durdurur — kuyruktaki son
+/// kayıtlar (son FLUSH_INTERVAL penceresine düşenler) diske yazıldıktan sonra
+/// döner. C++ MainWindow yıkıcısı çağırır. İdempotent; writer hiç başlamadıysa
+/// no-op. Çağrı sonrası log_healing push'ları drop+sayılır.
+/// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+#[no_mangle]
+pub extern "C" fn rj_healing_log_shutdown() {
+    catch_unwind(AssertUnwindSafe(|| {
+        crate::healing_log::shutdown_writer();
+    }))
+    .unwrap_or_else(|_| eprintln!("[PANIC] rj_healing_log_shutdown caught panic"));
+}
+
 /// v0.4+: Approve pending action (Co-Pilot mode)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
 #[no_mangle]
