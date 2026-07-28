@@ -1,8 +1,11 @@
 # FABLE5_BUG_PLAN_V10.md — Reji Studio Dördüncü Nesil Bug Planı (V9-Sonrası Yeni Kod)
 
-**Durum:** 🟠 SPRINT 1 KAPANDI (merge edildi) — dört model taraması
-tamamlandı, L1-L20 atandı; L21-L23 canlı Faz 0 teşhisinden Sprint 2'ye
-eklendi. Sıradaki: Sprint 2.
+**Durum:** ✅ **TAMAMEN KAPANDI (2026-07-28)** — üç sprint de merge
+edildi (S1: L1-L7+ekler, S2: L8-L12+L21-L23, S3: L13-L20). Çürütmeler:
+L7, L9'un CAN_PROVIDE kısmı. L14/L18 kod+birim-test düzeyinde kapalı;
+canlı GUI doğrulaması kullanıcıda (aşağıda işaretli). V10 sonrası
+bulgular V11 planına gider ("Capture loss 60 frames" null-streak notu
+dahil).
 
 **Hazırlayan:** Sentez sohbeti (dört bağımsız model raporunun
 triyajı — `docs/V10_SENTEZ_TRIYAJ.md` kanonik ara belge).
@@ -82,14 +85,14 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 | L10 | Kanal-uyumsuzluğunda sessiz bozuk encode | 🔵 1/4 (Opus) | 2 | ✅ FIXED 53363f2 (format_gate — uyuşmazlıkta ses yolu güvenli kapanır) |
 | L11 | step_kbps ölü parametre (BITRATE_REDUCE sabit %15) | 🔵 1/4 (GLM) | 2 | ✅ FIXED 9497b33 (unutulmuş bağlantıydı — param1/step_kbps REDUCE/RECOVER'da kullanılır) |
 | L12 | A/V pts epoch doğrulaması (WASAPI QPC vs FramePacer::pts_us) | 🟡 2/4 | 2 | ✅ FIXED 9b29dc9 (tabanlar farklıydı — ses pts'i pacer origin'ine rebase) |
-| L13 | rules_buf 64KB aşımında yanıltıcı "Kural okunamadı" | 🟡 2/4 | 3 | Faz 0 bekliyor |
-| L14 | HealingLog writer thread'e shutdown sinyali + son flush | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
-| L15 | rj_action_approve kuyruk-dolu geri koymada created tazelenmeli | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
-| L16 | pcm_scratch_.reserve init'te (hot-path realloc) | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
-| L17 | updateParamSet dupe başarısızlığında bool dönüş | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
-| L18 | Profil önerisi diyaloğunda vendor/VRAM eşleşmezliği | 🔵 1/4 (Kimi) | 3 | Faz 0 bekliyor |
-| L19 | AudioRing dropped_ sayacı doluluk/geçersiz-girdi ayrımı | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
-| L20 | hot_reload throttle "Ok ama skip" sözleşmesi (ölü kod tuzağı) | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
+| L13 | rules_buf 64KB aşımında yanıltıcı "Kural okunamadı" | 🟡 2/4 | 3 | ✅ FIXED 208e274 (-2 dönüş kodu + UI'da ayrı mesaj) |
+| L14 | HealingLog writer thread'e shutdown sinyali + son flush | 🔵 1/4 (Fable) | 3 | ✅ FIXED a0a9b33 (Condvar + rj_healing_log_shutdown) — 🔍 canlı doğrulama kullanıcıda |
+| L15 | rj_action_approve kuyruk-dolu geri koymada created tazelenmeli | 🔵 1/4 (Fable) | 3 | ✅ FIXED 208e274 (Instant::now ile tazeleme) |
+| L16 | pcm_scratch_.reserve init'te (hot-path realloc) | 🔵 1/4 (Fable) | 3 | ✅ FIXED c8efdfd (8192 reserve + static_assert kilidi) |
+| L17 | updateParamSet dupe başarısızlığında bool dönüş | 🔵 1/4 (Fable) | 3 | ✅ FIXED fa9749f (bool + rj_rtmp_send'de dürüst red) |
+| L18 | Profil önerisi diyaloğunda vendor/VRAM eşleşmezliği | 🔵 1/4 (Kimi) | 3 | ✅ FIXED 35eb914 (max_vram_vendor_id) — 🔍 canlı doğrulama kullanıcıda |
+| L19 | AudioRing dropped_ sayacı doluluk/geçersiz-girdi ayrımı | 🔵 1/4 (Fable) | 3 | ✅ FIXED ca06936 (dropped_full/rejected_invalid) |
+| L20 | hot_reload throttle "Ok ama skip" sözleşmesi (ölü kod tuzağı) | 🔵 1/4 (Fable) | 3 | ✅ FIXED 32e732c (ReloadOutcome enum) |
 | L21 | Predictive katman gönderim-hatasını yük sanıyor | 🟢 canlı kanıt | 2 | ✅ FIXED ecf9b99 (bağlantı-yokluğu drop'ları predictive trendden ayrıldı) — canlı doğrulandı (28.07: bitrate düşüşü yok) |
 | L22 | frame_drop_pct ölü metrik: kural motoru kör | 🟢 canlı kanıt | 2 | ✅ FIXED ec24d2a (on_packet → record_frame/record_frame_drop besler) — canlı doğrulandı (28.07: drop=0% kesintisiz) |
 | L23 | SRT bağlantı durumu gözlemlenebilirliği | 🔵 hijyen | 2 | ✅ FIXED 67d9258 (durum geçişleri run.log'a) — canlı doğrulandı (28.07: srt_connect_failed logu) |
@@ -376,22 +379,47 @@ lost: srt_connect_failed` logu doğru çıkıyor.
 
 ---
 
-## Sprint 3 — Düşük öncelik / hijyen
+## Sprint 3 — Düşük öncelik / hijyen ✅ KAPANDI (2026-07-28)
 
-- **L13** 🟡 2/4 (Fable+Opus) — `rules_buf` 64KB aşımında yanıltıcı
-  "Kural okunamadı"; boyut-aşımı ile motor-hazır-değil ayrımı.
-- **L14** 🔵 (Fable) — HealingLog writer thread'e shutdown sinyali +
-  son flush; düzenli kapanışta son 250ms kaybı.
-- **L15** 🔵 (Fable) — `rj_action_approve` kuyruk-dolu geri koymada
-  `created` tazelenmeli; onaylanan aksiyon anında TTL'e düşebilir.
-- **L16** 🔵 (Fable) — `pcm_scratch_.reserve` init'te; hot-path realloc.
-- **L17** 🔵 (Fable) — `updateParamSet` dupe başarısızlığında bool dönüş.
-- **L18** 🔵 (Kimi) — Profil önerisi diyaloğunda vendor/VRAM
-  eşleşmezliği; display vendor (iGPU) + max VRAM (dGPU) yan yana
-  "Intel 12GB" gibi yanıltıcı gösterim.
-- **L19** 🔵 (Fable) — AudioRing `dropped_` sayacı doluluk/geçersiz-girdi ayrımı.
-- **L20** 🔵 (Fable) — `hot_reload` throttle "Ok ama skip" sözleşmesi;
-  fiilen ölü kod, ileride tuzak; ayırt edilebilir dönüş.
+**Faz 0 (2026-07-28): sekiz maddenin SEKİZİ de kodda doğrulandı** —
+bu turda çürütme yok. İki dal (CLAUDE.md 8b): davranış-nötr/teşhis
+sınıfı `feat/v10-sprint3-hijyen` (merge e2e2f6b), görünür davranış +
+yeni FFI yüzeyi `feat/v10-sprint3-canli` (merge 2ae5dd6).
+
+- **L13** ✅ 208e274 — Faz 0: `ffi.rs` tek `-1` hem init-değil hem
+  cap-yetersizi örtüyordu; `settings_dialog.cpp` tek mesaj basıyordu.
+  Fix: `-2` ayrı kod + `setRulesError` ile ayrı UI mesajı.
+- **L14** ✅ a0a9b33 🔍 — Faz 0: `writer_loop` sonsuz `loop{sleep(250ms)}`,
+  hiçbir shutdown yolu yok (orchestrator'da genel shutdown FFI'ı da yoktu).
+  Fix: Condvar bekleyişi + `shutdown_writer` (sinyal+join+son flush) +
+  yeni `rj_healing_log_shutdown` FFI'ı, `~MainWindow` çağırır.
+  **Canlı doğrulama kullanıcıda:** normal kapanış sonrası healing_log.sqlite'ta
+  son olayların varlığı.
+- **L15** ✅ 208e274 — Faz 0: `ffi.rs:1231` geri koymada `created:
+  entry.created` (PENDING_TTL 30s → anında sweep riski). Fix: `Instant::now()`.
+- **L16** ✅ c8efdfd — Faz 0: `encode()` içinde `resize` ilk çağrıda
+  realloc. Fix: init'te `reserve(8192)`; AudioRing üst sınırıyla
+  static_assert kilidi.
+- **L17** ✅ fa9749f — Faz 0: `catch null` sessiz; void dönüş. Fix: bool
+  dönüş; `rj_rtmp_send` başarısızlıkta dlog + false (kare dürüstçe reddedilir).
+- **L18** ✅ 35eb914 🔍 — Faz 0: `main_window.cpp` display_vendor_id (iGPU) +
+  max_gpu_vram_mb (dGPU) karışımı doğrulandı. Fix:
+  `Pipeline::max_vram_vendor_id()` — vendor+VRAM aynı adaptörden.
+  **Canlı doğrulama kullanıcıda:** `profile/asked` temizlenip ilk-kurulum
+  diyaloğunda tutarlı gösterim (bu makinede beklenen: NVIDIA + 8GB sınıfı,
+  "AMD 12GB"/"Intel 12GB" tipi karışım YOK).
+- **L19** ✅ ca06936 — Faz 0: iki ret sebebi tek `dropped_` sayacında.
+  Fix: `dropped_full()` + `rejected_invalid()`; `dropped()` toplamı korur.
+- **L20** ✅ 32e732c — Faz 0: throttle/mtime-skip yolları `Ok(())` dönüyor;
+  tek çağıran `RuleEngine::new` olduğundan fiilen ölü ama sözleşme tuzağı.
+  Fix: `ReloadOutcome` (Reloaded/SkippedThrottled/SkippedUnchanged).
+
+**Doğrulama sınıfı:** L13/L15/L20 Rust birim testleri (141 lib testi PASS,
+3 yeni), L14 Rust birim testi (izole writer flush) + canlı bekliyor,
+L16/L19 gtest (AacEncoderTest/AudioRingTest, yeni/güncel testler),
+L17 Zig testi (15/15). Merge-sonrası tam build OK, ctest 23/25
+(bilinen 2 kırık: FrameProfiler/ShaderCache). L18 kod incelemesi +
+derleme; görsel kanıt canlıda.
 
 ---
 
@@ -532,5 +560,16 @@ lost: srt_connect_failed` logu doğru çıkıyor.
       loss detected (60 frames)" SRT'den bağımsız — null-streak eşiği
       statik ekranda ~1sn'de doluyor (`kNullStreakReinit=60`); zararsız,
       V11 adayı not edildi.
-- Tamamlanınca `TALIMAT_V10_TARAMA_HAZIRLIK.md` → `docs/talimatlar/`
-  arşivine taşınacak.
+- [x] Sprint 3 tamamlandı ve merge edildi (2026-07-28): Faz 0'da sekiz
+      maddenin sekizi doğrulandı (çürütme yok). İki dal —
+      `feat/v10-sprint3-hijyen` (L13+L15 208e274, L20 32e732c, L16 c8efdfd,
+      L19 ca06936, L17 fa9749f; merge e2e2f6b) ve `feat/v10-sprint3-canli`
+      (L14 a0a9b33, L18 35eb914; merge 2ae5dd6). Gerekçe (8b): hijyen
+      grubu davranış-nötr ama 2+ commit ve L13/L17 FFI sözleşmesine
+      dokunuyor → dal; L14 yeni FFI yüzeyi (rj_healing_log_shutdown) +
+      L18 görünür davranış → ayrı dal. Testler: Rust lib 141 PASS
+      (3 yeni + L14 flush testi), Zig 15/15, merge-sonrası tam build +
+      ctest 23/25 (bilinen 2 kırık). L14/L18 canlı GUI doğrulaması
+      kullanıcıda. Bu sprintle **V10 TAMAMEN KAPANDI**.
+- [x] `TALIMAT_V10_TARAMA_HAZIRLIK.md` ve `TALIMAT_V10_SPRINT3.md` →
+      `docs/talimatlar/` arşivine taşındı (kapanış mühürü).

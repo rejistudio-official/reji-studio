@@ -1,3 +1,36 @@
+﻿## Oturum: 28 Temmuz 2026 — V10 Sprint 3 (L13-L20) + V10 TAM KAPANIŞ ✅
+
+TALIMAT_V10_SPRINT3: sekiz düşük-öncelik/hijyen maddesi. **Faz 0: 8/8
+doğrulandı, çürütme yok** (V10 genelinde çürütülenler: L7 + L9-kısmi).
+
+**Dal kararı (8b):** iki dal. `feat/v10-sprint3-hijyen` (L13,L15,L16,
+L17,L19,L20 — davranış-nötr/teşhis; 2+ commit ve L13/L17 FFI sözleşmesi
+nedeniyle doğrudan master yerine dal; merge e2e2f6b) +
+`feat/v10-sprint3-canli` (L14,L18 — L14 yeni FFI yüzeyi
+rj_healing_log_shutdown, L18 görünür davranış; merge 2ae5dd6).
+
+**Düzeltmeler:** L13 snapshot -2 kodu + setRulesError (208e274, L15 ile
+birlikte); L15 approve geri koymada created=now (208e274); L20
+ReloadOutcome enum (32e732c); L16 pcm_scratch_ init reserve + AudioRing
+static_assert (c8efdfd); L19 dropped_full/rejected_invalid ayrımı
+(ca06936); L17 updateParamSet bool + rj_rtmp_send dürüst red (fa9749f);
+L14 Condvar wait_timeout + shutdown_writer + ~MainWindow çağrısı
+(a0a9b33); L18 Pipeline::max_vram_vendor_id — vendor+VRAM aynı
+adaptörden (35eb914).
+
+**Doğrulama:** test edildi — Rust lib 141 PASS (4 yeni: L13/L15/L20/L14
+testleri), Zig rtmp-test 15/15 (L17 testi yeni), gtest AudioRing/
+AacEncoder yeni-güncel testler, merge-sonrası tam build + ctest 23/25
+(bilinen 2 kırık: FrameProfiler/ShaderCache). İlk build linki
+LNK2019 verdi — target/release orchestrator lib'i bayattı; cargo build
+--release sonrası temiz (ders: FFI ekleyince release profili de derle).
+**Kullanıcıda:** L14 (normal kapanış → healing_log.sqlite'ta son
+olaylar) + L18 (profile/asked temizle → diyalogda tutarlı vendor+VRAM).
+
+**Mühür:** FABLE5_BUG_PLAN_V10.md "TAMAMEN KAPANDI"; TALIMAT_V10_
+TARAMA_HAZIRLIK.md + TALIMAT_V10_SPRINT3.md → docs/talimatlar/;
+CONTEXT.md V10 bloğu güncellendi. tests/baseline_metrics.txt commit
+edilmedi (ctest artefaktı geri alındı).
 ## Oturum: 20 Temmuz 2026 — ExistingDesktopSource: ISource'un ilk implementasyonu (izole) ✅ KAPANDI
 
 TALIMAT_EXISTINGDESKTOPSOURCE: i_source.h kontratının mevcut WGC/DXGI yoluna
@@ -3112,3 +3145,4 @@ Talimat: `docs/talimatlar/TALIMAT_DONANIM_PROFILLEME.md`.
 - **Bilinen kapsam (kusur değil):** `gpu_temp_c`/`cpu_temp_c` STUB olduğundan
   profiller arası termal fark gerçekte tetiklenmez; davranış farkı yalnız gerçek
   metriklerde (frame_drop/cpu_load/gpu_load/memory).
+

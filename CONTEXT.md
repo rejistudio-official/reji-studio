@@ -3,14 +3,17 @@
 **Son güncelleme:** 28 Temmuz 2026
 **Hazırlayan:** Bu sohbetin (Claude, sohbet asistanı) kendisi — Claude Code'un gerçekleştirdiği işlerin, GitHub'dan doğrudan doğrulanmış özeti.
 
-> **V10 SPRINT 1-2 KAPANDI (28.07):** V10 bug planının Sprint 1 (L1-L7 +
-> S1-ek1..ek4, merge `543c1b3`, 22.07) ve Sprint 2 (L8-L12 + L21-L23, üç
-> dal — grupA/l8-zig-abi-bounds/grupB — merge `dbf4bc8`, 28.07) sprint'leri
-> tamamen kapandı; `master` ↔ `origin/master` senkron, yerel dallar silindi.
-> Çürütmeler: L7 + L9'un CAN_PROVIDE kısmı. Canlı GUI doğrulaması (28.07):
-> L21/L23 beklendiği gibi (srt_connect_failed logu doğru, bitrate düşüşü
-> yok, drop=0%). Merge-sonrası tam build + ctest 23/25 PASS (bilinen 2
-> kırık). Açık: Sprint 3 (L13-L20) Faz 0 bekliyor; V11 adayı minör not —
+> **V10 TAMAMEN KAPANDI (28.07):** Üç sprint de merge edildi — Sprint 1
+> (L1-L7 + S1-ek1..ek4, merge `543c1b3`, 22.07), Sprint 2 (L8-L12 +
+> L21-L23, üç dal, merge `dbf4bc8`, 28.07), Sprint 3 (L13-L20, iki dal —
+> hijyen `e2e2f6b` + canlı `2ae5dd6`, 28.07). Sprint 3 Faz 0'da sekiz
+> maddenin sekizi de doğrulandı (çürütme yok); toplam çürütmeler: L7 +
+> L9'un CAN_PROVIDE kısmı. Sprint 3 testleri: Rust lib 141 PASS, Zig
+> 15/15, tam build + ctest 23/25 (bilinen 2 kırık:
+> FrameProfiler/ShaderCache). **Açık kalem (yalnız gözlem):** L14
+> (kapanışta healing-log son flush) ve L18 (profil diyaloğunda
+> vendor/VRAM aynı adaptörden) canlı GUI doğrulaması kullanıcıda.
+> V10 talimatları `docs/talimatlar/` arşivinde; V11 adayı not —
 > "Capture loss detected (60 frames)" null-streak eşiği statik ekranda
 > boşta tetikleniyor (SRT'den bağımsız, zararsız). Kanonik detay:
 > `docs/FABLE5_BUG_PLAN_V10.md`.
