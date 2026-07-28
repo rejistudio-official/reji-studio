@@ -66,6 +66,12 @@ public:
         last_frame_ticks_ = frame_start_ticks;
     }
 
+    // V10/L22: frame_drop_pct beslemesi — on_packet (encode thread) çağırır.
+    // Collector'ın 30s pencereli pct hesabı bu iki sayaçtan türer; başka
+    // besleme noktası yok. metrics_lock_ kısa tutulur (sayaç artışı).
+    void record_frame() noexcept      { if (metrics_) metrics_->record_frame(); }
+    void record_frame_drop() noexcept { if (metrics_) metrics_->record_frame_drop(); }
+
 private:
     // J8: arka plan poll döngüsü — while(running){ metrics_->poll(); sleep }.
     // poll() zaten 1Hz self-throttle (POLL_INTERVAL); tick sleep yalnız stop

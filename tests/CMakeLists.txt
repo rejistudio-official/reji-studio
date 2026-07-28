@@ -240,6 +240,24 @@ target_link_libraries(test_frame_drop_policy
 
 add_test(NAME FrameDropPolicyTest COMMAND test_frame_drop_policy)
 
+# ── V10/L22: MetricsCollector frame_drop_pct diriltme testi ──
+# metrics_collector.cpp doğrudan derlenir (PDH/psapi pragma-link, GPU/Rust yok).
+add_executable(test_metrics_collector
+    test_metrics_collector.cpp
+    ${CMAKE_SOURCE_DIR}/src/pipeline/metrics_collector.cpp
+)
+
+target_include_directories(test_metrics_collector PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include
+)
+
+target_link_libraries(test_metrics_collector
+    gtest gtest_main
+)
+
+add_test(NAME MetricsCollectorTest COMMAND test_metrics_collector)
+
 # ── ISource/ExistingDesktopSource: saf çekirdek testi ──
 # desktop_source_logic.h header-only (yalnız i_source.h + i_screen_capture.h,
 # D3D11/GPU yok) — reji_pipeline/Rust link gerekmez, sadece gtest. CapturedFrame→

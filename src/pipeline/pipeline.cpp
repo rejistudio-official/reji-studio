@@ -305,9 +305,16 @@ struct Pipeline::Impl {
         fflush(stderr);
 
         if (!self->streaming.load(std::memory_order_acquire)) return;
+        // V10/L22: frame_drop_pct beslemesi — send aşamasına ulaşan her paket
+        // sayılır, düşen ayrıca drop (pct = drops/attempts, 30s pencere).
+        // L21 sonrası send yalnız GERÇEK gönderim hatasında false döner
+        // (bağlantı-yokluğu drop sayılmaz) → pct tıkanıklık sinyalidir.
+        self->metrics_sub_.record_frame();
         // send() false döndürürse (aktif çıkış vardı ama gönderim başarısız) → drop.
-        if (!self->output_sub_.send(pkt.data, pkt.size, pkt.pts))
+        if (!self->output_sub_.send(pkt.data, pkt.size, pkt.pts)) {
             self->frame_drops.fetch_add(1, std::memory_order_relaxed);
+            self->metrics_sub_.record_frame_drop();
+        }
 
         // Ses Ayarları: ses ring'ini bu (encode) thread'de drain et → AAC encode
         // + send_audio. Video ile AYNI thread → tek-thread RTMP-yazım invariant'ı

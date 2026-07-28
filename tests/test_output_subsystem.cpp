@@ -107,6 +107,25 @@ TEST(OutputSubsystemTest, RtmpSendAfterFailedInitStillReturnsTrue) {
     EXPECT_TRUE(out.send(payload, sizeof(payload), 0));
 }
 
+TEST(OutputSubsystemTest, SendWhileNotConnectedReturnsTrue) {
+    // V10/L21: transport aktif ama bağlantı (henüz/hiç) yok — drop SAYILMAZ.
+    // false dönseydi on_packet frame_drops sayar, FrameDropped seli predictive
+    // ReduceBitrate(3500) tetiklerdi; bağlantı-yokluğu tıkanıklık değildir.
+    rj::OutputSubsystem out;
+    rj::OutputSubsystem::Config cfg{};
+    cfg.host        = "127.0.0.1";   // çözümlenebilir adres, SRT alıcısı yok
+    cfg.port        = 1;             // handshake tamamlanamaz → connected=false
+    cfg.caller_mode = true;
+    if (!out.init(cfg)) GTEST_SKIP() << "SRT stub build — transport init edilemedi";
+    out.set_streaming(true);
+    const uint8_t payload[4] = {1, 2, 3, 4};
+
+    EXPECT_TRUE(out.send(payload, sizeof(payload), 0));
+
+    out.set_streaming(false);
+    out.shutdown();
+}
+
 TEST(OutputSubsystemTest, SetStreamingWithoutTransportKeepsSendTrue) {
     // Arrange: transport yokken set_streaming(true) nullptr yayınlar.
     rj::OutputSubsystem out;
