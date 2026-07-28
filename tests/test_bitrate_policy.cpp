@@ -38,3 +38,33 @@ TEST(BitratePolicyTest, ResultNeverExceedsTarget) {
         }
     }
 }
+
+// ── V10/L11: step_kbps (param1) artik kullaniliyor ──────────────────────────
+// Kural motoru profil step'ini param1'e tasir (HP2); apply_action sabit %15
+// uygulayip yok sayiyordu — mild(250-300)/high(500-750) ayrimi olu konfigdi.
+
+TEST(BitratePolicyTest, ReduceUsesStepWhenProvided) {
+    EXPECT_EQ(rj::reduce_step_bitrate(6000, 750), 6000u - 750u);
+    EXPECT_EQ(rj::reduce_step_bitrate(6000, 300), 6000u - 300u);
+}
+
+TEST(BitratePolicyTest, ReduceFallsBackToPercentWithoutStep) {
+    EXPECT_EQ(rj::reduce_step_bitrate(6000, 0),
+              static_cast<uint32_t>(6000 * 0.85f));
+    EXPECT_EQ(rj::reduce_step_bitrate(6000, -1),
+              static_cast<uint32_t>(6000 * 0.85f));
+}
+
+TEST(BitratePolicyTest, ReduceStepLargerThanCurrentYieldsZeroForFloorClamp) {
+    // Taban clamp cagirandadir (max ile) — burada 0 doner, negatif tasma yok.
+    EXPECT_EQ(rj::reduce_step_bitrate(500, 750), 0u);
+}
+
+TEST(BitratePolicyTest, RecoverUsesStepWhenProvided) {
+    EXPECT_EQ(rj::recover_step_bitrate(3500, 500), 4000u);
+}
+
+TEST(BitratePolicyTest, RecoverFallsBackToPercentWithoutStep) {
+    EXPECT_EQ(rj::recover_step_bitrate(3500, 0),
+              static_cast<uint32_t>(3500 * 1.15f));
+}

@@ -38,3 +38,25 @@ TEST(AvSyncTest, ThrottledWithinWindow) {
 TEST(AvSyncTest, WarnsAgainAfterThrottleWindow) {
     EXPECT_TRUE(should_warn_av_drift(250, /*now*/6000, /*last*/5000));
 }
+
+// ── V10/L12: ses pts epoch rebase ───────────────────────────────────────────
+// WASAPI pts QPC-mutlak (boot'tan beri), video pts pacer-origin'e goreli;
+// muxer tek first_pts_us epoch'u paylasir — tabanlar esitlenmezse ilk gelen
+// akis epoch'u belirler, digeri ts=0'a yapisir ya da saatler kayar.
+using reji::pipeline::audio::rebase_audio_pts;
+
+TEST(AvSyncTest, RebaseSubtractsOrigin) {
+    // Boot'tan beri 2 saat, origin 2 saatin 5 sn oncesi → 5 sn goreli pts.
+    const int64_t two_hours_us = 2LL * 3600 * 1'000'000;
+    EXPECT_EQ(rebase_audio_pts(two_hours_us, two_hours_us - 5'000'000),
+              5'000'000);
+}
+
+TEST(AvSyncTest, RebaseClampsPreOriginTimestampToZero) {
+    // Cihaz zaman damgasi origin'den eski (ilk paket yarisi) → 0'a clamp.
+    EXPECT_EQ(rebase_audio_pts(1'000'000, 2'000'000), 0);
+}
+
+TEST(AvSyncTest, RebaseZeroOriginIsIdentity) {
+    EXPECT_EQ(rebase_audio_pts(42, 0), 42);
+}

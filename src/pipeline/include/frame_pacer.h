@@ -26,6 +26,14 @@ public:
     // Metrics'in timestamp_us / fps_actual hesabı için QPC frekansı (Hz).
     int64_t qpc_freq() const noexcept { return qpc_freq_; }
 
+    // V10/L12: pts epoch'u mutlak-QPC-µs cinsinden — ses pts'ini (WASAPI
+    // QPC-mutlak) video ile aynı "init'ten beri µs" tabanına indirmek için.
+    // Tabanlar farklıyken RTMP transport'un tek first_pts_us epoch'u ilk gelen
+    // akışa kilitleniyor; diğer akış ts=0'a yapışıyor ya da saatler kayıyordu.
+    int64_t origin_us() const noexcept {
+        return qpc_freq_ > 0 ? (pts_origin_ * 1'000'000LL) / qpc_freq_ : 0;
+    }
+
 private:
     int64_t qpc_freq_      = 1;
     int64_t frame_ticks_   = 0;

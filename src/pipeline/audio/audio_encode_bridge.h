@@ -65,6 +65,7 @@ private:
     bool    encoder_ready_{false};
     bool    encoder_failed_{false};
     bool    asc_sent_{false};       // V10/L6: encoder_ready_'den BAĞIMSIZ — retry için
+    bool    format_mismatch_logged_{false};  // V10/L10: tek seferlik kapatma logu
     int64_t last_audio_pts_us_{0};
     int64_t last_drift_warn_ms_{kNoPriorWarn};
 };

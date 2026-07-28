@@ -31,4 +31,15 @@ inline bool should_warn_av_drift(int64_t drift_ms, int64_t now_ms,
     return (now_ms - last_warn_ms) >= kAvDriftWarnPeriodMs;
 }
 
+/// V10/L12: ses pts'ini video epoch'una indir. WASAPI pts'i QPC-mutlak
+/// (boot'tan beri), video pts'i FramePacer origin'ine göreli ("init'ten beri
+/// µs") — RTMP muxer tek first_pts_us epoch'u paylaştığından tabanlar aynı
+/// olmak ZORUNDA. Cihaz zaman damgası origin'den eski olabilir (ilk paket
+/// yarışı) → 0'a clamp; negatif pts muxer'da zaten 0'a eziliyordu, burada
+/// kesmek A/V farkını korur.
+inline int64_t rebase_audio_pts(int64_t audio_pts_us, int64_t origin_us) {
+    const int64_t rebased = audio_pts_us - origin_us;
+    return rebased > 0 ? rebased : 0;
+}
+
 } // namespace reji::pipeline::audio

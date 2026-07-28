@@ -323,11 +323,16 @@ struct Pipeline::Impl {
     }
 
     // Ses Ayarları: WASAPI capture callback'i (capture supervisor thread) — yalnız
-    // ring'e push eder (encode/gönderme YOK). user_data = &audio_bridge_.
+    // ring'e push eder (encode/gönderme YOK). user_data = Impl* (V10/L12: pacer
+    // origin'ine erişim gerekir; origin_us init'te sabitlenir, salt-okunur).
     static void on_audio_capture(const float* samples, uint32_t frames, uint32_t channels,
                                  uint32_t sample_rate, int64_t pts_us, void* ud) noexcept {
-        static_cast<reji::pipeline::audio::AudioEncodeBridge*>(ud)->push(
-            samples, frames, channels, sample_rate, pts_us);
+        auto* self = static_cast<Impl*>(ud);
+        // V10/L12: WASAPI pts'i QPC-mutlak, video pts'i pacer-origin'e göreli —
+        // muxer tek epoch paylaştığından ses pts'i aynı tabana indirilir.
+        const int64_t rebased = reji::pipeline::audio::rebase_audio_pts(
+            pts_us, self->pacer_.origin_us());
+        self->audio_bridge_.push(samples, frames, channels, sample_rate, rebased);
     }
 
     // GPU TDR / capture-loss recovery Aşama 9'da RecoveryCoordinator'a taşındı.
@@ -511,7 +516,9 @@ bool Pipeline::init(const Config& cfg_in) {
         acfg.buffer_ms      = 50;
         acfg.loopback       = cfg_in.loopback;
         acfg.device_id      = cfg_in.audio_device_id;  // wchar_t[] → std::wstring (boş = varsayılan)
-        if (!s.audio_sub_.init(acfg, &Impl::on_audio_capture, &s.audio_bridge_)) {
+        // V10/L12: user_data = Impl (bridge değil) — on_audio_capture pacer
+        // origin'iyle pts'i rebase edip bridge'e iletir.
+        if (!s.audio_sub_.init(acfg, &Impl::on_audio_capture, &s)) {
             dbglog("[Pipeline] WasapiCapture::init failed  audio disabled");
         }
     } else if (cfg_in.audio_enabled) {
@@ -868,7 +875,9 @@ bool Pipeline::apply_action(const RjAction& action) {
     switch (action.action_type) {
         case RJ_ACTION_BITRATE_REDUCE: {
             uint32_t current    = impl_->bitrate_kbps.load(std::memory_order_relaxed);
-            uint32_t new_bitrate = static_cast<uint32_t>(current * 0.85f);
+            // V10/L11: param1 = profil step_kbps (HP2 sözleşmesi) — artık
+            // kullanılıyor; param1<=0 eski %15 fallback (bitrate_policy.h).
+            uint32_t new_bitrate = rj::reduce_step_bitrate(current, action.param1);
             new_bitrate = (std::max)(new_bitrate, impl_->cfg.min_bitrate_kbps);
             impl_->command_router_.push_frame_cmd({RJ_ACTION_BITRATE_REDUCE, static_cast<int32_t>(new_bitrate)});
             return true;
@@ -877,8 +886,9 @@ bool Pipeline::apply_action(const RjAction& action) {
             uint32_t target  = impl_->cfg.original_bitrate_kbps;
             uint32_t current = impl_->bitrate_kbps.load(std::memory_order_relaxed);
             if (current < target) {
+                // V10/L11: REDUCE ile simetrik — recovery kuralı da step taşır.
                 uint32_t new_bitrate = (std::min)(
-                    static_cast<uint32_t>(current * 1.15f),
+                    rj::recover_step_bitrate(current, action.param1),
                     target
                 );
                 impl_->command_router_.push_frame_cmd({RJ_ACTION_BITRATE_RECOVER, static_cast<int32_t>(new_bitrate)});
