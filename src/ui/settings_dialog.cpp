@@ -539,6 +539,26 @@ void SettingsDialog::setWsStatus(uint16_t port, uint32_t connectionCount) {
     }
 }
 
+// Tek satırlık uyarı ekleyen yardımcı — motor init değil / snapshot bozuk /
+// hiç kural yok gibi durumları görünür kılar (I10: sessizce yutma yok; boş
+// tablo "hiç kural yok" izlenimi bırakmasın).
+namespace {
+void showRulesNotice(QTableWidget* table, const QString& text) {
+    table->setRowCount(1);
+    auto* item = new QTableWidgetItem(text);
+    table->setItem(0, 0, item);
+    table->setSpan(0, 0, 1, 3);
+}
+} // namespace
+
+void SettingsDialog::setRulesError(const QString& message) {
+    if (!d_->rules_table) {
+        return;
+    }
+    d_->rules_table->setRowCount(0);
+    showRulesNotice(d_->rules_table, message);
+}
+
 void SettingsDialog::setRules(const QString& rulesJson) {
     if (!d_->rules_table) {
         return;
@@ -546,15 +566,7 @@ void SettingsDialog::setRules(const QString& rulesJson) {
     auto* table = d_->rules_table;
     table->setRowCount(0);
 
-    // Tek satırlık uyarı ekleyen yardımcı — motor init değil / snapshot bozuk /
-    // hiç kural yok gibi durumları görünür kılar (I10: sessizce yutma yok; boş
-    // tablo "hiç kural yok" izlenimi bırakmasın).
-    auto showNotice = [table](const QString& text) {
-        table->setRowCount(1);
-        auto* item = new QTableWidgetItem(text);
-        table->setItem(0, 0, item);
-        table->setSpan(0, 0, 1, 3);
-    };
+    auto showNotice = [table](const QString& text) { showRulesNotice(table, text); };
 
     QJsonParseError parseErr;
     const QJsonDocument doc = QJsonDocument::fromJson(rulesJson.toUtf8(), &parseErr);
