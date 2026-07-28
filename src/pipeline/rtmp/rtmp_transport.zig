@@ -197,14 +197,18 @@ fn writeFlvTag(t: *Transport, r: *rt.RTMP, tag_type: u8, ts_ms: u32, body: []con
     return n > 0;
 }
 
-fn updateParamSet(slot: *?[]u8, nal: []const u8, seq_sent: *bool) void {
+// V10/L17: `catch null` sessizdi — ayırma başarısızlığında slot boş kalıyor,
+// çağıran haberdar olmuyordu (sonraki kareler SPS-yok yolunda sebepsiz düşerdi).
+// `false` = slot güncellenemedi (bellek); çağıran kareyi dürüstçe reddetmeli.
+fn updateParamSet(slot: *?[]u8, nal: []const u8, seq_sent: *bool) bool {
     if (slot.*) |old| {
-        if (std.mem.eql(u8, old, nal)) return; // değişmedi
+        if (std.mem.eql(u8, old, nal)) return true; // değişmedi
         allocator.free(old);
         slot.* = null;
         seq_sent.* = false; // parametre seti değişti — sequence header yenilenmeli
     }
-    slot.* = allocator.dupe(u8, nal) catch null;
+    slot.* = allocator.dupe(u8, nal) catch return false;
+    return true;
 }
 
 // ── C ABI exportları ────────────────────────────────────────────────────────
@@ -326,8 +330,14 @@ export fn rj_rtmp_send(handle: ?*anyopaque, data_ptr: ?[*]const u8, size: usize,
         const nal_type: u8 = bytes[0] & 0x1F;
         if (diag) dlog("send#{d}: nal type={d} len={d} (paket size={d})", .{ send_diag_count, nal_type, bytes.len, size });
         switch (nal_type) {
-            7 => updateParamSet(&t.sps, bytes, &t.seq_sent),
-            8 => updateParamSet(&t.pps, bytes, &t.seq_sent),
+            7 => if (!updateParamSet(&t.sps, bytes, &t.seq_sent)) {
+                dlog("send: SPS guncellenemedi (bellek) — kare reddedildi", .{});
+                return false;
+            },
+            8 => if (!updateParamSet(&t.pps, bytes, &t.seq_sent)) {
+                dlog("send: PPS guncellenemedi (bellek) — kare reddedildi", .{});
+                return false;
+            },
             9 => {}, // AUD — FLV'de gereksiz, atla
             else => {
                 if (nal_type == 5) is_keyframe = true;
@@ -472,6 +482,29 @@ comptime {
 
 test {
     _ = @import("happy_eyeballs.zig"); // onun testlerini de koştur
+}
+
+test "updateParamSet slot yönetimi: ilk dolum, değişmeyen, değişen (V10/L17)" {
+    var slot: ?[]u8 = null;
+    var seq_sent = true;
+    const sps1 = [_]u8{ 0x67, 1, 2 };
+    const sps2 = [_]u8{ 0x67, 9, 9 };
+
+    // İlk dolum: başarı, seq_sent'e dokunmaz (henüz gönderilmemişse zaten false).
+    try std.testing.expect(updateParamSet(&slot, &sps1, &seq_sent));
+    try std.testing.expect(seq_sent);
+    try std.testing.expectEqualSlices(u8, &sps1, slot.?);
+
+    // Aynı içerik: no-op, yine başarı.
+    try std.testing.expect(updateParamSet(&slot, &sps1, &seq_sent));
+    try std.testing.expect(seq_sent);
+
+    // Değişen içerik: slot yenilenir, sequence header yenilenmeli (seq_sent=false).
+    try std.testing.expect(updateParamSet(&slot, &sps2, &seq_sent));
+    try std.testing.expect(!seq_sent);
+    try std.testing.expectEqualSlices(u8, &sps2, slot.?);
+
+    allocator.free(slot.?);
 }
 
 test "findStartCode 3 ve 4 baytlık önekleri bulur" {

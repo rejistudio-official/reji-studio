@@ -25,6 +25,12 @@ public:
         uint32_t bitrate_bps;   // hedef ses bitrate (bit/s), orn. 128000
     };
 
+    // V10/L16: encode() cagirisi basina beklenen ornek ust siniri (kare x kanal).
+    // AudioRing::kMaxSamplesPerChunk ile hizali (audio_encode_bridge.cpp'de
+    // static_assert ile kilitli) — init bu kadari pesinen reserve eder ki
+    // encode hot-path'inde (ilk cagri dahil) realloc olmasin.
+    static constexpr uint32_t kMaxExpectedSamplesPerCall = 8192;
+
     // Ham fonksiyon-pointer sink (WASAPI deseni: heap/exception yok). Uretilen
     // her ham AAC frame'i icin cagrilir. pts_us capture'dan gelen zaman damgasi.
     typedef void (*OutputCallback)(const uint8_t* aac, uint32_t len,
@@ -49,6 +55,9 @@ public:
 
     /// FLV sequence header'a konacak AudioSpecificConfig (init sonrasi gecerli).
     const std::vector<uint8_t>& audio_specific_config() const noexcept { return asc_; }
+
+    /// Test gorunurlugu (V10/L16): init'in pesinen ayirdigi scratch kapasitesi.
+    size_t scratch_capacity() const noexcept { return pcm_scratch_.capacity(); }
 
     /// Tum MF kaynaklarini serbest birakir, MFShutdown cagirir.
     void shutdown() noexcept;

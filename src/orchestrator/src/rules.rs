@@ -315,6 +315,20 @@ fn eval_single_condition(
     Err(format!("Cannot parse condition: {}", cond).into())
 }
 
+/// V10/L20: `hot_reload`'un hangi yoldan döndüğü — "yüklendi" ile "atlandı"
+/// aynı `Ok`'a katlanmasın diye ayırt edilebilir sonuç. Skip yolları bugün
+/// tek çağıran (`RuleEngine::new`) için ölü olsa da, ileriki doğrudan
+/// çağıranlar "Ok = reload oldu" varsayımıyla tuzağa düşmesin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReloadOutcome {
+    /// Dosya okundu, doğrulandı ve kurallar değiştirildi.
+    Reloaded,
+    /// Son reload'dan <1s geçti — dosyaya hiç bakılmadı.
+    SkippedThrottled,
+    /// Dosya mtime'ı değişmemiş — okuma/parse yapılmadı.
+    SkippedUnchanged,
+}
+
 /// Kural motoru — JSON/TOML kuralları yükler, hot-reload desteği.
 #[derive(Debug)]
 pub struct RuleEngine {
@@ -338,6 +352,8 @@ pub struct RuleEngine {
 
 impl RuleEngine {
     /// Yeni RuleEngine'ı kurur, dosyadan kuralları yükler.
+    /// Kuruluşta `hot_reload` MUTLAKA `Reloaded` yolundan geçer (throttle 2s
+    /// geride başlar, mtime `None`) — skip'li kuruluş sözleşme dışıdır.
     pub fn new(file_path: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
         let path = file_path.as_ref().to_path_buf();
         let engine = Self {
@@ -377,14 +393,20 @@ impl RuleEngine {
     }
 
     /// Dosyayı diskten yeniden yükler. Validation + rollback on error.
-    pub fn hot_reload(&self) -> Result<(), Box<dyn std::error::Error>> {
+    ///
+    /// V10/L20: `Ok` iki farklı anlam taşıyordu — "yüklendi" ve "atlandı" (throttle
+    /// / mtime değişmemiş) aynı `Ok(())`'a katlanıyordu. Çağıran "reload oldu"
+    /// varsayarsa tuzak (bugün tek çağıran `new()` olduğundan skip yolları fiilen
+    /// ölü, ama ileride watcher/FFI doğrudan çağırırsa sessizce yanıltırdı).
+    /// Dönüş artık ayırt edilebilir: `ReloadOutcome` hangi yolun koştuğunu söyler.
+    pub fn hot_reload(&self) -> Result<ReloadOutcome, Box<dyn std::error::Error>> {
         // Throttle: 1s minimum interval
         {
             let now = Instant::now();
             let mut last_reload = self.last_reload.lock().unwrap();
             if now.duration_since(*last_reload).as_millis() < 1000 {
                 debug!("hot_reload throttled: <1s since last");
-                return Ok(());
+                return Ok(ReloadOutcome::SkippedThrottled);
             }
             *last_reload = now;
         }
@@ -398,7 +420,7 @@ impl RuleEngine {
             let mut last_mtime = self.last_file_mtime.lock().unwrap();
             if mtime == *last_mtime {
                 debug!("hot_reload skipped: file unchanged");
-                return Ok(());
+                return Ok(ReloadOutcome::SkippedUnchanged);
             }
             *last_mtime = mtime;
         }
@@ -434,7 +456,7 @@ impl RuleEngine {
             count = rules.len(),
             "rules reloaded successfully"
         );
-        Ok(())
+        Ok(ReloadOutcome::Reloaded)
     }
 
     /// Metrikler + mode'a göre kuralları değerlendir, aksiyonlar oluştur.
@@ -1110,5 +1132,34 @@ mod tests {
             .find(|r| r.id == "gpu_load_high")
             .expect("gpu_load_high olmalı");
         assert_eq!(gpu.action, "cap_fps", "Verimlilik GPU yükünü FPS kısarak (güç) yönetir");
+    }
+
+    #[test]
+    fn hot_reload_outcome_distinguishes_reload_and_skips() {
+        // V10/L20: "Ok = reload oldu" varsayımı tuzaktı — üç yol ayırt edilmeli.
+        let dir = std::env::temp_dir().join("reji_l20_outcome");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rules.json");
+        std::fs::write(
+            &path,
+            r#"{"rules":[{"id":"r1","condition":"gpu_temp_c > 85","action":"log_only","modes":["auto"]}]}"#,
+        )
+        .unwrap();
+
+        // Kuruluş Reloaded yolundan geçer (throttle 2s geride, mtime None).
+        let engine = RuleEngine::new(&path).unwrap();
+
+        // 1) Kuruluş reload'ından <1s sonra → throttle, dosyaya hiç bakılmaz.
+        assert_eq!(engine.hot_reload().unwrap(), ReloadOutcome::SkippedThrottled);
+
+        // 2) Throttle penceresi geçmiş, mtime aynı → okuma/parse atlanır.
+        *engine.last_reload.lock().unwrap() = Instant::now() - Duration::from_secs(2);
+        assert_eq!(engine.hot_reload().unwrap(), ReloadOutcome::SkippedUnchanged);
+
+        // 3) Throttle geçmiş + mtime farklı görünüyor → gerçek reload.
+        //    (Dosya sistemi mtime granülaritesine yaslanmamak için doğrudan sıfırlanır.)
+        *engine.last_reload.lock().unwrap() = Instant::now() - Duration::from_secs(2);
+        *engine.last_file_mtime.lock().unwrap() = None;
+        assert_eq!(engine.hot_reload().unwrap(), ReloadOutcome::Reloaded);
     }
 }

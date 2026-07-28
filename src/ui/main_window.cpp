@@ -793,13 +793,20 @@ void MainWindow::onSettingsClicked() {
     // Kural görünürlüğü: motorun aktif kural listesini FFI'dan taze oku ve dialog'a
     // ilet (bir kerelik snapshot; canlı poll yok — WS görünürlük deseniyle aynı).
     // Rust JSON'u NUL-terminated tampona yazar; kural seti küçük (birkaç kural <1KB),
-    // 64KB fazlasıyla yeter. Negatif dönüş (init değil / cap yetersiz) → boş string,
-    // dialog "Kural okunamadı" placeholder'ı gösterir (sessizce yutma yok).
+    // 64KB fazlasıyla yeter. V10/L13: -2 (snapshot 64KB'ı aştı) ile -1 (motor hazır
+    // değil) ayrı mesajlarla raporlanır — boyut-aşımı "okunamadı"ya karışmaz.
     {
         char rules_buf[65536];
         const int written = rj_rules_snapshot_json(rules_buf, static_cast<int>(sizeof(rules_buf)));
-        settings_dialog_->setRules(written > 0 ? QString::fromUtf8(rules_buf, written)
-                                               : QString());
+        if (written >= 0) {
+            settings_dialog_->setRules(QString::fromUtf8(rules_buf, written));
+        } else if (written == -2) {
+            settings_dialog_->setRulesError(
+                tr("Kural listesi görüntüleme sınırını (64KB) aşıyor — dosyayı editörde açın"));
+        } else {
+            settings_dialog_->setRulesError(
+                tr("Kural okunamadı (motor hazır değil veya veri geçersiz)"));
+        }
     }
     settings_dialog_->exec();
 }

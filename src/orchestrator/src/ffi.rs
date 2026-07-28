@@ -1221,14 +1221,16 @@ pub extern "C" fn rj_action_approve(action_id: u32) -> i32 {
             Err(returned) => {
                 // Aktüatör kuyruğu dolu (cap 64'te pratikte olmaz): sessiz drop
                 // YOK — aksiyonu pending'de TUT, `0` dön. Bir sonraki approve/TTL
-                // yeniden dener.
+                // yeniden dener. V10/L15: `created` tazelenir — eski damga taşınsaydı
+                // onaylanmış aksiyon TTL sweep'ine anında düşebilirdi (kullanıcı
+                // onayı sessizce kaybolurdu).
                 eprintln!(
                     "[ActionQueue] FULL on approve — aksiyon pending'de tutuldu: id={}",
                     action_id
                 );
                 pending.insert(
                     action_id,
-                    PendingEntry { action: returned, rule_id: entry.rule_id, created: entry.created },
+                    PendingEntry { action: returned, rule_id: entry.rule_id, created: Instant::now() },
                 );
                 0
             }
@@ -1485,7 +1487,9 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
 ///
 /// Dönüş:
 ///   `>= 0` — yazılan JSON gövdesinin byte uzunluğu (NUL hariç).
-///   `-1`   — `buf` null / `cap <= 0` / FFI_STATE init değil / `cap` yetersiz.
+///   `-1`   — `buf` null / `cap <= 0` / FFI_STATE init değil.
+///   `-2`   — `cap` yetersiz (snapshot tampona sığmadı). V10/L13: boyut-aşımı
+///            "motor hazır değil"den ayrı koddur — UI iki durumu farklı raporlar.
 ///
 /// String EGRESS (Rust üretici, C++ parse eder): `ffi-safety-review`'in "string-sınırda-
 /// reddet" ilkesi güvenilmez INGRESS içindi; burada ABI'ye yeni struct/enum EKLENMEZ
@@ -1523,7 +1527,7 @@ pub extern "C" fn rj_rules_snapshot_json(buf: *mut c_char, cap: i32) -> i32 {
         // NUL için 1 byte ayrılır; gövde `cap - 1`'e sığmalı.
         if bytes.len() + 1 > cap {
             warn!(needed = bytes.len() + 1, cap, "rj_rules_snapshot_json: buffer küçük — reddedildi");
-            return -1;
+            return -2;
         }
         // SAFETY: `buf` en az `cap` byte (C++ sözleşmesi); `bytes.len()+1 <= cap` doğrulandı.
         unsafe {
@@ -1626,6 +1630,16 @@ mod tests {
         let mut buf = [0i8; 8];
         assert_eq!(rj_rules_snapshot_json(buf.as_mut_ptr(), 0), -1);
         assert_eq!(rj_rules_snapshot_json(buf.as_mut_ptr(), -1), -1);
+    }
+
+    #[test]
+    fn snapshot_json_insufficient_cap_returns_minus_two() {
+        // V10/L13: boyut-aşımı (-2), "motor hazır değil" (-1) ile karışmamalı —
+        // UI iki durumu farklı mesajla raporlar. Snapshot en az "[]"+NUL = 3 byte
+        // ister; cap=2 geçerli-ama-yetersizdir.
+        rj_start_monitor();
+        let mut buf = [0i8; 8];
+        assert_eq!(rj_rules_snapshot_json(buf.as_mut_ptr(), 2), -2);
     }
 
     #[test]
@@ -2166,6 +2180,43 @@ mod tests {
 
         // İkinci onay: artık pending'de yok → 0.
         assert_eq!(rj_action_approve(id), 0, "zaten işlenmiş id yeniden onaylanınca 0");
+    }
+
+    #[test]
+    fn test_pending_approve_queue_full_refreshes_created() {
+        // V10/L15: kuyruk-dolu geri koymada `created` tazelenmeli — eski damga
+        // taşınsaydı TTL'e yaklaşmış onaylı aksiyon sweep'te anında düşerdi.
+        let _g = pending_guard();
+        rj_start_monitor();
+        let state = FFI_STATE.get().expect("monitor started");
+        let id = 900_015;
+
+        // TTL'e 1s kalmış (backdated) pending entry koy.
+        let near_expiry = Instant::now()
+            .checked_sub(PENDING_TTL - Duration::from_secs(1))
+            .expect("backdate");
+        state.pending_actions.lock().unwrap().insert(
+            id,
+            PendingEntry { action: mk_action(id), rule_id: "rule_full".to_string(), created: near_expiry },
+        );
+
+        // Aktüatör kuyruğunu doldur (cap 64) — approve push'u Err ile dönsün.
+        while state.action_queue.push(mk_action(1)).is_ok() {}
+
+        assert_eq!(rj_action_approve(id), 0, "kuyruk doluyken approve 0 dönmeli");
+        {
+            let pending = state.pending_actions.lock().unwrap();
+            let entry = pending.get(&id).expect("aksiyon pending'de tutulmalı");
+            assert!(
+                entry.created.elapsed() < Duration::from_secs(5),
+                "created tazelenmeli — eski damga korunursa TTL sweep onayı anında düşürür"
+            );
+        }
+
+        // Temizlik: kuyruğu ve pending'i boşalt (paralel testleri etkileme).
+        let mut out = mk_action(0);
+        while rj_action_dequeue(&mut out as *mut _) == 1 {}
+        state.pending_actions.lock().unwrap().remove(&id);
     }
 
     #[test]

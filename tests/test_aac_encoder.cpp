@@ -28,6 +28,15 @@ TEST(AacEncoderTest, InitSucceedsFor48kStereo) {
     enc.shutdown();
 }
 
+// V10/L16: init, encode hot-path'inin scratch ihtiyacini pesinen ayirir —
+// ilk encode cagrisinda dahi realloc olmamali.
+TEST(AacEncoderTest, InitReservesScratchForHotPath) {
+    AacEncoder enc;
+    ASSERT_TRUE(enc.init({48000u, 2u, 128000u}, &collect_sink, nullptr));
+    EXPECT_GE(enc.scratch_capacity(), AacEncoder::kMaxExpectedSamplesPerCall);
+    enc.shutdown();
+}
+
 // init sonrasi ASC, aac_config.h ile ayni deterministik degeri verir (0x11 0x90).
 TEST(AacEncoderTest, AscMatchesDeterministicConfig) {
     AacEncoder enc;

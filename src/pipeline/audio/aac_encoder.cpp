@@ -45,6 +45,10 @@ bool AacEncoder::init(const Config& cfg, OutputCallback cb, void* user_data) {
     sink_    = cb;
     sink_ud_ = user_data;
 
+    // V10/L16: encode() hot-path'indeki resize hic realloc'a dusmesin — beklenen
+    // ust siniri init'te ayir (ring chunk'lari bundan buyuk olamaz).
+    pcm_scratch_.reserve(kMaxExpectedSamplesPerCall);
+
     // AudioSpecificConfig deterministik (aac_config.h ile testlenen yol).
     auto asc = make_audio_specific_config(cfg.sample_rate, cfg.channels);
     if (!asc.has_value()) return false;

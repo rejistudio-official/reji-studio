@@ -75,17 +75,40 @@ TEST(AudioRingTest, FullDropsNewestAndCounts) {
         if (r.push(s, 1, 2, 48000, static_cast<int64_t>(i))) ++accepted;
     }
     EXPECT_EQ(accepted, AudioRing::kCapacity);
+    // V10/L19: doluluk kaybi kendi sayacina yazilir — gecersiz-girdi karismaz.
+    EXPECT_EQ(r.dropped_full(), 5u);
+    EXPECT_EQ(r.rejected_invalid(), 0u);
     EXPECT_EQ(r.dropped(), 5u);
     // Ilk (en eski) chunk hala pts=0 — en yeni dusuruldu, eski korundu.
     EXPECT_EQ(pop_one(r).pts_us, 0);
 }
 
-// Kapasiteyi asan cerceve sayisi reddedilir (drop sayaci artar), ring bozulmaz.
+// Kapasiteyi asan cerceve sayisi reddedilir (gecersiz-girdi sayaci), ring bozulmaz.
 TEST(AudioRingTest, OversizedChunkRejected) {
     AudioRing r;
     std::vector<float> big(AudioRing::kMaxSamplesPerChunk + 2, 0.0f);
     EXPECT_FALSE(r.push(big.data(), (AudioRing::kMaxSamplesPerChunk + 2) / 2, 2,
                         48000, 1));
+    // V10/L19: asiri boyut veri kaybi DEGIL uretici hatasi — ayri sayac.
+    EXPECT_EQ(r.rejected_invalid(), 1u);
+    EXPECT_EQ(r.dropped_full(), 0u);
     EXPECT_EQ(r.dropped(), 1u);
     EXPECT_TRUE(r.empty());
+}
+
+// V10/L19: iki ret sinifi ayni ring'de birlikte olusursa ayri ayri izlenir.
+TEST(AudioRingTest, DropReasonsCountedSeparately) {
+    AudioRing r;
+    const float s[2] = { 0.0f, 0.0f };
+    // Gecersiz girdi: null pointer + sifir ornek.
+    EXPECT_FALSE(r.push(nullptr, 1, 2, 48000, 1));
+    EXPECT_FALSE(r.push(s, 0, 2, 48000, 2));
+    // Doluluk: kapasiteyi doldur, bir fazla push et.
+    for (uint32_t i = 0; i < AudioRing::kCapacity; ++i)
+        ASSERT_TRUE(r.push(s, 1, 2, 48000, static_cast<int64_t>(i)));
+    EXPECT_FALSE(r.push(s, 1, 2, 48000, 99));
+
+    EXPECT_EQ(r.rejected_invalid(), 2u);
+    EXPECT_EQ(r.dropped_full(), 1u);
+    EXPECT_EQ(r.dropped(), 3u);
 }

@@ -63,6 +63,11 @@ public:
     // geçersizse tabloya "Kural okunamadı" placeholder'ı düşer (sessizce yutma yok).
     void setRules(const QString& rulesJson);
 
+    // V10/L13: snapshot alınamadığında tabloya sebep-özel tek satırlık uyarı basar.
+    // MainWindow `rj_rules_snapshot_json` dönüş koduna göre mesajı seçer (boyut-aşımı
+    // ile "motor hazır değil" aynı metne karışmasın).
+    void setRulesError(const QString& message);
+
 signals:
     void healingModeChanged(HealingMode mode);
     void editRulesRequested();

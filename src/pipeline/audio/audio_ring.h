@@ -28,18 +28,21 @@ public:
     AudioRing& operator=(const AudioRing&) = delete;
 
     /// Uretici (capture thread). Ornekleri kopyalar. Dolu / gecersiz / asiri-boyut
-    /// durumunda false doner ve drop sayacini artirir (allocation-free).
+    /// durumunda false doner ve ilgili sayaci artirir (allocation-free).
+    /// V10/L19: iki ret sebebi ayri sayilir — doluluk gercek veri kaybidir
+    /// (backpressure sinyali), gecersiz girdi ise uretici hatasidir; ayni sayaca
+    /// karismalari teshisi korlestiriyordu.
     bool push(const float* samples, uint32_t frames, uint32_t channels,
               uint32_t sample_rate, int64_t pts_us) noexcept {
         const uint64_t n = static_cast<uint64_t>(frames) * channels;
         if (!samples || n == 0 || n > kMaxSamplesPerChunk) {
-            dropped_.fetch_add(1, std::memory_order_relaxed);
+            rejected_invalid_.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
         const uint64_t tail = tail_.load(std::memory_order_relaxed);
         const uint64_t head = head_.load(std::memory_order_acquire);
         if (tail - head >= kCapacity) {           // dolu -> en yeniyi dusur
-            dropped_.fetch_add(1, std::memory_order_relaxed);
+            dropped_full_.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
         Slot& s = slots_[tail & kMask];
@@ -68,7 +71,19 @@ public:
         return true;
     }
 
-    uint32_t dropped() const noexcept { return dropped_.load(std::memory_order_relaxed); }
+    /// Doluluk nedeniyle dusen chunk sayisi — gercek veri kaybi (backpressure).
+    uint32_t dropped_full() const noexcept {
+        return dropped_full_.load(std::memory_order_relaxed);
+    }
+
+    /// Gecersiz girdi (null / sifir / asiri boyut) nedeniyle reddedilen cagri
+    /// sayisi — veri kaybi degil, uretici sozlesme ihlali.
+    uint32_t rejected_invalid() const noexcept {
+        return rejected_invalid_.load(std::memory_order_relaxed);
+    }
+
+    /// Toplam ret — eski tek sayacin dengi (teshiste iki sinifi ayri oku).
+    uint32_t dropped() const noexcept { return dropped_full() + rejected_invalid(); }
 
     uint32_t size() const noexcept {
         return static_cast<uint32_t>(
@@ -92,7 +107,8 @@ private:
     std::unique_ptr<Slot[]> slots_;
     std::atomic<uint64_t>   head_{0};   // yalniz tuketici yazar
     std::atomic<uint64_t>   tail_{0};   // yalniz uretici yazar
-    std::atomic<uint32_t>   dropped_{0};
+    std::atomic<uint32_t>   dropped_full_{0};      // V10/L19: doluluk (veri kaybi)
+    std::atomic<uint32_t>   rejected_invalid_{0};  // V10/L19: gecersiz girdi
 };
 
 } // namespace reji::pipeline::audio
