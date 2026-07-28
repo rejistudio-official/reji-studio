@@ -77,11 +77,11 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 | L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ FIXED 758d155 (tek init yolu) — canlı doğrulama kullanıcıda |
 | L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | ✅ FIXED fcdcb9e (asc_sent_ retry) |
 | L7 | Shutdown-flush sırasında MF lazy-init SEH ihlali | 🔵 1/4 (Fable) | 1 | ❌ ÇÜRÜTÜLDÜ — on_packet streaming guard'ı drain'i keser |
-| L8 | Zig ABI üst-sınır eksikliği + writeFlvTag sessiz kırpma | 🔵 1/4 (tavan) / 🟢 3/4 (kırpma) | 2 | Faz 0 bekliyor |
-| L9 | MFT CAN_PROVIDE_SAMPLES yanlış yorumu + hata-yolu pSample sızıntısı | 🔵 1/4 (Fable) | 2 | Faz 0 bekliyor |
-| L10 | Kanal-uyumsuzluğunda sessiz bozuk encode | 🔵 1/4 (Opus) | 2 | Faz 0 bekliyor |
-| L11 | step_kbps ölü parametre (BITRATE_REDUCE sabit %15) | 🔵 1/4 (GLM) | 2 | Faz 0 bekliyor (tasarım mı unutma mı?) |
-| L12 | A/V pts epoch doğrulaması (WASAPI QPC vs FramePacer::pts_us) | 🟡 2/4 | 2 | Faz 0 bekliyor (pacer okunmadan karar yok) |
+| L8 | Zig ABI üst-sınır eksikliği + writeFlvTag sessiz kırpma | 🔵 1/4 (tavan) / 🟢 3/4 (kırpma) | 2 | ✅ FIXED 973dd19 (ABI boyut tavanları + writeFlvTag kırpma yerine reddet; merge 45db244) |
+| L9 | MFT CAN_PROVIDE_SAMPLES yanlış yorumu + hata-yolu pSample sızıntısı | 🔵 1/4 (Fable) | 2 | ✅ FIXED 3cb573e (savunmacı pSample release) — CAN_PROVIDE yorumu ❌ ÇÜRÜTÜLDÜ (bkz. Çürütülenler) |
+| L10 | Kanal-uyumsuzluğunda sessiz bozuk encode | 🔵 1/4 (Opus) | 2 | ✅ FIXED 53363f2 (format_gate — uyuşmazlıkta ses yolu güvenli kapanır) |
+| L11 | step_kbps ölü parametre (BITRATE_REDUCE sabit %15) | 🔵 1/4 (GLM) | 2 | ✅ FIXED 9497b33 (unutulmuş bağlantıydı — param1/step_kbps REDUCE/RECOVER'da kullanılır) |
+| L12 | A/V pts epoch doğrulaması (WASAPI QPC vs FramePacer::pts_us) | 🟡 2/4 | 2 | ✅ FIXED 9b29dc9 (tabanlar farklıydı — ses pts'i pacer origin'ine rebase) |
 | L13 | rules_buf 64KB aşımında yanıltıcı "Kural okunamadı" | 🟡 2/4 | 3 | Faz 0 bekliyor |
 | L14 | HealingLog writer thread'e shutdown sinyali + son flush | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
 | L15 | rj_action_approve kuyruk-dolu geri koymada created tazelenmeli | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
@@ -90,6 +90,9 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 | L18 | Profil önerisi diyaloğunda vendor/VRAM eşleşmezliği | 🔵 1/4 (Kimi) | 3 | Faz 0 bekliyor |
 | L19 | AudioRing dropped_ sayacı doluluk/geçersiz-girdi ayrımı | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
 | L20 | hot_reload throttle "Ok ama skip" sözleşmesi (ölü kod tuzağı) | 🔵 1/4 (Fable) | 3 | Faz 0 bekliyor |
+| L21 | Predictive katman gönderim-hatasını yük sanıyor | 🟢 canlı kanıt | 2 | ✅ FIXED ecf9b99 (bağlantı-yokluğu drop'ları predictive trendden ayrıldı) — canlı doğrulandı (28.07: bitrate düşüşü yok) |
+| L22 | frame_drop_pct ölü metrik: kural motoru kör | 🟢 canlı kanıt | 2 | ✅ FIXED ec24d2a (on_packet → record_frame/record_frame_drop besler) — canlı doğrulandı (28.07: drop=0% kesintisiz) |
+| L23 | SRT bağlantı durumu gözlemlenebilirliği | 🔵 hijyen | 2 | ✅ FIXED 67d9258 (durum geçişleri run.log'a) — canlı doğrulandı (28.07: srt_connect_failed logu) |
 
 ---
 
@@ -265,6 +268,9 @@ guard'ın shutdown-sırası sözleşmesi kod yorumuyla belgelenebilir
 prompt'un özel dikkat çağrısı #3'e doğrudan cevap). Ek: `writeFlvTag`
 `body.len & 0xFFFFFF` sessiz kırpma (Fable/Opus/GLM) — 16MB üstü
 body'de bozuk tag; maske yerine reddet.
+**Durum (2026-07-28): ✅ FIXED 973dd19** (`feat/v10-l8-zig-abi-bounds`, merge
+45db244) — ABI boyut tavanları eklendi, writeFlvTag 16MB üstünü maskelemek
+yerine reddediyor.
 
 ### L9 — MFT CAN_PROVIDE_SAMPLES yanlış yorumu + pSample sızıntısı 🔵 1/4 (Fable)
 **Konum:** `src/pipeline/audio/` — MFT çıkış örnekleme mantığı
@@ -274,6 +280,9 @@ body'de bozuk tag; maske yerine reddet.
 sağlamazsa MFT reddedip ses kalıcı kopabilir. Ayrıca
 FAILED/NEED_MORE_INPUT dallarında MFT-provided pSample release
 edilmiyor (teorik sızıntı).
+**Durum (2026-07-28): kısmi ✅ FIXED 3cb573e / kısmi ❌ ÇÜRÜTÜLDÜ** (merge
+dbf4bc8) — CAN_PROVIDE yorumu Faz 0'da çürütüldü (Çürütülenler kaydına
+işlendi); hata-yolu pSample sızıntısı gerçekti, savunmacı release eklendi.
 
 ### L10 — Kanal-uyumsuzluğunda sessiz bozuk encode 🔵 1/4 (Opus)
 **Konum:** `src/pipeline/audio/` — encoder kanal varsayımı
@@ -282,6 +291,8 @@ varsayımıyla yanlış frame sayısı/interleaving üretir — bilinen #5
 (resampling yok) yalnız sample-rate'i kapsıyor, kanal boyutu ayrı ve
 sessiz bozulma üretiyor.
 **Önerilen düzeltme:** Format uyuşmazlığında ses yolunu güvenli kapat.
+**Durum (2026-07-28): ✅ FIXED 53363f2** (merge dbf4bc8) — `format_gate.h`:
+kanal/örnekleme uyuşmazlığında ses yolu güvenli kapanır (sessiz bozulma yok).
 
 ### L11 — step_kbps ölü parametre 🔵 1/4 (GLM — Donanım Profilleme değer kaybı)
 **Konum:** `src/orchestrator/` — RuleEngine param1 taşıma,
@@ -293,6 +304,9 @@ konfigürasyon.
 **Faz 0 sorusu:** Bilinçli tasarım mı (yüzde-tabanlı tercih) yoksa
 unutulmuş bağlantı mı? Bilinçliyse profillerden step_kbps kaldırılmalı
 (yanıltıcı), değilse param1 kullanılmalı.
+**Durum (2026-07-28): ✅ FIXED 9497b33** (merge dbf4bc8) — Faz 0 cevabı:
+unutulmuş bağlantı; REDUCE/RECOVER artık param1/step_kbps profil adımını
+kullanıyor, üç profilin step ayrımı fiilen çalışıyor.
 
 ### L12 — A/V pts epoch doğrulaması 🟡 2/4 (Fable orta + Opus spekülatif)
 **Konum:** WASAPI capture pts (QPC-mutlak) vs `FramePacer::pts_us`
@@ -303,6 +317,9 @@ saatlerce kayar; drift valfi sürekli uyarır ama düzeltmez.
 **Faz 0:** `frame_pacer.h/cpp` okunarak kesinleştirilecek — aynıysa
 çürüt, farklıysa düzelt. (Fable raporunun kendisi de "pacer görülmeden
 kesinleşmez" diye işaretledi.)
+**Durum (2026-07-28): ✅ FIXED 9b29dc9** (merge dbf4bc8) — Faz 0 cevabı:
+tabanlar farklıydı; ses pts'i pacer origin'ine rebase edildi (A/V epoch
+eşitlendi).
 
 ### L21 — Predictive katman gönderim-hatasını yük sanıyor 🟢 canlı kanıt (Faz 0 reduce-tetikleyici teşhisi)
 **Konum:** `src/orchestrator/src/healing.rs:657-664` (frame-drop trendi),
@@ -321,6 +338,9 @@ kapsamına komşu.
 trendden ayır; bağlantı-yok/koptu durumunu mevcut
 `notify_connection_lost` → fallback yoluna yönlendir. Kendi Faz
 0/1'ini hak eden orta-büyük mimari iş.
+**Durum (2026-07-28): ✅ FIXED ecf9b99** (`feat/v10-sprint2-grupA`, merge
+612a357) — bağlantı-yokluğu drop'ları predictive trendden ayrıldı. **Canlı
+doğrulandı (28.07):** SRT bağlantısız START'ta NVENC bitrate düşüşü hiç yok.
 
 ### L22 — frame_drop_pct ölü metrik: kural motoru kör 🟢 canlı kanıt (S1-ek4 ikincil bulgu (a)'nın resmileşmesi)
 **Konum:** `src/pipeline/metrics_collector.cpp:93-101`
@@ -337,6 +357,9 @@ zincirinden beslemek bir aday) yoksa üç kural profillerden
 çıkarılmalı mı? İkisi birden olmaz — koşulsuz recovery şu an
 fiili emniyet supabı, kaldırmadan önce recovery'nin gerçek
 tetikleyicisi tanımlanmalı.
+**Durum (2026-07-28): ✅ FIXED ec24d2a** (merge 612a357) — Faz 0 cevabı:
+metrik diriltildi; `on_packet` → `record_frame`/`record_frame_drop` besler,
+kurallar profillerde kaldı. **Canlı doğrulandı (28.07):** drop=0% kesintisiz.
 
 ### L23 — SRT bağlantı durumu gözlemlenebilirliği 🔵 hijyen (L21 teşhisinin açık bıraktığı nokta)
 **Konum:** `src/pipeline/output/srt_output.cpp` (durum geçişleri
@@ -347,6 +370,9 @@ connect başarı/başarısızlık ve `connected` geçişleri (kayıp dahil)
 run.log'a yazılırsa bu sınıf teşhisler doğrudan kanıtla kapanır.
 **Önerilen düzeltme:** Bağlantı durum geçişlerinde tek satır dbglog
 (hot-path `send_internal`'a log koyma — yalnız geçiş anları).
+**Durum (2026-07-28): ✅ FIXED 67d9258** (merge 612a357) — durum geçişleri
+run.log'a yazılıyor. **Canlı doğrulandı (28.07):** `[rj_srt] connection
+lost: srt_connect_failed` logu doğru çıkıyor.
 
 ---
 
@@ -381,6 +407,9 @@ run.log'a yazılırsa bu sınıf teşhisler doğrudan kanıtla kapanır.
 - **ExistingDesktopSource katmanı** — iki model bağımsız temiz buldu
   (henüz wire edilmemiş olduğu notuyla).
 - **capture_loop clamp/ReleaseBuffer** — Opus + GLM doğruladı, doğru.
+- **L9 CAN_PROVIDE yorumu (kısmi)** — Sprint 2 Faz 0'da çürütüldü (3cb573e):
+  `output_provides_samples_` yorumu mevcut akışta yanlış davranış üretmiyor;
+  maddenin gerçek kısmı (hata-yolu pSample sızıntısı) düzeltildi.
 
 ## Spekülatif Havuz (düzeltme yok, kayıt)
 
@@ -491,5 +520,17 @@ run.log'a yazılırsa bu sınıf teşhisler doğrudan kanıtla kapanır.
       drop=0, 6000 sabit). KARAR (kullanıcı): Sprint 1 merge edilir;
       bulgular L21-L23 olarak Sprint 2'ye — "madem buradayız" tuzağından
       bilinçli kaçınma.
+- [x] Sprint 2 tamamlandı ve merge edildi (2026-07-28, master `dbf4bc8`,
+      origin senkron): üç dal — `feat/v10-sprint2-grupA` (L23 67d9258,
+      L21 ecf9b99, L22 ec24d2a; merge 612a357), `feat/v10-l8-zig-abi-bounds`
+      (L8 973dd19; merge 45db244), `feat/v10-sprint2-grupB` (L9 3cb573e,
+      L10 53363f2, L11 9497b33, L12 9b29dc9; merge dbf4bc8). Canlı GUI
+      doğrulaması (28.07): L21/L23 beklendiği gibi — srt_connect_failed
+      logu doğru, bitrate düşüşü yok, drop=0%. Merge-sonrası tam build +
+      ctest 23/25 PASS (bilinen 2 kırık: FrameProfiler/ShaderCache).
+      Yerel dallar silindi. Yan gözlem (kod incelemesiyle teyit): "Capture
+      loss detected (60 frames)" SRT'den bağımsız — null-streak eşiği
+      statik ekranda ~1sn'de doluyor (`kNullStreakReinit=60`); zararsız,
+      V11 adayı not edildi.
 - Tamamlanınca `TALIMAT_V10_TARAMA_HAZIRLIK.md` → `docs/talimatlar/`
   arşivine taşınacak.

@@ -1,7 +1,19 @@
 # CONTEXT.md — Reji Studio Proje Bağlamı
 
-**Son güncelleme:** 20 Temmuz 2026
+**Son güncelleme:** 28 Temmuz 2026
 **Hazırlayan:** Bu sohbetin (Claude, sohbet asistanı) kendisi — Claude Code'un gerçekleştirdiği işlerin, GitHub'dan doğrudan doğrulanmış özeti.
+
+> **V10 SPRINT 1-2 KAPANDI (28.07):** V10 bug planının Sprint 1 (L1-L7 +
+> S1-ek1..ek4, merge `543c1b3`, 22.07) ve Sprint 2 (L8-L12 + L21-L23, üç
+> dal — grupA/l8-zig-abi-bounds/grupB — merge `dbf4bc8`, 28.07) sprint'leri
+> tamamen kapandı; `master` ↔ `origin/master` senkron, yerel dallar silindi.
+> Çürütmeler: L7 + L9'un CAN_PROVIDE kısmı. Canlı GUI doğrulaması (28.07):
+> L21/L23 beklendiği gibi (srt_connect_failed logu doğru, bitrate düşüşü
+> yok, drop=0%). Merge-sonrası tam build + ctest 23/25 PASS (bilinen 2
+> kırık). Açık: Sprint 3 (L13-L20) Faz 0 bekliyor; V11 adayı minör not —
+> "Capture loss detected (60 frames)" null-streak eşiği statik ekranda
+> boşta tetikleniyor (SRT'den bağımsız, zararsız). Kanonik detay:
+> `docs/FABLE5_BUG_PLAN_V10.md`.
 
 > **ISOURCE ARAYÜZ TASARIMI (20.07):** ROADMAP Faz 3'ün (Çoklu Kaynak
 > Mimarisi) ilk alt maddesi tamamlandı — `src/pipeline/include/i_source.h`
