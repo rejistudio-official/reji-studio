@@ -46,6 +46,26 @@ Running→NeedsReinit geçişinde bir kez tetikle, reinit sonrası
 `shutdown()+init()` sayacı zaten sıfırlar). Bu dönüşüm yanlış kurulursa
 recovery fırtınası (her tikte reinit) doğar — birim testiyle kilitle.
 
+**Ön-kontrol eki (2026-07-29, bkz. docs/ON_KONTROL_WIRING_BAYATLIK.md):**
+"reinit sonrası sayaç zaten sıfırlanır" varsayımı yalnızca reinit
+GERÇEKLEŞİRSE doğru. `RecoveryCoordinator::handle_device_lost()` cihaz
+sağlıklıyken (`GetDeviceRemovedReason() == S_OK`, örn. statik ekran)
+reinit yapmadan `false` döner — bu yolda `shutdown()+init()` olmaz,
+tracker sıfırlanmaz, state `NeedsReinit`'te kalır. Salt geçiş-bazlı
+tetik bu durumda BİR DAHA HİÇ ateşlemez; bugünkü kod ise her 60 null'da
+yeniden dener. Dönüşüme bir re-arm politikası eklenmeli (Faz 0, karar 3).
+
+## S1-ek4 Eki (2026-07-29) — frame_drops Eşlemesi Korunmalı
+
+Bu talimat yazıldıktan sonra S1-ek4, `frame_drop_policy.h`'yi ekledi:
+null frame ("yeni kare yok") artık drop SAYILMAZ (`FrameOutcome::NoNewFrame`);
+yalnız encode hatası (`EncodeFailed`) `frame_drops`'a yazılır. Boşta drop
+sayımı predictive healing'i sahte besleyip START'sız recovery banner
+döngüsü üretiyordu (kök neden). Wiring'in yeni `run_frame()` capture bloğu
+bu eşlemeyi AYNEN korumalı: null `SourceFrame` → `NoNewFrame` (sayaç
+artmaz), encode hatası → `EncodeFailed`. Null-streak/NeedsReinit tespiti
+bu sayaçtan bağımsızdır (frame_drop_policy.h başlık yorumu).
+
 ## Faz 0 — Açık Kararlar (kod yazmadan, onaya sun)
 
 1. **CaptureSubsystem'in kaderi:** Adapter'ın yanında yaşamaya devam mı
@@ -59,7 +79,10 @@ recovery fırtınası (her tikte reinit) doğar — birim testiyle kilitle.
    `ExistingDesktopSource&` (somut tip; ISource'a genellemek reinit
    Config'i yüzünden bu turda zorlama olur — YAGNI).
 3. **Null-streak tetikleyicisi:** yukarıdaki level→edge dönüşümünün tam
-   yeri ve testi.
+   yeri ve testi — ARTI re-arm politikası (ön-kontrol eki: reinit
+   gerçekleşmeyen no-op denemeden sonra tetik nasıl yeniden kurulur;
+   davranış-koruyucu seçenek: NeedsReinit'te kalındıkça her 60 karede
+   yeniden tetikle = bugünkü cadence birebir).
 
 ## Faz 1-2 — Tasarım Teyidi + Küçük Commit'ler
 
