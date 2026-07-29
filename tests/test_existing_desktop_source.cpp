@@ -13,7 +13,10 @@
 #include <gtest/gtest.h>
 
 #include "existing_desktop_source.h"
+#include "encode_subsystem.h"
+#include "recovery_coordinator.h"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -172,4 +175,44 @@ TEST(ExistingDesktopSource, NextFrameWithoutInitReturnsNoFrame) {
     Harness h;
     const rj::SourceFrame f = h.source.next_frame();
     EXPECT_EQ(f.handle, nullptr);
+}
+
+// ── Kontrat-dışı geçiş yüzeyi (wiring, Faz 0 karar 1) ───────────────────────
+// is_wgc(): CaptureSubsystem::is_wgc() ile birebir — capture var VE DXGI
+// pipeline cast'i null (fake DxgiScreenCapture değil → WGC-benzeri yol).
+
+TEST(ExistingDesktopSource, IsWgcFalseBeforeInit) {
+    Harness h;
+    EXPECT_FALSE(h.source.is_wgc());
+}
+
+TEST(ExistingDesktopSource, IsWgcTrueForNonDxgiCaptureAfterInit) {
+    Harness h;
+    ASSERT_TRUE(h.source.init());
+    EXPECT_TRUE(h.source.is_wgc());
+}
+
+TEST(ExistingDesktopSource, IsWgcFalseAfterShutdown) {
+    Harness h;
+    ASSERT_TRUE(h.source.init());
+    h.source.shutdown();
+    EXPECT_FALSE(h.source.is_wgc());
+}
+
+// ── RecoveryCoordinator ExistingDesktopSource& overload (Faz 0 karar 2) ─────
+// WGC dalının cihazsız erken çıkışı: fake d3d_device() override etmez →
+// metadata().device null → reinit DENENMEDEN false (eski CaptureSubsystem
+// overload'unun `if (!dev) return false;` davranışıyla birebir).
+
+TEST(RecoveryCoordinatorOverload, ReturnsFalseWithoutDeviceAndDoesNotReinit) {
+    Harness h;
+    ASSERT_TRUE(h.source.init());
+    rj::EncodeSubsystem     encode;
+    rj::Pipeline::Config    cfg{};
+    std::atomic<uint32_t>   w{0}, ht{0};
+
+    EXPECT_FALSE(rj::RecoveryCoordinator::handle_device_lost(
+        h.source, encode, cfg, /*bitrate_kbps=*/6000, w, ht));
+    // Kaynak dokunulmadan Running kalmalı (shutdown+init denenmedi).
+    EXPECT_EQ(h.source.state(), rj::SourceState::Running);
 }

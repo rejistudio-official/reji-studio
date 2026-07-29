@@ -8,6 +8,7 @@
 #include "recovery_coordinator.h"
 #include "capture_subsystem.h"
 #include "encode_subsystem.h"
+#include "existing_desktop_source.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -111,6 +112,91 @@ bool RecoveryCoordinator::handle_device_lost(
     } else if (capture.has_capture()) {
         encode_device = capture.d3d_device();  // WGC path
     }
+    if (!encode_device) {
+        dbglog("[Pipeline] TDR: no encode device — encoder reinit skipped");
+        return true;
+    }
+
+    EncodeSubsystem::Config enc_cfg;
+    enc_cfg.width            = width.load(std::memory_order_acquire);
+    enc_cfg.height           = height.load(std::memory_order_acquire);
+    enc_cfg.fps_num          = cfg.fps;
+    enc_cfg.fps_den          = 1;
+    const uint32_t bps       = bitrate_kbps;
+    enc_cfg.bitrate_kbps     = bps;
+    enc_cfg.max_bitrate_kbps = bps + bps / 4;
+    // Saklı packet_cb ile yeniden kur (EncodeSubsystem::reinit).
+    if (!encode.reinit(encode_device, enc_cfg)) {
+        dbglog("[Pipeline] TDR encoder reinit failed");
+        return false;
+    }
+
+    dbglog("[Pipeline] TDR recovery complete");
+    return true;
+}
+
+// ISource wiring overload — yukarıdaki CaptureSubsystem sürümüyle BİREBİR akış
+// (sıra korunmuştur). Farklar yalnızca mekanik: cihaz seçimi metadata().device
+// (WGC: kendi cihazı, DXGI: encode-GPU — pipeline.cpp'deki seçim sırasının
+// aynısı) ve reinit source.shutdown()+source.init() (Config adapter ctor'unda
+// saklı; pipeline init'inin geçtiği cap_cfg ile aynı olduğundan recovery'nin
+// eski taze-Config kurulumuyla davranış paritesi korunur).
+bool RecoveryCoordinator::handle_device_lost(
+    ExistingDesktopSource&      source,
+    EncodeSubsystem&            encode,
+    const rj::Pipeline::Config& cfg,
+    uint32_t                    bitrate_kbps,
+    std::atomic<uint32_t>&      width,
+    std::atomic<uint32_t>&      height)
+{
+    if (!source.dxgi()) {
+        // WGC path — capture device lost kontrolü
+        ID3D11Device* dev = source.metadata().device;
+        if (!dev) return false;
+        HRESULT reason = dev->GetDeviceRemovedReason();
+        if (reason == S_OK) return false;
+
+        dbglog("[Pipeline] WGC device lost: 0x%08lX — reinit",
+               static_cast<unsigned long>(reason));
+        seh_connection_lost("wgc-device-lost");
+
+        source.shutdown();
+        // Yeni WGC capture recast'te null'a düşer → dxgi_ null kalır
+        // (eski davranışla aynı; WGC→DXGI mid-session bir senaryo değil).
+        if (!source.init()) {
+            dbglog("[Pipeline] WGC reinit failed");
+            return false;
+        }
+        dbglog("[Pipeline] WGC reinit OK");
+        return true;
+    }
+
+    ID3D11Device* dev = source.dxgi()->encode_gpu()
+                        ? source.dxgi()->encode_gpu()->d3d_device()
+                        : nullptr;
+    if (!dev) return false;
+
+    HRESULT reason = dev->GetDeviceRemovedReason();
+    if (reason == S_OK) return false;  // transient encode error, not TDR
+
+    dbglog("[Pipeline] TDR device removed reason=0x%08lX",
+           static_cast<unsigned long>(reason));
+    seh_connection_lost("gpu-device-lost");
+
+    encode.shutdown();   // native teardown (~NvencEncoder) + reset
+    source.shutdown();   // capture_ reset + dxgi_ null
+
+    if (!source.init()) {
+        dbglog("[Pipeline] TDR capture reinit failed");
+        return false;
+    }
+    const SourceMetadata md = source.metadata();
+    width.store(md.width, std::memory_order_release);
+    height.store(md.height, std::memory_order_release);
+
+    // Cihaz seçimi eski koddaki sırayla aynı: DXGI encode-GPU, yoksa WGC kendi
+    // cihazı — metadata().device tam bu seçimi uygular.
+    ID3D11Device* encode_device = md.device;
     if (!encode_device) {
         dbglog("[Pipeline] TDR: no encode device — encoder reinit skipped");
         return true;

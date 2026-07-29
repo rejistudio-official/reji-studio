@@ -22,7 +22,10 @@
 // Windows'a özel: CaptureSubsystem gibi yalnızca _WIN32 altında include
 // edilmelidir (DxgiCapturePipeline / ID3D11* bağımlılığı).
 #pragma once
+#include <functional>
 #include <memory>
+#include <d3d11.h>          // ID3D11Texture2D (WGC staging), ComPtr hedefi
+#include <wrl/client.h>     // Microsoft::WRL::ComPtr
 
 #include "desktop_source_logic.h"
 #include "i_screen_capture.h"
@@ -61,6 +64,23 @@ public:
     // gpu_scan…) için; kapatmak gerçek kompozisyon turunun işi. WGC'de nullptr.
     reji::DxgiCapturePipeline* dxgi() const noexcept { return dxgi_; }
 
+    // ── Kontrat-dışı WGC preview yüzeyi (wiring Faz 0 karar 1, onaylı) ──
+    // CaptureSubsystem'den taşındı; ISource kontratına BİLEREK dahil değil
+    // (preview orkestrasyon meselesi). Staging texture'ın yaşam döngüsü
+    // capture cihazına bağlı olduğundan kaynakla birlikte yaşar.
+    using PreviewCallback = std::function<void(const void* bgra, int width,
+                                               int height, int row_pitch)>;
+
+    // CaptureSubsystem::is_wgc() ile birebir: capture var, DXGI cast'i null.
+    bool is_wgc() const noexcept { return capture_ != nullptr && dxgi_ == nullptr; }
+
+    // WGC path CPU staging preview: shared texture yoksa GPU→staging kopyala,
+    // map'le, preview_cb'ye BGRA gönder. preview_cb orkestratörden geçilir (UI
+    // bilgisi yok); frame_w/frame_h WGC CapturedFrame dims. Orkestratör yalnızca
+    // WGC+preview_cb varken çağırır (tetikleme kararı orkestratörde kalır).
+    void emit_wgc_preview(const PreviewCallback& preview_cb, ID3D11Texture2D* tex,
+                          uint32_t frame_w, uint32_t frame_h);
+
 private:
     Config                          cfg_;
     std::unique_ptr<IScreenCapture> capture_;
@@ -69,6 +89,10 @@ private:
     uint32_t                        format_ = 0;     // ham DXGI_FORMAT, init'te sabitlenir
     uint64_t                        qpc_freq_ = 0;   // init'te bir kez sorgulanır
     NullStreakTracker               streak_;         // frame thread; tek thread
+    // WGC path CPU staging — ilk preview frame'de lazy oluşturulur, çözünürlük
+    // değişiminde reset edilir (emit_wgc_preview içinde yönetilir). shutdown()
+    // BİLEREK dokunmaz — CaptureSubsystem davranış paritesi (yalnız yıkımda).
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> wgc_staging_tex_;
 };
 
 } // namespace rj

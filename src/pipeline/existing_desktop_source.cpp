@@ -6,6 +6,7 @@
 // çekirdek (alan eşlemesi + streak) desktop_source_logic.h'de test edilir.
 #include "existing_desktop_source.h"
 
+#include <cstdio>                  // fprintf (WGC staging tanı logu)
 #include <windows.h>               // QueryPerformanceCounter/Frequency
 
 #include "capture_dxgi_screen.h"   // reji::DxgiScreenCapture (dynamic_cast + pipeline())
@@ -91,8 +92,68 @@ SourceState ExistingDesktopSource::state() const noexcept {
                                   : SourceState::Running;
 }
 
+void ExistingDesktopSource::emit_wgc_preview(const PreviewCallback& preview_cb,
+                                             ID3D11Texture2D* tex,
+                                             uint32_t frame_w, uint32_t frame_h) {
+    // CaptureSubsystem::emit_wgc_preview'dan BİREBİR taşındı (wiring Faz 0
+    // karar 1) — davranış paritesi için mantık değiştirilmedi.
+    // Resolution change: reset staging texture if dimensions no longer match
+    if (wgc_staging_tex_) {
+        D3D11_TEXTURE2D_DESC existing{};
+        wgc_staging_tex_->GetDesc(&existing);
+        D3D11_TEXTURE2D_DESC current{};
+        tex->GetDesc(&current);
+        if (existing.Width != current.Width || existing.Height != current.Height) {
+            wgc_staging_tex_.Reset();
+        }
+    }
+    // NVIDIA device'da staging texture oluştur (bir kez)
+    if (!wgc_staging_tex_) {
+        D3D11_TEXTURE2D_DESC desc{};
+        tex->GetDesc(&desc);
+        desc.Usage          = D3D11_USAGE_STAGING;
+        desc.BindFlags      = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        desc.MiscFlags      = 0;
+        ID3D11Device* dev = nullptr;
+        tex->GetDevice(&dev);
+        if (dev) {
+            dev->CreateTexture2D(&desc, nullptr, &wgc_staging_tex_);
+            dev->Release();
+        }
+    }
+    // GPU → staging copy
+    if (wgc_staging_tex_) {
+        ID3D11Device* dev = nullptr;
+        tex->GetDevice(&dev);
+        if (dev) {
+            ID3D11DeviceContext* ctx = nullptr;
+            dev->GetImmediateContext(&ctx);
+            ctx->CopyResource(wgc_staging_tex_.Get(), tex);
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if (SUCCEEDED(ctx->Map(wgc_staging_tex_.Get(), 0,
+                                   D3D11_MAP_READ, 0, &mapped))) {
+                static int wgc_prev_cnt = 0;
+                if (++wgc_prev_cnt <= 3)
+                    fprintf(stderr, "[WgcStaging] preview frame #%d %ux%u pitch=%u\n",
+                            wgc_prev_cnt, frame_w, frame_h,
+                            (unsigned)mapped.RowPitch);
+                preview_cb(mapped.pData,
+                           static_cast<int>(frame_w),
+                           static_cast<int>(frame_h),
+                           static_cast<int>(mapped.RowPitch));
+                ctx->Unmap(wgc_staging_tex_.Get(), 0);
+            }
+            ctx->Release();
+            dev->Release();
+        }
+    }
+}
+
 void ExistingDesktopSource::shutdown() {
     // RAII teardown — CaptureSubsystem::shutdown ile aynı model.
+    // wgc_staging_tex_ BİLEREK reset edilmez (parite): yalnız çözünürlük
+    // değişiminde (emit_wgc_preview) veya yıkımda serbest bırakılır.
     dxgi_ = nullptr;
     capture_.reset();
 }

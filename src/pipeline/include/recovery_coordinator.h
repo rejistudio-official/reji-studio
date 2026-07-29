@@ -23,6 +23,7 @@ namespace rj {
 
 class CaptureSubsystem;
 class EncodeSubsystem;
+class ExistingDesktopSource;
 
 class RecoveryCoordinator {
 public:
@@ -34,6 +35,18 @@ public:
     // Dönüş: recovery yapıldıysa true; transient hata / cihaz sağlamsa false.
     static bool handle_device_lost(
         CaptureSubsystem&           capture,
+        EncodeSubsystem&            encode,
+        const rj::Pipeline::Config& cfg,
+        uint32_t                    bitrate_kbps,
+        std::atomic<uint32_t>&      width,
+        std::atomic<uint32_t>&      height);
+
+    // ISource wiring overload (Faz 0 karar 2 — somut tip, ISource'a genelleme
+    // YAGNI): davranış yukarıdakiyle BİREBİR; reinit Config'i adapter ctor'unda
+    // saklı olduğundan yeniden kurulum source.shutdown()+source.init()'e iner.
+    // CaptureSubsystem overload'u wiring tamamlanınca silinir (commit 5).
+    static bool handle_device_lost(
+        ExistingDesktopSource&      source,
         EncodeSubsystem&            encode,
         const rj::Pipeline::Config& cfg,
         uint32_t                    bitrate_kbps,
