@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include "desktop_source_logic.h"
+#include "reinit_trigger_policy.h"
 
 #include <cstdint>
 
@@ -138,4 +139,83 @@ TEST(NullStreakTracker, ResetClearsSignal) {
     ASSERT_TRUE(t.needs_reinit());
     t.reset();  // shutdown()+init() (reinit) sonrası temiz başlangıç
     EXPECT_FALSE(t.needs_reinit());
+}
+
+// ── ReinitTriggerPolicy ─────────────────────────────────────────────────────
+// Orkestratörün level→edge dönüşümü (wiring Faz 0, karar 3 — tasarım A):
+// state() NeedsReinit'e GEÇTİĞİNDE bir kez tetikler; NeedsReinit SÜRDÜKÇE her
+// kNullStreakReinitThreshold karede yeniden tetikler (re-arm). Bugünkü
+// handle_null_frame() cadence'ı (her 60 null'da bir deneme) birebir korunur.
+// Re-arm'ın varlık nedeni: handle_device_lost() cihaz sağlıklıyken no-op
+// false döner → shutdown()+init() olmaz → tracker sıfırlanmaz; salt
+// geçiş-bazlı tetik bir daha hiç ateşlemezdi (bkz. FAZ0_RAPOR_WIRING.md).
+
+TEST(ReinitTriggerPolicy, RearmPeriodLockedToNullStreakThreshold) {
+    // Cadence birebirliği eşik sabitine bağlı — sabit ayrışırsa test kırılsın.
+    EXPECT_EQ(rj::ReinitTriggerPolicy::kRearmPeriodFrames,
+              rj::kNullStreakReinitThreshold);
+}
+
+TEST(ReinitTriggerPolicy, NoTriggerWhileRunningOrUninitialized) {
+    rj::ReinitTriggerPolicy p;
+    EXPECT_FALSE(p.on_state(rj::SourceState::Uninitialized));
+    for (int i = 0; i < 100; ++i)
+        EXPECT_FALSE(p.on_state(rj::SourceState::Running));
+}
+
+TEST(ReinitTriggerPolicy, TriggersOnceOnTransitionToNeedsReinit) {
+    rj::ReinitTriggerPolicy p;
+    p.on_state(rj::SourceState::Running);
+    EXPECT_TRUE(p.on_state(rj::SourceState::NeedsReinit));   // geçiş → tetik
+    EXPECT_FALSE(p.on_state(rj::SourceState::NeedsReinit));  // hemen tekrar YOK
+}
+
+TEST(ReinitTriggerPolicy, FirstObservedStateNeedsReinitAlsoTriggers) {
+    // Savunmacı: Running hiç görülmeden NeedsReinit gelirse de geçiş sayılır.
+    rj::ReinitTriggerPolicy p;
+    EXPECT_TRUE(p.on_state(rj::SourceState::NeedsReinit));
+}
+
+TEST(ReinitTriggerPolicy, RearmsEveryPeriodWhileNeedsReinitPersists) {
+    // No-op deneme senaryosu (statik ekran / cihaz sağlıklı): reinit
+    // gerçekleşmez, state NeedsReinit'te kalır → her-tik fırtınası OLMAMALI,
+    // yalnız her 60 karede bir yeniden deneme (bugünkü davranışla aynı).
+    rj::ReinitTriggerPolicy p;
+    p.on_state(rj::SourceState::Running);
+    ASSERT_TRUE(p.on_state(rj::SourceState::NeedsReinit));   // kare 60 (geçiş)
+
+    for (int i = 0; i < rj::ReinitTriggerPolicy::kRearmPeriodFrames - 1; ++i)
+        EXPECT_FALSE(p.on_state(rj::SourceState::NeedsReinit));
+    EXPECT_TRUE(p.on_state(rj::SourceState::NeedsReinit));   // kare 120 (re-arm)
+
+    for (int i = 0; i < rj::ReinitTriggerPolicy::kRearmPeriodFrames - 1; ++i)
+        EXPECT_FALSE(p.on_state(rj::SourceState::NeedsReinit));
+    EXPECT_TRUE(p.on_state(rj::SourceState::NeedsReinit));   // kare 180 (re-arm)
+}
+
+TEST(ReinitTriggerPolicy, ValidFrameClearsAndNextTransitionTriggersAgain) {
+    // Geçerli kare → kaynak Running'e döner (tracker kendiliğinden temizlenir);
+    // sonraki gerçek eşik aşımı yeni bir geçiştir ve yeniden tetikler.
+    rj::ReinitTriggerPolicy p;
+    p.on_state(rj::SourceState::Running);
+    ASSERT_TRUE(p.on_state(rj::SourceState::NeedsReinit));
+    EXPECT_FALSE(p.on_state(rj::SourceState::Running));
+    EXPECT_TRUE(p.on_state(rj::SourceState::NeedsReinit));
+}
+
+TEST(ReinitTriggerPolicy, SuccessfulReinitStartsCleanCycle) {
+    // Gerçek reinit: shutdown()+init() → state Running'e döner (tracker
+    // reset). Politika da temiz başlar; yarım kalmış re-arm sayacı taşınmaz.
+    rj::ReinitTriggerPolicy p;
+    p.on_state(rj::SourceState::Running);
+    ASSERT_TRUE(p.on_state(rj::SourceState::NeedsReinit));
+    // Re-arm periyodunun ortasındayken reinit başarılı olsun:
+    for (int i = 0; i < 30; ++i)
+        p.on_state(rj::SourceState::NeedsReinit);
+    p.on_state(rj::SourceState::Running);                    // reinit sonrası
+    ASSERT_TRUE(p.on_state(rj::SourceState::NeedsReinit));   // yeni geçiş → tetik
+    // Yeni periyot tam 60 kare olmalı (eski sayaçtan artık taşınmamalı):
+    for (int i = 0; i < rj::ReinitTriggerPolicy::kRearmPeriodFrames - 1; ++i)
+        EXPECT_FALSE(p.on_state(rj::SourceState::NeedsReinit));
+    EXPECT_TRUE(p.on_state(rj::SourceState::NeedsReinit));
 }
