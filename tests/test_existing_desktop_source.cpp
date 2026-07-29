@@ -15,6 +15,7 @@
 #include "existing_desktop_source.h"
 #include "encode_subsystem.h"
 #include "recovery_coordinator.h"
+#include "reinit_trigger_policy.h"
 
 #include <atomic>
 #include <cstdint>
@@ -215,4 +216,54 @@ TEST(RecoveryCoordinatorOverload, ReturnsFalseWithoutDeviceAndDoesNotReinit) {
         h.source, encode, cfg, /*bitrate_kbps=*/6000, w, ht));
     // Kaynak dokunulmadan Running kalmalı (shutdown+init denenmedi).
     EXPECT_EQ(h.source.state(), rj::SourceState::Running);
+}
+
+// ── Null-streak recovery entegrasyonu: adapter + ReinitTriggerPolicy ────────
+// run_frame kalıbının kilidi (wiring talimatı Faz 3 şartı): her karede
+// next_frame() + on_state(state()). Eski handle_null_frame() cadence'ıyla
+// birebirlik burada uçtan uca doğrulanır (saf parçalar kendi testlerinde).
+// Reinit (shutdown+init) senaryosu burada koşulamaz: test seam tek
+// kullanımlık, ikinci init() gerçek factory'ye döner — o yol birim testlerde
+// (SuccessfulReinitStartsCleanCycle) ve Faz 3 GUI doğrulamasında.
+
+TEST(NullStreakRecoveryIntegration, TriggerCadenceMatchesLegacyHandleNullFrame) {
+    Harness h;
+    ASSERT_TRUE(h.source.init());
+    rj::ReinitTriggerPolicy trigger;
+
+    int trigger_count = 0;
+    // 180 null kare: eski kod null #60/#120/#180'de bir kez tetiklerdi.
+    for (int i = 1; i <= 3 * rj::kNullStreakReinitThreshold; ++i) {
+        (void)h.source.next_frame();  // script boş → null kare
+        if (trigger.on_state(h.source.state())) {
+            ++trigger_count;
+            EXPECT_EQ(i % rj::kNullStreakReinitThreshold, 0)
+                << "tetik yalnız eşiğin katlarında olmalı (i=" << i << ")";
+        }
+    }
+    EXPECT_EQ(trigger_count, 3);  // her-tik fırtınası YOK, cadence birebir
+}
+
+TEST(NullStreakRecoveryIntegration, ValidFrameMidStreakDefersTriggerLikeLegacy) {
+    Harness h;
+    int dummy = 0;
+    ASSERT_TRUE(h.source.init());
+    rj::ReinitTriggerPolicy trigger;
+
+    // 59 null + geçerli kare → streak sıfır (eski davranışla aynı), tetik yok.
+    for (int i = 0; i < rj::kNullStreakReinitThreshold - 1; ++i) {
+        (void)h.source.next_frame();
+        EXPECT_FALSE(trigger.on_state(h.source.state()));
+    }
+    h.fake->push_frame(valid_frame(&dummy, 1));
+    (void)h.source.next_frame();
+    EXPECT_FALSE(trigger.on_state(h.source.state()));
+
+    // Tam eşik kadar yeni null gerekir; eşikte tek tetik.
+    for (int i = 0; i < rj::kNullStreakReinitThreshold - 1; ++i) {
+        (void)h.source.next_frame();
+        EXPECT_FALSE(trigger.on_state(h.source.state()));
+    }
+    (void)h.source.next_frame();
+    EXPECT_TRUE(trigger.on_state(h.source.state()));
 }
