@@ -3,8 +3,8 @@
 // ExistingDesktopSource'un saf (D3D11/GPU'suz, header-only) çekirdeği:
 //  - map_captured_frame(): CapturedFrame → SourceFrame alan eşlemesi.
 //  - NullStreakTracker: null-frame streak → NeedsReinit eşiği
-//    (CaptureSubsystem::handle_null_frame()'deki 60-kare davranışının
-//    ISource::state() karşılığı — eşik sabiti birebir aynı tutulur).
+//    (silinen CaptureSubsystem::handle_null_frame()'deki 60-kare davranışının
+//    ISource::state() karşılığı — eşik sabiti wiring'de birebir devralındı).
 //
 // Kurtarma KARARI burada verilmez: kaynak yalnızca sinyal üretir, reinit
 // kararı üst katmandadır (RecoveryCoordinator deseni, bkz. i_source.h).
@@ -23,8 +23,9 @@ namespace rj {
 // için ham değer kullanılır.
 inline constexpr uint32_t kWgcFramePoolFormat = 87;
 
-// CaptureSubsystem::kNullStreakReinit ile birebir aynı eşik — iki sayaç
-// sessizce ayrışmasın diye test kilidi var.
+// Silinen CaptureSubsystem::kNullStreakReinit'ten devralınan eşik (60 ardışık
+// null ≈ 1 sn @60Hz) — davranış birebirliği test kilidiyle korunur; re-arm
+// periyodu da bu sabite kilitli (reinit_trigger_policy.h).
 inline constexpr int kNullStreakReinitThreshold = 60;
 
 // CapturedFrame → SourceFrame alan eşlemesi (saf).
@@ -45,8 +46,8 @@ inline SourceFrame map_captured_frame(const CapturedFrame& in, uint32_t format,
     return out;
 }
 
-// Null-frame streak sayacı — tek thread (frame thread) varsayımı,
-// CaptureSubsystem::null_streak_ ile aynı.
+// Null-frame streak sayacı — tek thread (frame thread) varsayımı
+// (silinen CaptureSubsystem::null_streak_ ile aynı model).
 class NullStreakTracker {
 public:
     // Geçerli kare → streak sıfırlanır; null kare → ++streak.

@@ -1,9 +1,9 @@
 // src/pipeline/existing_desktop_source.cpp
 //
-// ExistingDesktopSource implementasyonu. Windows'a özel (capture_subsystem.cpp
-// gibi yalnızca WIN32 altında derlenir). Davranış CaptureSubsystem::init /
-// next_frame / handle_null_frame / shutdown akışıyla birebir eşlenir; saf
-// çekirdek (alan eşlemesi + streak) desktop_source_logic.h'de test edilir.
+// ExistingDesktopSource implementasyonu. Windows'a özel (yalnızca WIN32
+// altında derlenir). Davranış, silinen CaptureSubsystem::init / next_frame /
+// handle_null_frame / shutdown akışından birebir devralındı; saf çekirdek
+// (alan eşlemesi + streak) desktop_source_logic.h'de test edilir.
 #include "existing_desktop_source.h"
 
 #include <cstdio>                  // fprintf (WGC staging tanı logu)

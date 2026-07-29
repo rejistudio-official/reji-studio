@@ -8,7 +8,7 @@
 //
 // Tasarım A (FAZ0_RAPOR_WIRING.md, karar 3 — onaylı): geçişte bir kez tetik +
 // NeedsReinit sürdükçe her kRearmPeriodFrames karede yeniden tetik. Cadence,
-// CaptureSubsystem::handle_null_frame()'in bugünkü davranışıyla (her 60
+// silinen CaptureSubsystem::handle_null_frame()'in davranışıyla (her 60
 // null'da bir deneme) birebir aynıdır — wiring turu davranış-koruyucudur.
 // Re-arm'sız salt geçiş tetiği, no-op recovery sonrası bir daha hiç
 // ateşlemezdi (ön-kontrol bulgusu). Hot-path güvenli: heap yok, stack POD.
@@ -23,7 +23,7 @@ namespace rj {
 class ReinitTriggerPolicy {
 public:
     /// Re-arm periyodu null-streak eşiğiyle kilitli: kaynak eşiğe 60 null'da
-    /// ulaşır, no-op denemeden sonra 60 karede bir yeniden denenir (bugünkü
+    /// ulaşır, no-op denemeden sonra 60 karede bir yeniden denenir (eski
     /// handle_null_frame() cadence'ı). Sabitler ayrışırsa test kırılır.
     static constexpr int kRearmPeriodFrames = kNullStreakReinitThreshold;
 

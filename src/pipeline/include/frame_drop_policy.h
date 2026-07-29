@@ -22,7 +22,7 @@ enum class FrameOutcome : uint8_t {
 /// FrameDropped event'leriyle predictive healing'i besliyor, encoder gerçekten
 /// 3500'e düşüyor ve oluşan (3500, original) açığı recovery banner döngüsünü
 /// tetikliyordu (S1-ek4 kök neden). Capture-loss tespiti bu sayaçtan bağımsız
-/// (CaptureSubsystem null-streak sayacı, eşik 60).
+/// (ExistingDesktopSource null-streak → state() NeedsReinit, eşik 60).
 inline bool counts_as_frame_drop(FrameOutcome outcome) {
     return outcome == FrameOutcome::EncodeFailed;
 }

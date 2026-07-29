@@ -97,8 +97,9 @@ TEST(MapCapturedFrame, NullHandlePassesThroughAsNoNewFrame) {
 // ── NullStreakTracker ───────────────────────────────────────────────────────
 
 TEST(NullStreakTracker, ThresholdMatchesCaptureSubsystemConstant) {
-    // Davranış birebirliği: CaptureSubsystem::kNullStreakReinit == 60.
-    // Bu sabit değişirse iki sayaç sessizce ayrışır — bilinçli kilit.
+    // Davranış birebirliği: silinen CaptureSubsystem::kNullStreakReinit == 60
+    // wiring'de buraya devralındı. Sabit değişirse eski davranışla parite
+    // (ve re-arm cadence'ı) sessizce bozulur — bilinçli kilit.
     EXPECT_EQ(rj::kNullStreakReinitThreshold, 60);
 }
 

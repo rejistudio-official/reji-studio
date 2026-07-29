@@ -21,30 +21,19 @@
 
 namespace rj {
 
-class CaptureSubsystem;
 class EncodeSubsystem;
 class ExistingDesktopSource;
 
 class RecoveryCoordinator {
 public:
-    // GPU TDR / capture-loss recovery. GetDeviceRemovedReason sorgular; gerçek cihaz
-    // kaybında capture'ı (+ DXGI path'te encode'u) eski sırayla yeniden kurar:
-    //   encode.shutdown() → capture.shutdown() → capture.init() → dims → encode.reinit()
+    // GPU TDR / capture-loss recovery (ISource wiring, Faz 0 karar 2 — somut
+    // tip; ISource'a genelleme YAGNI). GetDeviceRemovedReason sorgular; gerçek
+    // cihaz kaybında kaynağı (+ DXGI path'te encode'u) eski sırayla yeniden kurar:
+    //   encode.shutdown() → source.shutdown() → source.init() → dims → encode.reinit()
+    // (reinit Config'i adapter ctor'unda saklı — source.init() aynı config'le döner).
     // width/height = authoritative runtime dims (yalnızca DXGI recovery günceller;
     // notify_vulkan_ready okur). bitrate_kbps: encode reinit için hedef bitrate.
     // Dönüş: recovery yapıldıysa true; transient hata / cihaz sağlamsa false.
-    static bool handle_device_lost(
-        CaptureSubsystem&           capture,
-        EncodeSubsystem&            encode,
-        const rj::Pipeline::Config& cfg,
-        uint32_t                    bitrate_kbps,
-        std::atomic<uint32_t>&      width,
-        std::atomic<uint32_t>&      height);
-
-    // ISource wiring overload (Faz 0 karar 2 — somut tip, ISource'a genelleme
-    // YAGNI): davranış yukarıdakiyle BİREBİR; reinit Config'i adapter ctor'unda
-    // saklı olduğundan yeniden kurulum source.shutdown()+source.init()'e iner.
-    // CaptureSubsystem overload'u wiring tamamlanınca silinir (commit 5).
     static bool handle_device_lost(
         ExistingDesktopSource&      source,
         EncodeSubsystem&            encode,

@@ -4,12 +4,11 @@
 // WGC/DXGI capture yolunu (IScreenCapture) ISource'a uyarlayan ince adapter
 // (ROADMAP Faz 3; tasarım: docs/talimatlar/TALIMAT_ISOURCE_ARAYUZ_TASARIMI.md).
 //
-// BU TURDA PIPELINE'A BAĞLI DEĞİL: sınıf izole yaşar, run_frame() hâlâ
-// CaptureSubsystem kullanır. Gerçek wiring ayrı talimatın işi
-// (docs/TALIMAT_EXISTINGDESKTOPSOURCE_WIRING.md) — davranış değişikliği yok
-// güvencesi bu ayrımla korunur.
+// ISource wiring TAMAMLANDI (docs/TALIMAT_EXISTINGDESKTOPSOURCE_WIRING.md):
+// Pipeline::Impl/run_frame() artık bu sınıfı kullanır; CaptureSubsystem
+// silindi (davranışı buraya birebir devralındı).
 //
-// Delegasyon (CaptureSubsystem/pipeline.cpp'deki bugünkü akışla birebir):
+// Delegasyon (silinen CaptureSubsystem/pipeline.cpp akışıyla birebir):
 //  init()       → IScreenCapture::create() + capture_->init(cfg_)
 //  next_frame() → capture_->next_frame() → SourceFrame alan eşlemesi
 //                 (desktop_source_logic.h); format DXGI'de surface_format()'tan,
@@ -19,8 +18,8 @@
 //                 kurtarma KARARI orkestratörde kalır (RecoveryCoordinator)
 //  shutdown()   → capture_ reset (RAII teardown)
 //
-// Windows'a özel: CaptureSubsystem gibi yalnızca _WIN32 altında include
-// edilmelidir (DxgiCapturePipeline / ID3D11* bağımlılığı).
+// Windows'a özel: yalnızca _WIN32 altında include edilmelidir
+// (DxgiCapturePipeline / ID3D11* bağımlılığı).
 #pragma once
 #include <functional>
 #include <memory>
