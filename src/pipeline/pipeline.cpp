@@ -33,7 +33,8 @@
 #ifdef _WIN32
 #include "capture/capture_dxgi.h"
 #include "capture/capture_dxgi_screen.h"
-#include "include/capture_subsystem.h"
+#include "include/existing_desktop_source.h"   // ISource wiring — CaptureSubsystem'in yerini aldı
+#include "include/reinit_trigger_policy.h"     // state() level→edge dönüşümü (60-kare re-arm)
 #include "encode/encode_nvenc.h"
 #include "include/encode_subsystem.h"
 #include "audio/wasapi_capture.h"
@@ -178,7 +179,12 @@ namespace rj {
 struct Pipeline::Impl {
     Pipeline::Config cfg{};
 
-    CaptureSubsystem                                       capture_sub_; // Aşama 8
+    // ISource wiring (Faz 0 karar 1, onaylı): orkestratör ExistingDesktopSource
+    // tutar; CaptureSubsystem silindi. unique_ptr: adapter Config'i ctor'da alır
+    // (recovery reinit'i saklı cfg_ ile source.init()'e iner) — init()'te kurulur.
+    std::unique_ptr<ExistingDesktopSource>                 source_;
+    // state() level sinyalinin edge'e dönüşümü — frame thread; tek thread.
+    ReinitTriggerPolicy                                    reinit_trigger_;
     EncodeSubsystem                                        encode_sub_;  // Aşama 6
     AudioSubsystem                                          audio_sub_;   // Aşama 3
     reji::pipeline::audio::AudioEncodeBridge               audio_bridge_; // Ses Ayarları: capture→AAC→RTMP köprüsü
@@ -270,8 +276,8 @@ struct Pipeline::Impl {
 
     // Son frame VkImage cache'i Aşama 7'de GpuInteropSubsystem'e taşındı
     // (gpu_sub_.cache_last_images / get_last_frame_images).
-    // WGC CPU staging texture Aşama 8b'de CaptureSubsystem'e taşındı
-    // (capture_sub_.emit_wgc_preview).
+    // WGC CPU staging texture ISource wiring'de ExistingDesktopSource'a taşındı
+    // (source_->emit_wgc_preview — kontrat-dışı adapter yüzeyi).
 
     void apply_command(const RjCommand& c) noexcept {
         switch (c.cmd_type) {
@@ -416,31 +422,37 @@ bool Pipeline::init(const Config& cfg_in) {
         (void)shutdown(); return false;
     }
 
-    //  IScreenCapture::create() — WGC tercihli, DXGI fallback (CaptureSubsystem)
+    //  IScreenCapture::create() — WGC tercihli, DXGI fallback (ExistingDesktopSource)
     {
         rj::IScreenCapture::Config cap_cfg;
         cap_cfg.timeout_ms          = kCaptureTimeout;
         cap_cfg.allow_cross_adapter = true;
+        // Config ctor'da saklanır — recovery reinit'i (shutdown+init) aynı
+        // config'le döner; eski recovery'nin taze-Config kurulumuyla parite.
+        s.source_ = std::make_unique<ExistingDesktopSource>(cap_cfg);
         // init(): create + init + dxgi cast tek çağrıda (create-null / init-fail
         // ayrımı tek fatal path'e indi — ikisi de shutdown+false).
-        if (!s.capture_sub_.init(cap_cfg)) {
+        if (!s.source_->init()) {
             dbglog("[Pipeline] IScreenCapture init failed (create/init)");
             (void)shutdown(); return false;
         }
     }
-    if (s.capture_sub_.dxgi())
-        s.capture_sub_.dxgi()->setProfiler(profiler_.get());
+    if (s.source_->dxgi())
+        s.source_->dxgi()->setProfiler(profiler_.get());
     // Authoritative dimensions come from the actual display output.
-    s.cfg.width  = s.capture_sub_.width();
-    s.cfg.height = s.capture_sub_.height();
+    {
+        const SourceMetadata md = s.source_->metadata();
+        s.cfg.width  = md.width;
+        s.cfg.height = md.height;
+    }
     s.width.store(s.cfg.width,  std::memory_order_release);   // atomic = runtime kaynağı
     s.height.store(s.cfg.height, std::memory_order_release);
 
     //  GpuInteropSubsystem (v0.5.1 zero-copy D3D11↔Vulkan — DXGI path only)
-    if (s.capture_sub_.dxgi()) {
+    if (s.source_->dxgi()) {
         auto* vk = rj::pipeline::gpu::VulkanInitializer::get();
         // Sıkı düğüm: keyed-mutex capture pipeline'ına dokunur — orkestratörde kalır.
-        s.capture_sub_.dxgi()->set_use_keyed_mutex(vk && vk->use_keyed_mutex());
+        s.source_->dxgi()->set_use_keyed_mutex(vk && vk->use_keyed_mutex());
         fprintf(stderr, "[Pipeline] VulkanInit: device=%p phys=%p\n",
                 (void*)(vk ? vk->device() : nullptr),
                 (void*)(vk ? vk->physical_device() : nullptr));
@@ -455,12 +467,9 @@ bool Pipeline::init(const Config& cfg_in) {
 
     //  NvencEncoder — DXGI ve WGC path desteklenir
     {
-        ID3D11Device* encode_device = nullptr;
-        if (s.capture_sub_.dxgi() && s.capture_sub_.dxgi()->encode_gpu()) {
-            encode_device = s.capture_sub_.dxgi()->encode_gpu()->d3d_device();
-        } else if (s.capture_sub_.has_capture()) {
-            encode_device = s.capture_sub_.d3d_device();  // WGC: kendi D3D11 device'ı
-        }
+        // Cihaz seçimi eski sırayla aynı: DXGI encode-GPU, yoksa WGC kendi
+        // cihazı — metadata().device tam bu seçimi uygular (adapter yorumu).
+        ID3D11Device* encode_device = s.source_->metadata().device;
         if (encode_device) {
             reji::NvencEncoder::Config enc_cfg;
             enc_cfg.width            = s.cfg.width;
@@ -528,8 +537,8 @@ bool Pipeline::init(const Config& cfg_in) {
     //  Rust monitor 
 
     // v0.2 preview staging — allocate once, no hot-path heap (DXGI only)
-    if (s.preview_cb && s.capture_sub_.dxgi()) {
-        if (!s.capture_sub_.dxgi()->init_preview_staging())
+    if (s.preview_cb && s.source_->dxgi()) {
+        if (!s.source_->dxgi()->init_preview_staging())
             dbglog("[Pipeline] init_preview_staging failed -- preview disabled");
     }
     seh_start_monitor();
@@ -589,7 +598,9 @@ bool Pipeline::is_running() const {
 bool Pipeline::set_preview_callback(PreviewCallback cb) {
     if (!impl_) impl_ = std::make_unique<Impl>();
     impl_->preview_cb = std::move(cb);
-    if (impl_->capture_sub_.dxgi()) impl_->capture_sub_.dxgi()->set_preview_requested(!!impl_->preview_cb);
+    // source_ init'ten önce null olabilir (set_preview_callback Impl'i kurar).
+    if (impl_->source_ && impl_->source_->dxgi())
+        impl_->source_->dxgi()->set_preview_requested(!!impl_->preview_cb);
     fprintf(stderr, "[Pipeline] preview_cb set OK\n"); fflush(stderr);
     return true;
 }
@@ -598,8 +609,9 @@ bool Pipeline::set_d3d11_frame_callback(D3D11FrameCallback cb) {
     if (!impl_) impl_ = std::make_unique<Impl>();
     impl_->d3d11_frame_cb = std::move(cb);
     // init_preview_staging: DXGI capture hazırsa hemen çağır
-    if (impl_->capture_sub_.dxgi() && !impl_->capture_sub_.dxgi()->shared_texture()) {
-        impl_->capture_sub_.dxgi()->init_preview_staging();
+    if (impl_->source_ && impl_->source_->dxgi() &&
+        !impl_->source_->dxgi()->shared_texture()) {
+        impl_->source_->dxgi()->init_preview_staging();
     }
     // Late-bind Vulkan device to the bridge (Vulkan may not have been ready at init()).
     // set_device() bridge yoksa no-op — eski `impl_->ext_bridge &&` guard'ı içeride.
@@ -639,9 +651,9 @@ bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device
     // ilk init'te device=0x0 olup use_keyed_mutex_ false kalmış olabilir.
     // (ext_bridge GL kurulumundan bağımsız — sıra değişimi güvenli.)
     auto* vk_init = rj::pipeline::gpu::VulkanInitializer::get();
-    if (s.capture_sub_.dxgi()) {
+    if (s.source_ && s.source_->dxgi()) {
         bool km = vk_init && vk_init->use_keyed_mutex();
-        s.capture_sub_.dxgi()->set_use_keyed_mutex(km);
+        s.source_->dxgi()->set_use_keyed_mutex(km);
         fprintf(stderr, "[Pipeline] notify_vulkan_ready: set_use_keyed_mutex=%d\n", (int)km);
         fflush(stderr);
     }
@@ -650,7 +662,10 @@ bool Pipeline::notify_vulkan_ready(VkDevice device, VkPhysicalDevice phys_device
 
 bool Pipeline::run_frame() {
     if (!impl_) return false;
-    if (!impl_->capture_sub_.has_capture()) return false;  // capture yoksa alma
+    // Eski has_capture() eşdeğeri: kaynak kurulu değilse alma
+    // (state()==Uninitialized ⇔ capture_ null — adapter kontratı).
+    if (!impl_->source_ ||
+        impl_->source_->state() == SourceState::Uninitialized) return false;
     auto& s = *impl_;
 
     const int64_t frame_start = qpc_ticks();
@@ -667,10 +682,15 @@ bool Pipeline::run_frame() {
         });
 
     // 2) Capture + encode
-    if (s.capture_sub_.has_capture()) {
-        // CaptureSubsystem: DXGI capture_next() / WGC next_frame() dallarını kapsar;
-        // texture handle'da döner (null-streak geçerli frame'de içeride sıfırlanır).
-        rj::CapturedFrame frame = s.capture_sub_.next_frame();
+    if (s.source_->state() != SourceState::Uninitialized) {
+        // ExistingDesktopSource: DXGI capture_next() / WGC next_frame() dallarını
+        // kapsar; handle'da döner (null-streak adapter içinde: geçerli karede
+        // sıfırlanır, null'da artar — state() level sinyali üretir).
+        const SourceFrame frame = s.source_->next_frame();
+        // Level→edge HER karede beslenir: geçerli kare Running'i görüp
+        // tetikleyiciyi temizler; yalnız null dalında beslemek bayat re-arm
+        // sayacı bırakırdı (reinit_trigger_policy.h testleri bu kalıbı kilitler).
+        const bool reinit_edge = s.reinit_trigger_.on_state(s.source_->state());
         ID3D11Texture2D* tex = static_cast<ID3D11Texture2D*>(frame.handle);
 
         if (tex) {
@@ -682,15 +702,18 @@ bool Pipeline::run_frame() {
                     s.frame_drops.fetch_add(1, std::memory_order_relaxed);
                 // 3) GPU TDR check  outside __try, free to use C++ objects
                 (void)RecoveryCoordinator::handle_device_lost(
-                    s.capture_sub_, s.encode_sub_, s.cfg,
+                    *s.source_, s.encode_sub_, s.cfg,
                     s.bitrate_kbps.load(std::memory_order_relaxed),
                     s.width, s.height);
             }
             // v0.5.1: Zero-copy D3D11 frame callback (GPU-side operations, DXGI only)
             // get_frame_images + cache GpuInterop'a taşındı; callback'in kendisi burada.
+            // Boyutlar: eski capture_sub_.width()/height() çağrılarının karşılığı
+            // (metadata() aynı capture_->width()/height()'a delege eder).
+            const SourceMetadata md = s.source_->metadata();
             if (s.d3d11_frame_cb) {
                 // Guard eskisiyle bire bir: bridge + dxgi pipeline + shared_texture.
-                auto* dxgi = s.capture_sub_.dxgi();
+                auto* dxgi = s.source_->dxgi();
                 if (s.gpu_sub_.raw() && dxgi && dxgi->shared_texture()) {
                     VkImage staging_vk = nullptr;
                     VkImage target_vk = nullptr;
@@ -705,31 +728,29 @@ bool Pipeline::run_frame() {
                 }
 
                 s.d3d11_frame_cb(static_cast<void*>(tex),
-                                 (uint32_t)s.capture_sub_.width(),
-                                 (uint32_t)s.capture_sub_.height());
+                                 md.width, md.height);
             }
 
             // v0.2 CPU preview: staging populated in capture_next() (DXGI only)
-            if (s.preview_cb && s.capture_sub_.dxgi()) {
-                auto* dxgi = s.capture_sub_.dxgi();
+            if (s.preview_cb && s.source_->dxgi()) {
+                auto* dxgi = s.source_->dxgi();
                 const void* data = nullptr; int pitch = 0;
                 if (dxgi->map_preview_frame(&data, &pitch)) {
                     static int cnt = 0;
                     if (++cnt == 1)
                         printf("[Preview] First frame: %dx%d pitch=%d\n",
-                               (int)s.capture_sub_.width(), (int)s.capture_sub_.height(), pitch);
-                    s.preview_cb(data, (int)s.capture_sub_.width(),
-                                 (int)s.capture_sub_.height(), pitch);
+                               (int)md.width, (int)md.height, pitch);
+                    s.preview_cb(data, (int)md.width, (int)md.height, pitch);
                     dxgi->unmap_preview_frame();
                 }
             }
 
-            // WGC path — CPU staging preview (CaptureSubsystem::emit_wgc_preview).
+            // WGC path — CPU staging preview (kontrat-dışı adapter yüzeyi).
             // Preview tetikleme kararı (is_wgc + preview_cb var mı) orkestratörde;
-            // preview_cb parametre olarak geçilir — subsystem UI'ı bilmez.
-            if (s.capture_sub_.is_wgc() && s.preview_cb) {
-                s.capture_sub_.emit_wgc_preview(s.preview_cb, tex,
-                                                frame.width, frame.height);
+            // preview_cb parametre olarak geçilir — kaynak UI'ı bilmez.
+            if (s.source_->is_wgc() && s.preview_cb) {
+                s.source_->emit_wgc_preview(s.preview_cb, tex,
+                                            frame.width, frame.height);
             }
 
         } else {
@@ -738,12 +759,14 @@ bool Pipeline::run_frame() {
             // besleyip START'sız recovery banner döngüsü üretiyordu.
             if (counts_as_frame_drop(FrameOutcome::NoNewFrame))
                 s.frame_drops.fetch_add(1, std::memory_order_relaxed);
-            // Null-streak sayacı CaptureSubsystem'de; eşiğe (60) ulaşınca true döner.
+            // Null-streak sayacı adapter'da (state() NeedsReinit level sinyali);
+            // reinit_trigger_ geçişte bir kez + 60 karede re-arm ile edge üretir
+            // — eski handle_null_frame() cadence'ı birebir (Faz 0 karar 3).
             // Gerçek reinit RecoveryCoordinator'a delege edilir (cross-subsystem).
-            if (s.capture_sub_.handle_null_frame()) {
+            if (reinit_edge) {
                 dbglog("[Pipeline] Capture loss detected (60 frames) — reinit");
                 (void)RecoveryCoordinator::handle_device_lost(
-                    s.capture_sub_, s.encode_sub_, s.cfg,
+                    *s.source_, s.encode_sub_, s.cfg,
                     s.bitrate_kbps.load(std::memory_order_relaxed),
                     s.width, s.height);
             }
@@ -807,7 +830,7 @@ bool Pipeline::shutdown() {
         s.audio_bridge_.shutdown();
         s.output_sub_.shutdown();   // transport_atomic null + transport_ reset (SEH-leaf DIŞINDA)
         s.encode_sub_.shutdown();   // encoder_ reset (SEH-leaf DIŞINDA)
-        s.capture_sub_.shutdown();  // capture_ reset + capture_dxgi_ null
+        if (s.source_) s.source_->shutdown();  // capture_ reset + dxgi_ null
 
         // B10: Shutdown bridge before VulkanInitializer can release the device.
         // ExternalMemoryBridge holds raw VkDevice/VkImage handles; resetting here
@@ -843,14 +866,14 @@ bool Pipeline::get_last_metric_sample(RjMetricSample* out) const {
 }
 
 uint32_t Pipeline::display_vendor_id() const {
-    if (!impl_ || !impl_->capture_sub_.dxgi()) return 0;
-    const auto& scan = impl_->capture_sub_.dxgi()->gpu_scan();
+    if (!impl_ || !impl_->source_ || !impl_->source_->dxgi()) return 0;
+    const auto& scan = impl_->source_->dxgi()->gpu_scan();
     return scan.count > 0 ? scan.entries[0].vendor_id : 0;
 }
 
 uint64_t Pipeline::max_gpu_vram_mb() const {
-    if (!impl_ || !impl_->capture_sub_.dxgi()) return 0;
-    const auto& scan = impl_->capture_sub_.dxgi()->gpu_scan();
+    if (!impl_ || !impl_->source_ || !impl_->source_->dxgi()) return 0;
+    const auto& scan = impl_->source_->dxgi()->gpu_scan();
     uint64_t max_mb = 0;
     for (uint32_t i = 0; i < scan.count; ++i) {
         if (scan.entries[i].dedicated_vram_mb > max_mb) {
@@ -861,8 +884,8 @@ uint64_t Pipeline::max_gpu_vram_mb() const {
 }
 
 uint32_t Pipeline::max_vram_vendor_id() const {
-    if (!impl_ || !impl_->capture_sub_.dxgi()) return 0;
-    const auto& scan = impl_->capture_sub_.dxgi()->gpu_scan();
+    if (!impl_ || !impl_->source_ || !impl_->source_->dxgi()) return 0;
+    const auto& scan = impl_->source_->dxgi()->gpu_scan();
     if (scan.count == 0) return 0;
     // max_gpu_vram_mb ile aynı seçim: en büyük adanmış VRAM'li adaptör.
     // Eşitlikte ilk adaptör kazanır (VRAM'ler eşitse vendor seçimi keyfidir).
