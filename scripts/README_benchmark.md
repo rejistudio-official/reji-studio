@@ -66,10 +66,47 @@ python scripts/benchmark_compare.py --reji-pass gizli --obs-pass obs_sifre
 | `output_active` | — (event'te yok) | `GetStreamStatus.outputActive` |
 
 Her satır bağımsız bir ölçüm noktasıdır; Reji ve OBS satırları zaman damgasına göre sıralıdır
-fakat tam hizalı değildir (Reji event-driven ~1s, OBS `--interval`'a göre).
+fakat tam hizalı ve aynı oranda değildir: **Reji event-driven ~60Hz (video karesi başına bir
+örnek)**, OBS ise `--interval`'a göre (~1Hz). Adil karşılaştırma için script ayrıca 1Hz'e
+toplulaştırılmış `*_1hz.csv` üretir (fps: Reji=kare sayısı/sn, OBS=activeFps ort). Var olan bir
+ham CSV'yi `--reprocess <dosya>` ile ağ bağlantısı kurmadan yeniden toplulaştırabilirsin.
 
 ## Dürüstlük Notları
 
 - OBS için `bitrate_kbps` **yaklaşık** değerdir (obs-websocket v5 doğrudan kbps vermez).
 - Reji için `output_active` verisi yoktur (legacy metric event bu alanı içermez).
 - Gerçek OBS'e bağlantı testi kullanıcıda kalır — script OBS kurulu olmayan ortamda bunu test edemez.
+
+## Bulgular / Ölçüm Geçerliliği Notları (2026-07-31)
+
+### Reji `fps` alanının doğası
+`fps`, Reji tarafında **anlık `1/Δt`**'dir (`metrics_subsystem.cpp:104` — ardışık `run_frame()`
+döngü iterasyonları arası QPC delta'sı, `[0,240]` clamp'li), pencereli ortalama **değildir**.
+Bu yüzden 60'ı aşabilir (jitter → Δt<16.7ms) ve near-zero Δt'de 240'a clamp'lenir. Yayım oranı
+**~60Hz** (video karesi başına bir örnek), eski docstring'deki "~1s" yanlıştı.
+
+Anlık değerleri **aritmetik ortalamak Jensen biası** üretir (ör. ort 63.9 vs gerçek 58.7). Bu
+nedenle 1Hz agregasyonu Reji fps'ini **pencere içi kare SAYISI** (= kare/sn, harmonik ortalamaya
+eşit) olarak hesaplar; bu, OBS `activeFps` ile doğrudan denktir. OBS için activeFps zaten düzgün
+oran → pencere ortalaması. Kısmi uç pencereler (tam saniye içermeyen ilk/son kova) elenir.
+
+### Aralıklı fps dibi — `:38` olayı (çözülmedi, referans için)
+Bir Reji koşumunda (12000kbps, WGC capture, hibrit-GPU: NVIDIA RTX 4070 encode + AMD 780M preview)
+tek bir saniyede fps ~45'e düştü. Ham 60Hz veri incelendi: **tek bir uzun hang değil**, saniye
+boyunca yayılmış yavaşlama (Δt medyanı 30ms ≈ 33Hz, ~410ms birikmiş fazla süre), `drop=0` (encoder
+kare düşüşü değil).
+
+Üç Reji koşumunun 1Hz özet karşılaştırması (FPS ort/min):
+
+| Koşum | FPS ort/min | Not |
+|---|---|---|
+| 1 (ilk ölçüm) | **58.8 / 45** | `:38` dibi burada görüldü |
+| 2 (preview AÇIK) | **60.1 / 58** | dip yok |
+| 3 (preview KAPALI) | **60.1 / 58** | dip yok |
+
+**Sonuç:** Preview A/B testi (koşum 2 vs 3, `REJI_DISABLE_PREVIEW` geçici geçidiyle) **fark
+yaratmadı** → hibrit-GPU preview çapraz-kopyası suçlu **değil**. `:38` dibi **tekrar üretilemedi**;
+aralıklı bir olay olarak değerlendirildi (muhtemel WGC teslim cadence'i veya sistem-seviyesi geçici
+kontensiyon). İleride tekrar görülürse: per-frame wall-clock Δt + alt-sistem kırılımı gerekir —
+ancak **FrameProfiler WGC yolunda beslenmiyor** (`pipeline.cpp:450` yalnız DXGI'ye bağlıyor;
+teknik borç olarak kaydedildi).
