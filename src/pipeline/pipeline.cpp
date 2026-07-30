@@ -224,6 +224,16 @@ struct Pipeline::Impl {
     // karakterizasyon için ayrı tutar.
     RjMetricSample last_sample_{};
 
+    // L18: WGC yolunda dxgi() null kaldığından vendor/VRAM getter'ları boş
+    // kalıyordu — bağımsız tarama init()'te bir kez doldurulur (getter'lar UI
+    // thread'den çağrılır; lazy doldurma yarış ve tekrarlı log üretirdi).
+    reji::GpuScan fallback_scan_{};
+
+    const reji::GpuScan& current_scan() const {
+        if (source_ && source_->dxgi()) return source_->dxgi()->gpu_scan();
+        return fallback_scan_;
+    }
+
     // apply_frame_cmd: SPSC ring'ten tüketilen komutu Encode'a uygular.
     // CommandRouter'a callback olarak geçilir (Impl Encode'a dokunan tarafı tutar).
     void apply_frame_cmd(const CommandRouter::FrameCmd& cmd) noexcept {
@@ -437,8 +447,13 @@ bool Pipeline::init(const Config& cfg_in) {
             (void)shutdown(); return false;
         }
     }
-    if (s.source_->dxgi())
+    if (s.source_->dxgi()) {
         s.source_->dxgi()->setProfiler(profiler_.get());
+    } else {
+        // L18: WGC yolunda DxgiCapturePipeline yok → gpu_scan_ hiç dolmuyordu;
+        // vendor/VRAM getter'ları için bağımsız tarama (tek seferlik, init'te).
+        reji::DxgiCapturePipeline::scan_gpus_standalone(s.fallback_scan_);
+    }
     // Authoritative dimensions come from the actual display output.
     {
         const SourceMetadata md = s.source_->metadata();
@@ -866,14 +881,14 @@ bool Pipeline::get_last_metric_sample(RjMetricSample* out) const {
 }
 
 uint32_t Pipeline::display_vendor_id() const {
-    if (!impl_ || !impl_->source_ || !impl_->source_->dxgi()) return 0;
-    const auto& scan = impl_->source_->dxgi()->gpu_scan();
+    if (!impl_) return 0;
+    const auto& scan = impl_->current_scan();
     return scan.count > 0 ? scan.entries[0].vendor_id : 0;
 }
 
 uint64_t Pipeline::max_gpu_vram_mb() const {
-    if (!impl_ || !impl_->source_ || !impl_->source_->dxgi()) return 0;
-    const auto& scan = impl_->source_->dxgi()->gpu_scan();
+    if (!impl_) return 0;
+    const auto& scan = impl_->current_scan();
     uint64_t max_mb = 0;
     for (uint32_t i = 0; i < scan.count; ++i) {
         if (scan.entries[i].dedicated_vram_mb > max_mb) {
@@ -884,8 +899,8 @@ uint64_t Pipeline::max_gpu_vram_mb() const {
 }
 
 uint32_t Pipeline::max_vram_vendor_id() const {
-    if (!impl_ || !impl_->source_ || !impl_->source_->dxgi()) return 0;
-    const auto& scan = impl_->source_->dxgi()->gpu_scan();
+    if (!impl_) return 0;
+    const auto& scan = impl_->current_scan();
     if (scan.count == 0) return 0;
     // max_gpu_vram_mb ile aynı seçim: en büyük adanmış VRAM'li adaptör.
     // Eşitlikte ilk adaptör kazanır (VRAM'ler eşitse vendor seçimi keyfidir).

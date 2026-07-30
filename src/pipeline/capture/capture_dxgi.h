@@ -152,6 +152,11 @@ public:
     /// Must be called after CreateDXGIFactory1 succeeds.
     static bool scan_gpus(IDXGIFactory1* factory, GpuScan& out);
 
+    /// L18: Standalone adapter scan — creates its own DXGI factory, no capture
+    /// session or pipeline instance needed. For callers on the WGC path where
+    /// no DxgiCapturePipeline (and thus no gpu_scan_) exists.
+    static bool scan_gpus_standalone(GpuScan& out);
+
     /// Allocate the CPU-readable staging texture for preview.
     /// Call once after init(), before the first run_frame() that uses preview.
     bool init_preview_staging();

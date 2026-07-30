@@ -212,6 +212,17 @@ bool DxgiCapturePipeline::scan_gpus(IDXGIFactory1* factory, GpuScan& out) {
     return out.count > 0;
 }
 
+bool DxgiCapturePipeline::scan_gpus_standalone(GpuScan& out) {
+    out.count = 0;
+    Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+    HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+    if (FAILED(hr)) {
+        printf("[GpuScan] standalone: CreateDXGIFactory1 failed: 0x%08lX\n", hr);
+        return false;
+    }
+    return scan_gpus(factory.Get(), out);
+}
+
 // ---------------------------------------------------------------------------
 // DxgiCapturePipeline � adapter discovery
 // ---------------------------------------------------------------------------
