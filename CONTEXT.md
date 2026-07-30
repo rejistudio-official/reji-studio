@@ -1,7 +1,23 @@
 # CONTEXT.md — Reji Studio Proje Bağlamı
 
-**Son güncelleme:** 28 Temmuz 2026
+**Son güncelleme:** 30 Temmuz 2026
 **Hazırlayan:** Bu sohbetin (Claude, sohbet asistanı) kendisi — Claude Code'un gerçekleştirdiği işlerin, GitHub'dan doğrudan doğrulanmış özeti.
+
+> **ISOURCE WIRING KAPANDI (30.07):** ROADMAP Faz 3'ün ikinci alt maddesi
+> tamamlandı — dal `feat/isource-wiring`, 6 commit, `master`'a ff-only
+> merge (`5b96dc6..5afdaaa`), push edildi. `CaptureSubsystem` silindi;
+> run_frame/init/recovery/preview capture erişimi `ExistingDesktopSource`'a
+> (ISource) taşındı. Null-streak reinit `ReinitTriggerPolicy` ile
+> level→edge + 60-kare re-arm olarak korundu (eski `handle_null_frame()`
+> cadence'ı test kilidiyle birebir). Canlı GUI doğrulaması: hem WGC hem
+> geçici DXGI-zorlama yamasıyla (yama geri alındı, commit'lenmedi) koşuldu
+> — init OK, preview/encode akışı, drop=0%. Bulgu: DXGI'de statik ekranda
+> reinit görülmemesi kod farkı DEĞİL; timeout→null davranışı birebir
+> korunmuş (capture_dxgi.cpp dalda hiç değişmedi), fark test koşulundan
+> (uygulamanın kendi preview penceresi masaüstünü sürekli güncelleyip
+> 60'lık null serisini engelliyor). V11 adayı "Capture loss detected"
+> notu (aşağıda) geçerliliğini koruyor. Talimat arşivde:
+> `docs/talimatlar/TALIMAT_EXISTINGDESKTOPSOURCE_WIRING.md`.
 
 > **V10 TAMAMEN KAPANDI (28.07):** Üç sprint de merge edildi — Sprint 1
 > (L1-L7 + S1-ek1..ek4, merge `543c1b3`, 22.07), Sprint 2 (L8-L12 +
