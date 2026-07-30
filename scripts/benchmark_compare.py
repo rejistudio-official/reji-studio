@@ -15,6 +15,7 @@ import csv
 import datetime
 import hashlib
 import json
+import os
 import sys
 from typing import Optional
 
@@ -132,9 +133,12 @@ async def reji_collect(
 ) -> None:
     """Reji'ye bağlan; legacy metric event'lerden örnekler topla.
 
-    Reji, JSON bağlantılarda her ~1s'de bir şu zarfı yayar (op içermez):
+    Reji, JSON bağlantılarda ~20Hz (video örneği başına, ~50ms) şu zarfı
+    yayar (op içermez):
         {"fps": 59.8, "kbps": 3500, "drop": 2, "cpu": 45, "gpu": 78, "mem": 60}
-    "drop" per-sample delta'dır (kümülatif değil).
+    "drop" per-sample delta'dır (kümülatif değil). OBS 1Hz poll edildiğinden
+    adil karşılaştırma için örnekler sonradan 1sn pencerelere toplulaştırılır
+    (bkz. aggregate_to_1hz).
     """
     actual_port = port or await _detect_reji_port(host)
     if not actual_port:
@@ -285,9 +289,87 @@ def _numeric(seq):
     return [v for v in seq if isinstance(v, (int, float)) and v != ""]
 
 
+def _coerce_num(v):
+    """CSV'den okunan string'i ya da canlı koşumdaki sayıyı float'a çevir.
+
+    Boş hücre / çevrilemeyen değer → None (agregasyonda elenmesi için).
+    """
+    if isinstance(v, (int, float)):
+        return v
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _floor_to_second(ts: str) -> str:
+    """'2026-07-30T21:42:44.930Z' → '2026-07-30T21:42:44Z' (saniyeye yuvarla)."""
+    base = ts.split(".", 1)[0]
+    return base if base.endswith("Z") else base + "Z"
+
+
+def aggregate_to_1hz(rows: list) -> list:
+    """Ham satırları kaynak + 1sn pencerelerine toplulaştır.
+
+    Reji ~20Hz, OBS 1Hz örnekliyor; min-FPS'i adil kıyaslamak için iki hedef
+    de aynı zaman çözünürlüğüne (1Hz) indirilir. Pencere kuralları:
+        drop  → pencere içi TOPLAM     (per-sample delta → saniyedeki kare kaybı)
+        kbps  → pencere ORTALAMASI     (anlık bitrate → 1sn ortalama oran)
+        fps   → pencere ORTALAMASI     (saniye-ortalaması; min-FPS özette
+                                        saniyeler arası min olarak çıkar)
+        output_active → penceredeki son boş-olmayan değer
+    OBS zaten 1Hz olduğundan onun için pencere ~özdeş kalır.
+    """
+    from collections import OrderedDict
+
+    buckets: "OrderedDict[tuple, list]" = OrderedDict()
+    for r in sorted(rows, key=lambda r: (r["source"], r["timestamp"])):
+        key = (r["source"], _floor_to_second(r["timestamp"]))
+        buckets.setdefault(key, []).append(r)
+
+    out = []
+    for (source, second), group in buckets.items():
+        fps_v = [n for n in (_coerce_num(g["fps"]) for g in group) if n is not None]
+        kbps_v = [n for n in (_coerce_num(g["bitrate_kbps"]) for g in group) if n is not None]
+        drop_v = [n for n in (_coerce_num(g["dropped_frames"]) for g in group) if n is not None]
+
+        oa = ""
+        for g in group:
+            if g.get("output_active"):
+                oa = g["output_active"]
+
+        out.append({
+            "source": source,
+            "timestamp": second,
+            "fps": round(sum(fps_v) / len(fps_v), 2) if fps_v else "",
+            "bitrate_kbps": round(sum(kbps_v) / len(kbps_v)) if kbps_v else "",
+            "dropped_frames": int(sum(drop_v)) if drop_v else "",
+            "output_active": oa,
+        })
+
+    out.sort(key=lambda r: r["timestamp"])
+    return out
+
+
+def _agg_path(raw_path: str) -> str:
+    """'benchmark_X.csv' → 'benchmark_X_1hz.csv'."""
+    root, ext = os.path.splitext(raw_path)
+    return f"{root}_1hz{ext or '.csv'}"
+
+
+def _write_csv(path: str, rows: list) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+
+
 def print_summary(rows: list) -> None:
     print(f"\n{'='*60}")
-    print(f"{'BENCHMARK ÖZET':^60}")
+    print(f"{'BENCHMARK ÖZET (1Hz toplulaştırılmış)':^60}")
     print(f"{'='*60}")
     header = f"{'':6s}  {'FPS ort/min':>14s}  {'Bitrate ort kbps':>18s}  {'Dropped toplam':>14s}"
     print(header)
@@ -341,14 +423,32 @@ async def run(args) -> None:
     # Timestamp'e göre sırala — iki kaynağın satırları karışık gelebilir
     rows.sort(key=lambda r: r["timestamp"])
 
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
+    # Ham veri (~20Hz Reji / 1Hz OBS) tam çözünürlükte korunur.
+    _write_csv(csv_path, rows)
 
-    print_summary(rows)
-    print(f"\nCSV kaydedildi: {csv_path}")
+    # Adil karşılaştırma için 1sn pencerelere toplula; özet bunu kullanır.
+    agg_rows = aggregate_to_1hz(rows)
+    agg_csv_path = _agg_path(csv_path)
+    _write_csv(agg_csv_path, agg_rows)
+
+    print_summary(agg_rows)
+    print(f"\nHam CSV kaydedildi:  {csv_path}")
+    print(f"1Hz CSV kaydedildi:  {agg_csv_path}")
+
+
+def reprocess(csv_in: str, csv_out: str = "") -> None:
+    """Var olan ham CSV'yi 1Hz'e toplula ve özetle — hiçbir ağ bağlantısı kurmaz."""
+    with open(csv_in, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    agg_rows = aggregate_to_1hz(rows)
+    out_path = csv_out or _agg_path(csv_in)
+    _write_csv(out_path, agg_rows)
+    print(
+        f"Yeniden işlendi: {csv_in} ({len(rows)} ham satır) "
+        f"-> {out_path} ({len(agg_rows)} 1Hz satır)"
+    )
+    print_summary(agg_rows)
+    print(f"\n1Hz CSV kaydedildi: {out_path}")
 
 
 def main() -> None:
@@ -382,7 +482,15 @@ def main() -> None:
         "--target", choices=["reji", "obs", "both"], default="both",
         help="Ölçülecek uygulama",
     )
-    asyncio.run(run(p.parse_args()))
+    p.add_argument(
+        "--reprocess", default="", metavar="CSV",
+        help="Var olan ham CSV'yi 1Hz'e toplula ve özetle (ölçüm/bağlantı yapmaz)",
+    )
+    args = p.parse_args()
+    if args.reprocess:
+        reprocess(args.reprocess, args.output)
+        return
+    asyncio.run(run(args))
 
 
 if __name__ == "__main__":
