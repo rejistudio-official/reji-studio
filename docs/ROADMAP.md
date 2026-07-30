@@ -1424,6 +1424,17 @@ not düşüldü.
   Twitch'in desteği sınırlı/gelişmekte. H.265 desteği her iki platformda
   da tutarsız.
 
+**Kaynak/Referans (2026-07-30):** veovera/enhanced-rtmp
+(github.com/veovera/enhanced-rtmp) — Adobe, Google, Twitch, FFmpeg/OBS
+geliştiricilerinin (Veovera Software Organization çatısı altında)
+birlikte yayınladığı resmi Enhanced RTMP (E-RTMP) spesifikasyonu.
+H.265/AV1/VP9'un FLV'ye nasıl ekleneceğini (yeni VideoPacketType
+alanları, ModEx sinyalleri) tam olarak belgeliyor; repo içinde ayrıca
+bir Go CLI aracı (e-flv-tool) ile FLV/E-FLV dosyalarını inceleme
+imkanı var. Bu fikir ileride ele alınırsa, encoder/lisans
+araştırmasından sonraki mux/konteyner araştırma adımının başlangıç
+noktası burası olmalı.
+
 **Durum:** Yalnızca fikir kaydı — aktif değerlendirme yok, önkoşul yok,
 taahhüt yok. İleride ele alınırsa, Ses Ayarları'nda izlenen sırayla
 (önce encoder/lisans araştırması, sonra mux/konteyner araştırması, sonra
@@ -1471,6 +1482,58 @@ aksiyonunu onaylatmak, kendi Faz 0'ını (auth, yetkilendirme, kötüye
 kullanım senaryoları) hak eden hassas bir genişleme — ele alınırsa
 Ses Ayarları/Donanım Profilleme'de izlenen "önce mimari karar, sonra
 implementasyon" sırasıyla ilerlemesi önerilir.
+
+## Gelecek Fikir — SRT Ses Desteği: MPEG-TS Kütüphane Adayları (henüz taahhüt edilmedi)
+
+**İçerik:** SRT ses desteği (zaten kayıtlı büyük iş — gerçek bir
+MPEG-TS muxer gerektiriyor, çünkü SRT şu an konteynersiz ham H.264 ES
+gönderiyor) için sıfırdan bir TS muxer yazmak yerine değerlendirilecek
+iki saf-Rust aday bulundu:
+- sile/mpeg2ts (github.com/sile/mpeg2ts) — MPEG2-TS decode/encode
+  kütüphanesi, ITU-T Rec. H.222.0 uyumlu.
+- video-audio/va-ts (github.com/video-audio/va-ts) — MPEG-TS
+  muxer/demuxer kütüphanesi.
+
+**Durum:** Yalnızca fikir kaydı — hiçbiri değerlendirilmedi, olgunluk/
+bakım durumları (hangisi daha aktif, hangisi projenin ihtiyaç duyduğu
+PAT/PMT/PCR/PES özelliklerini tam kapsıyor) ayrı bir Faz 0 sorusu.
+İleride SRT ses işi ele alınırsa, sıfırdan yazmadan önce bu ikisinin
+değerlendirilmesi önerilir — Ses Ayarları MVP'sinde izlenen "önce
+mevcut kütüphaneleri araştır" disipliniyle tutarlı.
+
+## Gelecek Fikir — GPU Termal Metrik Diriltme (henüz taahhüt edilmedi)
+
+**İçerik:** gpu_temp_c şu an stub (daima 0) — bilinen bir teknik
+borç maddesi, termal healing kuralları bu yüzden fiilen dormant.
+NVIDIA tarafı için bir aday bulundu:
+- nvapi (arcnmx/nvapi-rs, github.com/arcnmx/nvapi-rs) — NVIDIA
+  NVAPI'sine Rust bağlayıcıları, termal sensör okuma
+  (NvAPI_GPU_GetThermalSettings) dahil.
+
+**Kritik sınır:** Bu, yalnızca NVIDIA (dGPU) tarafını çözer. Hedef
+donanım hibrit-GPU (AMD iGPU + NVIDIA dGPU) olduğundan, AMD tarafı
+için ayrı bir çözüm gerekir (AMD ADL SDK, ya da LibreHardwareMonitor
+projesinin — C#/.NET, doğrudan kullanılamaz ama "iki vendor'ı tek
+arayüzden nasıl okuyorlar" sorusuna mimari referans olabilir — izlediği
+yaklaşım). Tek-vendor'lı bir çözüm yarım bir düzeltme olur.
+
+**Durum:** Yalnızca fikir kaydı, taahhüt yok. Aciliyeti düşük —
+termal-tabanlı kurallar zaten stub=0 durumuna karşı guard'lı, mevcut
+davranışı bozan bir şey yok, yalnızca kullanılmayan bir yetenek.
+
+## Gelecek Fikir — Zig Köprüsü Bakımı: Otomatik Vulkan Binding Üreteci (henüz taahhüt edilmedi)
+
+**İçerik:** Reji'nin Zig↔Vulkan köprüsü şu an muhtemelen elle yazılmış
+@cImport bağlayıcıları kullanıyor. Snektron/vulkan-zig
+(github.com/Snektron/vulkan-zig) — Vulkan API yüzeyinden otomatik Zig
+bağlayıcısı üreten, günlük olarak en güncel vk.xml'e karşı test
+edilen olgun bir araç.
+
+**Durum:** Acil değil — mevcut köprü dar kapsamlı ve K1-K7 turunda
+sertleştirilmiş, elle bakım şu an sorun yaratmıyor. Faz 5'in
+instance-level geçişi ya da gelecekte Vulkan API yüzeyinin genişlemesi
+gerekirse (yeni extension'lar, yeni fonksiyonlar), otomatik üretime
+geçmek bakım yükünü azaltabilir. Yalnızca fikir kaydı, taahhüt yok.
 
 ## Faz 5 — Zig Global State Tam Çözümü
 
