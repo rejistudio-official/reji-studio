@@ -1398,6 +1398,49 @@ büyük (I8'deki WS auth işinin genişletilmesi, dışa açık bir dashboard).
 **Durum:** Yalnızca fikrin kaybolmaması için kayda geçirildi — aktif
 değerlendirme yok, önkoşul yok, taahhüt yok.
 
+## Gelecek Fikir — Uzaktan Operasyon Köprüsü (henüz taahhüt edilmedi)
+
+**İçerik:** Reji'nin healing durumunu (VendorEvent, zaten WS üzerinden
+yayınlanıyor — Özellik #2 Aşama A) açık kaynak bir bağlantı ağ geçidi
+(örn. OOMOL-lab'ın `open-connector`'ı, Composio'ya açık kaynak
+alternatif) üzerinden Slack/Discord/Telegram gibi platformlara
+taşıyıp, yapımcının Reji Studio'yu hiç açmadan, telefonundan bir
+healing aksiyonunu onaylayabilmesi.
+
+**Neden şimdi kayda değer:** Bu, iki önceden kaydedilmiş ama ayrı
+duran fikri birleştiriyor:
+- **Özellik #2 Aşama B** (uzaktan onay mutasyonu) — Aşama A'dan sonra
+  bilinçli olarak ayrılmıştı, gerekçe: Stream Deck/Companion donanım
+  testi önce gerekiyordu. Donanım testi artık yapıldı (kullanıcıda
+  bekleyen madde olarak kayıtlı).
+- **"Uzaktan/işbirlikli prodüksiyon"** — "güvenlik yüzeyi büyük, talep
+  doğrulanmadı" notuyla arşivde duruyordu.
+
+Bir bağlantı ağ geçidi kullanmak, Aşama B'nin en büyük maliyetini
+(her platform için ayrı entegrasyon — Slack API, Telegram Bot API,
+Discord Webhook, hepsi ayrı ayrı yazılıp bakımı gerekir) ortadan
+kaldırıyor — Reji tek bir köprü noktasına (VendorEvent → ağ geçidi)
+bağlanır, platform seçimi ağ geçidinin hazır kataloğuna kalır.
+
+**Somut akış (taslak):**
+```
+Reji (healing pending) → VendorEvent (WS) → köprü ajan
+   → bağlantı ağ geçidi → Slack/Telegram bildirimi
+   → yapımcı onaylar/reddeder → rj_action_approve
+```
+
+**Daha düşük riskli varyant (aynı köprü, onay-mutasyonu olmadan):**
+- Yayın başladı/durdu → otomatik Discord/X duyurusu.
+- Healing-log SQLite → Notion/Airtable canlı pano (salt-okunur,
+  izleme amaçlı).
+
+**Durum:** Yalnızca fikir kaydı — aktif değerlendirme yok, taahhüt
+yok. Güvenlik yüzeyi notu hâlâ geçerli: ağ üzerinden bir healing
+aksiyonunu onaylatmak, kendi Faz 0'ını (auth, yetkilendirme, kötüye
+kullanım senaryoları) hak eden hassas bir genişleme — ele alınırsa
+Ses Ayarları/Donanım Profilleme'de izlenen "önce mimari karar, sonra
+implementasyon" sırasıyla ilerlemesi önerilir.
+
 ## Faz 5 — Zig Global State Tam Çözümü
 
 - [ ] external_memory_bridge.zig — state'i instance-level struct'a taşı
