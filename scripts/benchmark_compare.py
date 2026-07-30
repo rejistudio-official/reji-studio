@@ -46,7 +46,7 @@ def utcnow() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-async def _recv_skip_to_op(ws, target_op: int, timeout: float = 3.0) -> dict:
+async def _recv_skip_to_op(ws, op: int, timeout: float = 3.0) -> dict:
     """Verilen op koduna sahip mesajı alana kadar diğerlerini atla."""
     while True:
         raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
@@ -54,7 +54,7 @@ async def _recv_skip_to_op(ws, target_op: int, timeout: float = 3.0) -> dict:
         if isinstance(raw, bytes):
             raw = raw.decode()
         msg = json.loads(raw)
-        if msg.get("op") == target_op:
+        if msg.get("op") == op:
             return msg
 
 
