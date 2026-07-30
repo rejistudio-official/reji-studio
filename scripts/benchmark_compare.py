@@ -133,12 +133,13 @@ async def reji_collect(
 ) -> None:
     """Reji'ye bağlan; legacy metric event'lerden örnekler topla.
 
-    Reji, JSON bağlantılarda ~20Hz (video örneği başına, ~50ms) şu zarfı
-    yayar (op içermez):
+    Reji, JSON bağlantılarda ~60Hz (video karesi başına bir örnek, ~16.7ms)
+    şu zarfı yayar (op içermez):
         {"fps": 59.8, "kbps": 3500, "drop": 2, "cpu": 45, "gpu": 78, "mem": 60}
-    "drop" per-sample delta'dır (kümülatif değil). OBS 1Hz poll edildiğinden
-    adil karşılaştırma için örnekler sonradan 1sn pencerelere toplulaştırılır
-    (bkz. aggregate_to_1hz).
+    "fps" anlık 1/Δt'dir (run_frame döngü cadence'i; pencereli ortalama değil,
+    60'ı aşabilir ve 240'a clamp'lenir). "drop" per-sample delta'dır (kümülatif
+    değil). OBS 1Hz poll edildiğinden adil karşılaştırma için örnekler sonradan
+    1sn pencerelere toplulaştırılır (bkz. aggregate_to_1hz).
     """
     actual_port = port or await _detect_reji_port(host)
     if not actual_port:
@@ -310,44 +311,82 @@ def _floor_to_second(ts: str) -> str:
     return base if base.endswith("Z") else base + "Z"
 
 
-def aggregate_to_1hz(rows: list) -> list:
-    """Ham satırları kaynak + 1sn pencerelerine toplulaştır.
+def _frac_second(ts: str) -> float:
+    """Timestamp'in saniye-kesirini [0,1) döndür ('...:23.081Z' → 0.081)."""
+    if "." in ts:
+        return float("0." + ts.split(".", 1)[1].rstrip("Z"))
+    return 0.0
 
-    Reji ~20Hz, OBS 1Hz örnekliyor; min-FPS'i adil kıyaslamak için iki hedef
-    de aynı zaman çözünürlüğüne (1Hz) indirilir. Pencere kuralları:
+
+# Kısmi uç penceresi eşiği: ilk/son 1sn kovası bu orandan az wall-clock
+# kapsıyorsa (örnekleme saniyenin ortasında başlayıp/bittiyse) özet dışı bırakılır.
+EDGE_MIN_COVERAGE = 0.9
+
+
+def aggregate_to_1hz(rows: list) -> list:
+    """Ham satırları kaynak + 1sn pencerelerine toplulaştır (1Hz).
+
+    Reji ~60Hz örnekliyor (video karesi başına bir örnek); OBS 1Hz poll ediliyor.
+    Aynı zaman çözünürlüğünde adil kıyas için pencere kuralları:
+        fps   → REJI: pencere içi kare SAYISI (= kare/1sn). Anlık 1/Δt'nin
+                       aritmetik ortalaması yerine gerçek oran — bu, harmonik
+                       ortalamaya eşittir ve OBS activeFps ile doğrudan denktir.
+                 OBS: activeFps zaten düzgün oran → pencere ORTALAMASI.
         drop  → pencere içi TOPLAM     (per-sample delta → saniyedeki kare kaybı)
         kbps  → pencere ORTALAMASI     (anlık bitrate → 1sn ortalama oran)
-        fps   → pencere ORTALAMASI     (saniye-ortalaması; min-FPS özette
-                                        saniyeler arası min olarak çıkar)
         output_active → penceredeki son boş-olmayan değer
-    OBS zaten 1Hz olduğundan onun için pencere ~özdeş kalır.
+    min-FPS özette bu saniyelik değerlerin min'i olarak çıkar. Kısmi uç
+    pencereler (tam saniye içermeyen ilk/son kova) elenir — eksik örnekli kova
+    aksi halde sahte (düşük/yüksek) fps üretir.
     """
     from collections import OrderedDict
 
-    buckets: "OrderedDict[tuple, list]" = OrderedDict()
+    by_source: "OrderedDict[str, list]" = OrderedDict()
     for r in sorted(rows, key=lambda r: (r["source"], r["timestamp"])):
-        key = (r["source"], _floor_to_second(r["timestamp"]))
-        buckets.setdefault(key, []).append(r)
+        by_source.setdefault(r["source"], []).append(r)
 
     out = []
-    for (source, second), group in buckets.items():
-        fps_v = [n for n in (_coerce_num(g["fps"]) for g in group) if n is not None]
-        kbps_v = [n for n in (_coerce_num(g["bitrate_kbps"]) for g in group) if n is not None]
-        drop_v = [n for n in (_coerce_num(g["dropped_frames"]) for g in group) if n is not None]
+    for source, srows in by_source.items():
+        buckets: "OrderedDict[str, list]" = OrderedDict()
+        for r in srows:
+            buckets.setdefault(_floor_to_second(r["timestamp"]), []).append(r)
+        seconds = list(buckets.keys())  # srows ts-sıralı → kovalar zaman sıralı
+        n_sec = len(seconds)
 
-        oa = ""
-        for g in group:
-            if g.get("output_active"):
-                oa = g["output_active"]
+        for idx, second in enumerate(seconds):
+            group = buckets[second]
 
-        out.append({
-            "source": source,
-            "timestamp": second,
-            "fps": round(sum(fps_v) / len(fps_v), 2) if fps_v else "",
-            "bitrate_kbps": round(sum(kbps_v) / len(kbps_v)) if kbps_v else "",
-            "dropped_frames": int(sum(drop_v)) if drop_v else "",
-            "output_active": oa,
-        })
+            # Kısmi uç pencere elemesi (yalnız ≥3 kova varsa; hepsini silme).
+            if n_sec >= 3:
+                if idx == 0 and (1.0 - _frac_second(group[0]["timestamp"])) < EDGE_MIN_COVERAGE:
+                    continue
+                if idx == n_sec - 1 and _frac_second(group[-1]["timestamp"]) < EDGE_MIN_COVERAGE:
+                    continue
+
+            kbps_v = [n for n in (_coerce_num(g["bitrate_kbps"]) for g in group) if n is not None]
+            drop_v = [n for n in (_coerce_num(g["dropped_frames"]) for g in group) if n is not None]
+            fps_v = [n for n in (_coerce_num(g["fps"]) for g in group) if n is not None]
+
+            if source == "reji":
+                # Kare başına bir örnek → o saniyedeki gerçek fps = kare sayısı.
+                fps_out: object = len(group) if group else ""
+            else:
+                # OBS: activeFps zaten oran, 1Hz → ortalama (tek değer de olsa).
+                fps_out = round(sum(fps_v) / len(fps_v), 2) if fps_v else ""
+
+            oa = ""
+            for g in group:
+                if g.get("output_active"):
+                    oa = g["output_active"]
+
+            out.append({
+                "source": source,
+                "timestamp": second,
+                "fps": fps_out,
+                "bitrate_kbps": round(sum(kbps_v) / len(kbps_v)) if kbps_v else "",
+                "dropped_frames": int(sum(drop_v)) if drop_v else "",
+                "output_active": oa,
+            })
 
     out.sort(key=lambda r: r["timestamp"])
     return out
