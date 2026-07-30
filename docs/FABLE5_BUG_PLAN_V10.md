@@ -1,11 +1,13 @@
 # FABLE5_BUG_PLAN_V10.md — Reji Studio Dördüncü Nesil Bug Planı (V9-Sonrası Yeni Kod)
 
-**Durum:** ✅ **TAMAMEN KAPANDI (2026-07-28)** — üç sprint de merge
-edildi (S1: L1-L7+ekler, S2: L8-L12+L21-L23, S3: L13-L20). Çürütmeler:
-L7, L9'un CAN_PROVIDE kısmı. L14/L18 kod+birim-test düzeyinde kapalı;
-canlı GUI doğrulaması kullanıcıda (aşağıda işaretli). V10 sonrası
-bulgular V11 planına gider ("Capture loss 60 frames" null-streak notu
-dahil).
+**Durum:** ✅ **TAMAMEN KAPANDI (2026-07-30, canlı doğrulamalar dahil)** —
+üç sprint de merge edildi (S1: L1-L7+ekler, S2: L8-L12+L21-L23,
+S3: L13-L20). Çürütmeler: L7, L9'un CAN_PROVIDE kısmı. Açık kalan son
+iki canlı GUI doğrulaması (L14, L18) 30.07'de tamamlandı; L18'in canlı
+doğrulaması bir ek bulgu çıkardı (GpuScan WGC yolunda boş —
+`TALIMAT_L18_GPUSCAN_BOYUT.md`, fix `ae360fd`, aynı gün canlı
+doğrulandı). V10 sonrası bulgular V11 planına gider ("Capture loss
+60 frames" null-streak notu dahil).
 
 **Hazırlayan:** Sentez sohbeti (dört bağımsız model raporunun
 triyajı — `docs/V10_SENTEZ_TRIYAJ.md` kanonik ara belge).
@@ -77,7 +79,7 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 | L2 | Audio metrik kirliliği: FrameDropPct{0} enjeksiyonu | 🟡 2/4 | 1 | ✅ FIXED 3e1fcd4 (+CpuUsage{0} ve WS broadcast dahil) |
 | L3 | Kalibrasyon hot-reload'da sessizce kayboluyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 73d0137 (adopt_calibration) |
 | L4 | Auto-reload kapalıyken import watcher'ı yeniden silahlandırıyor | 🔵 1/4 (Kimi) | 1 | ✅ FIXED 8af4f3c (enabled parametresi) |
-| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ FIXED 758d155 (tek init yolu) — canlı doğrulama kullanıcıda |
+| L5 | Çift init yolu: profil önerisi hiç tetiklenmiyor | 🔵 1/4 (Fable) + canlı kanıt | 1 | ✅ FIXED 758d155 (tek init yolu) — canlı doğrulandı (30.07: profile/asked sıfırlanınca ilk-kurulum diyaloğu tetiklendi) |
 | L6 | ASC kaybı yarışı: kalıcı sessiz ses ölümü | 🔵 1/4 (Fable) | 1 | ✅ FIXED fcdcb9e (asc_sent_ retry) |
 | L7 | Shutdown-flush sırasında MF lazy-init SEH ihlali | 🔵 1/4 (Fable) | 1 | ❌ ÇÜRÜTÜLDÜ — on_packet streaming guard'ı drain'i keser |
 | L8 | Zig ABI üst-sınır eksikliği + writeFlvTag sessiz kırpma | 🔵 1/4 (tavan) / 🟢 3/4 (kırpma) | 2 | ✅ FIXED 973dd19 (ABI boyut tavanları + writeFlvTag kırpma yerine reddet; merge 45db244) |
@@ -86,11 +88,11 @@ bilinen/bilinçli açık listesi (prompt §3c — yanlış-pozitif önleme).
 | L11 | step_kbps ölü parametre (BITRATE_REDUCE sabit %15) | 🔵 1/4 (GLM) | 2 | ✅ FIXED 9497b33 (unutulmuş bağlantıydı — param1/step_kbps REDUCE/RECOVER'da kullanılır) |
 | L12 | A/V pts epoch doğrulaması (WASAPI QPC vs FramePacer::pts_us) | 🟡 2/4 | 2 | ✅ FIXED 9b29dc9 (tabanlar farklıydı — ses pts'i pacer origin'ine rebase) |
 | L13 | rules_buf 64KB aşımında yanıltıcı "Kural okunamadı" | 🟡 2/4 | 3 | ✅ FIXED 208e274 (-2 dönüş kodu + UI'da ayrı mesaj) |
-| L14 | HealingLog writer thread'e shutdown sinyali + son flush | 🔵 1/4 (Fable) | 3 | ✅ FIXED a0a9b33 (Condvar + rj_healing_log_shutdown) — 🔍 canlı doğrulama kullanıcıda |
+| L14 | HealingLog writer thread'e shutdown sinyali + son flush | 🔵 1/4 (Fable) | 3 | ✅ FIXED a0a9b33 (Condvar + rj_healing_log_shutdown) — canlı doğrulandı (30.07: normal kapanışta healing_log.sqlite kapanış anında flush, son olaylar mevcut) |
 | L15 | rj_action_approve kuyruk-dolu geri koymada created tazelenmeli | 🔵 1/4 (Fable) | 3 | ✅ FIXED 208e274 (Instant::now ile tazeleme) |
 | L16 | pcm_scratch_.reserve init'te (hot-path realloc) | 🔵 1/4 (Fable) | 3 | ✅ FIXED c8efdfd (8192 reserve + static_assert kilidi) |
 | L17 | updateParamSet dupe başarısızlığında bool dönüş | 🔵 1/4 (Fable) | 3 | ✅ FIXED fa9749f (bool + rj_rtmp_send'de dürüst red) |
-| L18 | Profil önerisi diyaloğunda vendor/VRAM eşleşmezliği | 🔵 1/4 (Kimi) | 3 | ✅ FIXED 35eb914 (max_vram_vendor_id) — 🔍 canlı doğrulama kullanıcıda |
+| L18 | Profil önerisi diyaloğunda vendor/VRAM eşleşmezliği | 🔵 1/4 (Kimi) | 3 | ✅ FIXED 35eb914 (max_vram_vendor_id) + ek fix ae360fd (GpuScan WGC'de boştu) — canlı doğrulandı (30.07: NVIDIA/7948MB → Performance uygulandı) |
 | L19 | AudioRing dropped_ sayacı doluluk/geçersiz-girdi ayrımı | 🔵 1/4 (Fable) | 3 | ✅ FIXED ca06936 (dropped_full/rejected_invalid) |
 | L20 | hot_reload throttle "Ok ama skip" sözleşmesi (ölü kod tuzağı) | 🔵 1/4 (Fable) | 3 | ✅ FIXED 32e732c (ReloadOutcome enum) |
 | L21 | Predictive katman gönderim-hatasını yük sanıyor | 🟢 canlı kanıt | 2 | ✅ FIXED ecf9b99 (bağlantı-yokluğu drop'ları predictive trendden ayrıldı) — canlı doğrulandı (28.07: bitrate düşüşü yok) |
@@ -393,8 +395,10 @@ yeni FFI yüzeyi `feat/v10-sprint3-canli` (merge 2ae5dd6).
   hiçbir shutdown yolu yok (orchestrator'da genel shutdown FFI'ı da yoktu).
   Fix: Condvar bekleyişi + `shutdown_writer` (sinyal+join+son flush) +
   yeni `rj_healing_log_shutdown` FFI'ı, `~MainWindow` çağırır.
-  **Canlı doğrulama kullanıcıda:** normal kapanış sonrası healing_log.sqlite'ta
-  son olayların varlığı.
+  **Canlı doğrulandı (30.07):** normal kapanış (WM_CLOSE) sonrası
+  healing_log.sqlite dosya zamanı kapanış anıyla birebir; son kayıt
+  kapanıştan ~1 dk öncesinin memory_pressure olayı (id=111) — writer
+  shutdown flush'ı çalışıyor.
 - **L15** ✅ 208e274 — Faz 0: `ffi.rs:1231` geri koymada `created:
   entry.created` (PENDING_TTL 30s → anında sweep riski). Fix: `Instant::now()`.
 - **L16** ✅ c8efdfd — Faz 0: `encode()` içinde `resize` ilk çağrıda
@@ -405,9 +409,18 @@ yeni FFI yüzeyi `feat/v10-sprint3-canli` (merge 2ae5dd6).
 - **L18** ✅ 35eb914 🔍 — Faz 0: `main_window.cpp` display_vendor_id (iGPU) +
   max_gpu_vram_mb (dGPU) karışımı doğrulandı. Fix:
   `Pipeline::max_vram_vendor_id()` — vendor+VRAM aynı adaptörden.
-  **Canlı doğrulama kullanıcıda:** `profile/asked` temizlenip ilk-kurulum
-  diyaloğunda tutarlı gösterim (bu makinede beklenen: NVIDIA + 8GB sınıfı,
-  "AMD 12GB"/"Intel 12GB" tipi karışım YOK).
+  **Canlı doğrulandı (30.07), ek bulgu üzerinden:** ilk canlı deneme
+  35eb914'ün yetmediğini gösterdi — WGC backend aktifken (Win11'de her
+  zaman kazanan yol) `source_->dxgi()` null → GpuScan hiç dolmuyor →
+  vendor=0/VRAM=0 → daima Stabilite. Ek fix `ae360fd`
+  (`TALIMAT_L18_GPUSCAN_BOYUT.md`, Faz 0 + aynı-tur uygulama):
+  `scan_gpus_standalone` (bağımsız DXGI factory, mevcut static
+  `scan_gpus` yeniden kullanıldı) + `Impl::fallback_scan_` (WGC dalında
+  init'te bir kez) + getter'lar `current_scan()` üzerinden. Kanıt:
+  `profile/asked` sıfırlandı → diyalog tetiklendi → **Performance**
+  uygulandı (rules.json birebir performance.json; suggest_profile
+  Performance'ı yalnız AC + VRAM≥eşik'te önerir → 7948MB sinyali
+  diyaloğa ulaştı, VRAM=0 olsaydı kesin Stabilite olurdu).
 - **L19** ✅ ca06936 — Faz 0: iki ret sebebi tek `dropped_` sayacında.
   Fix: `dropped_full()` + `rejected_invalid()`; `dropped()` toplamı korur.
 - **L20** ✅ 32e732c — Faz 0: throttle/mtime-skip yolları `Ok(())` dönüyor;
@@ -415,11 +428,11 @@ yeni FFI yüzeyi `feat/v10-sprint3-canli` (merge 2ae5dd6).
   Fix: `ReloadOutcome` (Reloaded/SkippedThrottled/SkippedUnchanged).
 
 **Doğrulama sınıfı:** L13/L15/L20 Rust birim testleri (141 lib testi PASS,
-3 yeni), L14 Rust birim testi (izole writer flush) + canlı bekliyor,
-L16/L19 gtest (AacEncoderTest/AudioRingTest, yeni/güncel testler),
-L17 Zig testi (15/15). Merge-sonrası tam build OK, ctest 23/25
+3 yeni), L14 Rust birim testi (izole writer flush) + canlı doğrulandı
+(30.07), L16/L19 gtest (AacEncoderTest/AudioRingTest, yeni/güncel
+testler), L17 Zig testi (15/15). Merge-sonrası tam build OK, ctest 23/25
 (bilinen 2 kırık: FrameProfiler/ShaderCache). L18 kod incelemesi +
-derleme; görsel kanıt canlıda.
+derleme + canlı doğrulandı (30.07, ek fix ae360fd ile — yukarıda).
 
 ---
 
@@ -573,3 +586,16 @@ derleme; görsel kanıt canlıda.
       kullanıcıda. Bu sprintle **V10 TAMAMEN KAPANDI**.
 - [x] `TALIMAT_V10_TARAMA_HAZIRLIK.md` ve `TALIMAT_V10_SPRINT3.md` →
       `docs/talimatlar/` arşivine taşındı (kapanış mühürü).
+- [x] Canlı doğrulama turu tamamlandı (2026-07-30) — plan bu tarihle
+      NİHAİ mühürlendi: (1) L18 canlı denemesi ek bulgu çıkardı — WGC
+      backend'de GpuScan hiç dolmuyor (dxgi() null), Donanım Profilleme
+      her donanımda Stabilite öneriyordu; Faz 0 boyut tespiti
+      (`TALIMAT_L18_GPUSCAN_BOYUT.md` → arşiv) küçük buldu, aynı turda
+      `ae360fd` ile kapatıldı (scan_gpus_standalone + fallback_scan_).
+      (2) L18 uçtan uca canlı doğrulandı: profile/asked sıfırlandı,
+      diyalog tetiklendi (L5'in de canlı kanıtı), NVIDIA/7948MB sinyali
+      Performance önerisine dönüştü ve uygulandı (rules.json =
+      performance.json, 12000 kbps/60 fps). (3) L14 canlı doğrulandı:
+      normal kapanışta healing_log.sqlite kapanış anında flush edildi,
+      son olaylar (111 kayıt, sonuncusu kapanıştan ~1 dk önce) diskte.
+      Açık işaret kalmadı; V10 sonrası her bulgu V11'e.

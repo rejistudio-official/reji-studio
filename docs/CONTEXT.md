@@ -1,9 +1,12 @@
 # Reji Studio — Proje Bağlamı
 
-**Son güncelleme:** 20 Temmuz 2026
-**Durum:** Faz 3 (ISource) ilerliyor — kontrat + ExistingDesktopSource izole
-adapter hazır (TDD, davranış değişikliği yok); run_frame() wiring'i ayrı talimat
-(TALIMAT_EXISTINGDESKTOPSOURCE_WIRING.md — bkz. SESSION_NOTES.md)
+**Son güncelleme:** 30 Temmuz 2026
+**Durum:** ISource wiring tamamlandı (CaptureSubsystem silindi, orkestratör
+ExistingDesktopSource tutuyor). V10 bug planı (L1-L23, dört-model tarama)
+**TAMAMEN KAPANDI** — canlı GUI doğrulamaları dahil (30.07); L18 canlı
+doğrulaması bir ek bulgu çıkardı ve aynı gün kapatıldı (GpuScan WGC'de
+boştu → `scan_gpus_standalone`, `ae360fd`). Ayrıntı:
+`FABLE5_BUG_PLAN_V10.md`. V10 sonrası bulgular V11 planına.
 
 ---
 
@@ -136,6 +139,12 @@ Kural motoru (`rules.rs`), JSON/TOML formatında, hot-reload destekli.
    Vulkan blit capability, cross-adapter CPU fallback, HealingOverlay wiring, NT handle leak, 
    stack canary, frame thread busy-loop, SrtOutput çift shutdown, AMD GPU sync, vb.
 
+7. **V10 dört-model bug tarama turu (L1-L23) kapandı** — Fable 5 + Opus 4.8 + GLM 5.2 + 
+   Kimi K3 raporlarının sentezinden 23 madde; 21 fix + 2 çürütme, üç sprint'te merge, 
+   canlı GUI doğrulamaları 30.07'de tamamlandı (`FABLE5_BUG_PLAN_V10.md`). Öne çıkan 
+   ders: WGC-varsayılan makinede DXGI'ye bağlı her yan sinyal (GpuScan) bağımsız 
+   yoldan beslenmeli.
+
 ---
 
 ## Yol Haritası — 5 Faz
@@ -147,7 +156,7 @@ Detaylar: `docs/ROADMAP.md`, Linear (Reji Studio takımı, REJ-5 ila REJ-13)
 | **0** | Temel Hazırlık (FFI_CONTRACT + God Object refactoring) | ✅ **TAMAMLANDI** |
 | 1 | OBS-WebSocket Protokol Uyumluluğu | 🔜 Sıradaki |
 | 2 | RTMP Çıkışı | Backlog |
-| 3 | Çoklu Kaynak Mimarisi (ISource) | 🔨 Başladı (kontrat + izole adapter ✅; wiring sırada) |
+| 3 | Çoklu Kaynak Mimarisi (ISource) | 🔨 İlerliyor (kontrat + adapter + run_frame wiring ✅; çoklu kaynak kompozisyonu sırada) |
 | 4 | NDI Desteği | Backlog |
 | 5 | Zig Global State Tam Çözümü | Kısmen (geçici double-init uyarısı var) |
 
