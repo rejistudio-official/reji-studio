@@ -733,6 +733,15 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                             }
                         }
                     }
+                    // RFC 6455 kontrol çerçeveleri — alt-protokol kodlamasından (JSON/msgpack)
+                    // bağımsız, her iki telde de geçerli. Eski catch-all `_ => break` bunları
+                    // protokol ihlali gibi kapatıyordu: python `websockets` tabanlı istemciler
+                    // (benchmark, simpleobsws) varsayılan keepalive Ping'ini bağlantıdan 20s
+                    // sonra yollar ve her uzun oturum tam 20. saniyede kopuyordu. Ping'in
+                    // Pong yanıtını axum/tungstenite otomatik kuyruklar → burada yalnız yok
+                    // sayılır. Pong (RFC 6455 §5.5.3 tek yönlü heartbeat dahil) yanıtsız
+                    // yok sayılır. Oturum sayaçlarına dahil edilmez — transport seviyesi.
+                    Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => {}
                     _ => break,
                 }
             }

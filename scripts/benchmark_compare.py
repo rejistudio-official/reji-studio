@@ -168,7 +168,15 @@ async def reji_collect(
                 raw = await asyncio.wait_for(ws.recv(), timeout=min(remaining, 2.0))
             except asyncio.TimeoutError:
                 continue
-            except Exception:
+            except Exception as exc:
+                # Sessiz yutma yok: kopma anını ve nedenini görünür kıl (eski
+                # davranış bağlantı kopmasını yutup "Tamamlandı" gibi raporluyordu).
+                elapsed = duration - remaining
+                print(
+                    f"[reji] bağlantı koptu (toplama {elapsed:.1f}s'de kesildi, "
+                    f"hedef {duration:g}s): {exc!r}",
+                    file=sys.stderr,
+                )
                 break
 
             try:
@@ -322,6 +330,35 @@ def _frac_second(ts: str) -> float:
 # kapsıyorsa (örnekleme saniyenin ortasında başlayıp/bittiyse) özet dışı bırakılır.
 EDGE_MIN_COVERAGE = 0.9
 
+# Kaynak başına kapsanan süre / --duration bu oranın altındaysa özet sonrası uyarı
+# basılır (ör. WS bağlantısının erken kopması — keepalive Ping bug'ının belirtisi).
+MIN_COVERAGE_RATIO = 0.9
+
+
+def _parse_ts(ts: str) -> datetime.datetime:
+    """CSV timestamp'ini ('2026-07-31T14:17:33.429Z') aware datetime'a çevir."""
+    return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def coverage_by_source(rows: list) -> dict:
+    """Kaynak başına gerçek kapsanan süreyi (son − ilk timestamp, saniye) döndür."""
+    bounds: dict = {}
+    for r in rows:
+        t = _parse_ts(r["timestamp"])
+        first, last = bounds.get(r["source"], (t, t))
+        bounds[r["source"]] = (min(first, t), max(last, t))
+    return {src: (last - first).total_seconds() for src, (first, last) in bounds.items()}
+
+
+def coverage_warnings(spans: dict, duration: float) -> list:
+    """Kapsanan süresi --duration'ın altında kalan kaynaklar için uyarı satırları üret."""
+    return [
+        f"UYARI: {src} verisi yalnız {span:.1f}s kapsıyor (istenen: {duration:g}s) "
+        f"— bağlantı erken kopmuş olabilir; özet istatistikler eksik dönemi temsil eder."
+        for src, span in spans.items()
+        if span < duration * MIN_COVERAGE_RATIO
+    ]
+
 
 def aggregate_to_1hz(rows: list) -> list:
     """Ham satırları kaynak + 1sn pencerelerine toplulaştır (1Hz).
@@ -471,6 +508,12 @@ async def run(args) -> None:
     _write_csv(agg_csv_path, agg_rows)
 
     print_summary(agg_rows)
+
+    # Kapsam kontrolü: gerçek veri süresi --duration ile uyuşmuyorsa uyar —
+    # aksi halde özet, koşumun yalnız bir bölümünü sessizce temsil eder.
+    for warning in coverage_warnings(coverage_by_source(rows), args.duration):
+        print(f"\n{warning}")
+
     print(f"\nHam CSV kaydedildi:  {csv_path}")
     print(f"1Hz CSV kaydedildi:  {agg_csv_path}")
 

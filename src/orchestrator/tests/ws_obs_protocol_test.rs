@@ -1249,3 +1249,98 @@ async fn yayin_dogrulanmamis_oturuma_gitmez_ama_dogrulanmisa_gider() {
     .expect("doğrulanmış oturum VendorEvent almalı");
     assert_eq!(got["d"]["eventData"]["eventType"], "HealingActionApplied");
 }
+
+#[tokio::test]
+async fn ping_frame_baglantiyi_koparmaz_ve_pong_doner() {
+    // Faz 0 bulgusu: python `websockets` (benchmark, simpleobsws) varsayılan
+    // ping_interval=20 ile bağlantıdan 20s sonra keepalive Ping yollar; sunucu
+    // catch-all `_ => break` ile bağlantıyı koparıyordu. RFC 6455 §5.5.2: uç
+    // Ping'e Pong dönmeli, bağlantı yaşamalı.
+    let (state, _cmd_rx, evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["op"], 0);
+    send_text(&mut ws, json!({"op": 1, "d": {"rpcVersion": 1}})).await;
+    let identified = next_json(&mut ws).await;
+    assert_eq!(identified["op"], 2);
+
+    // İstemci keepalive Ping'i (python websockets'in 20. saniyede yaptığının birebiri).
+    ws.send(Message::Ping(vec![0xAB, 0xCD].into())).await.expect("ping gönder");
+
+    // RFC 6455: Pong, Ping payload'ını aynen taşımalı.
+    let pong = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Pong(p))) => return p,
+                Some(Ok(_)) => continue,
+                other => panic!("Pong beklenirken bağlantı düştü: {:?}", other),
+            }
+        }
+    })
+    .await
+    .expect("Ping'e 2sn içinde Pong dönmeli");
+    assert_eq!(pong, vec![0xAB, 0xCD]);
+
+    // Bağlantı yaşamalı: Ping SONRASI yayınlanan event istemciye ulaşmalı.
+    let payload = r#"{"fps":60.0,"kbps":6000,"drop":0,"cpu":10,"gpu":20,"mem":30}"#.to_string();
+    let publisher = tokio::spawn(async move {
+        for _ in 0..40 {
+            let _ = evt_tx.send(payload.clone());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+    let got = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Text(t))) => return t.to_string(),
+                Some(Ok(_)) => continue,
+                other => panic!("event beklenirken bağlantı düştü: {:?}", other),
+            }
+        }
+    })
+    .await
+    .expect("Ping sonrası metrik event'i 2sn içinde gelmeli");
+    assert!(got.contains("\"fps\""), "metrik event bekleniyordu: {}", got);
+    publisher.abort();
+}
+
+#[tokio::test]
+async fn unsolicited_pong_yok_sayilir_baglanti_yasar() {
+    // RFC 6455 §5.5.3: istenmemiş Pong tek yönlü heartbeat olarak GEÇERLİDİR —
+    // yanıt beklenmez, bağlantı koparılamaz. Legacy istemci (Identify'sız)
+    // senaryosunda test edilir: kontrol çerçevesi muafiyeti handshake'ten
+    // bağımsız çalışmalı (parola yok → yayın vacuously authenticated oturuma gider).
+    let (state, _cmd_rx, evt_tx) = make_state();
+    let port = free_port();
+    spawn_server(port, state);
+
+    let mut ws = connect(port).await;
+    let hello = next_json(&mut ws).await;
+    assert_eq!(hello["op"], 0);
+
+    ws.send(Message::Pong(Vec::new().into())).await.expect("pong gönder");
+
+    let payload = r#"{"fps":59.9,"kbps":3500,"drop":0,"cpu":5,"gpu":8,"mem":40}"#.to_string();
+    let publisher = tokio::spawn(async move {
+        for _ in 0..40 {
+            let _ = evt_tx.send(payload.clone());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+    let got = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Text(t))) => return t.to_string(),
+                Some(Ok(_)) => continue,
+                other => panic!("event beklenirken bağlantı düştü: {:?}", other),
+            }
+        }
+    })
+    .await
+    .expect("Pong sonrası metrik event'i 2sn içinde gelmeli");
+    assert!(got.contains("\"fps\""), "metrik event bekleniyordu: {}", got);
+    publisher.abort();
+}
