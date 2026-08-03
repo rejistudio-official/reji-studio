@@ -434,7 +434,6 @@ void MainWindow::buildCentralWidget() {
                     lbl_status_->setText(tr("%1 → Program (CUT)").arg(name));
                 program_widget_->beginTransition(reji::ProgramWidget::Transition::Cut);
                 rust_bridge_->sendSceneSwitchEvent(static_cast<uint32_t>(idx));
-                emit sceneActivated(idx);
             });
 
     btn_scene_add_    = new QPushButton("+", this);
@@ -756,6 +755,8 @@ void MainWindow::onCutTransition() {
 void MainWindow::onFadeTransition() {
     program_widget_->beginTransition(reji::ProgramWidget::Transition::Fade, 300);
     lbl_status_->setText(tr("FADE"));
+    rust_bridge_->sendSceneSwitchEvent(
+        static_cast<uint32_t>(scene_list_->currentRow()));
 }
 
 void MainWindow::pushSceneNamesToRust() {

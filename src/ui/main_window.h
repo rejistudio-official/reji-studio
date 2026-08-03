@@ -74,7 +74,6 @@ public slots:
 signals:
     void streamStarted();
     void streamStopped();
-    void sceneActivated(int scene_index);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
