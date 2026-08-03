@@ -240,6 +240,24 @@ target_link_libraries(test_frame_drop_policy
 
 add_test(NAME FrameDropPolicyTest COMMAND test_frame_drop_policy)
 
+# ── RTMP_DARBOGAZ Faz 1: SendDiag 1Hz gönderim teşhis agregatörü saf testi ──
+# send_diag.h header-only (yalnız <cstdint>/<string>) — reji_pipeline/Rust link
+# gerekmez, sadece gtest. Pencere/flush sözleşmesini ve wire-fps sayımını
+# ("yalnız başarılı video send") kilitler — teslim-kaybı görünürlüğünün temeli.
+add_executable(test_send_diag
+    test_send_diag.cpp
+)
+
+target_include_directories(test_send_diag PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include
+)
+
+target_link_libraries(test_send_diag
+    gtest gtest_main
+)
+
+add_test(NAME SendDiagTest COMMAND test_send_diag)
+
 # ── V10/L22: MetricsCollector frame_drop_pct diriltme testi ──
 # metrics_collector.cpp doğrudan derlenir (PDH/psapi pragma-link, GPU/Rust yok).
 add_executable(test_metrics_collector

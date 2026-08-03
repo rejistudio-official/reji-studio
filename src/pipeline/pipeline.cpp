@@ -21,6 +21,7 @@
 #include "include/frame_profiler.h"
 #include "include/frame_pacer.h"
 #include "include/metrics_subsystem.h"
+#include "include/send_diag.h"
 #include "include/command_router.h"
 #include "include/bitrate_policy.h"
 #include "include/frame_drop_policy.h"
@@ -202,6 +203,17 @@ struct Pipeline::Impl {
     // (eski cpu, metrics, last_frame_ticks alanları buraya taşındı).
     MetricsSubsystem metrics_sub_;
 
+    // RTMP_DARBOGAZ Faz 1: capture/encode/send süre teşhisi + wire-fps (1Hz
+    // stderr). Tek thread (frame thread) — on_packet da aynı thread'de koşar.
+    SendDiag send_diag_;
+    bool     send_diag_window_open_ = false;
+
+    // QPC delta → µs (SendDiag beslemesi; kırpma güvenli — süreler <1sn).
+    uint32_t ticks_us(int64_t dt) const noexcept {
+        const int64_t f = pacer_.qpc_freq();
+        return f > 0 ? static_cast<uint32_t>((dt * 1'000'000LL) / f) : 0u;
+    }
+
     std::atomic<bool>    initialized{false};
     std::atomic<bool>    streaming{false};
     std::atomic<bool>    com_owned{false};
@@ -327,7 +339,13 @@ struct Pipeline::Impl {
         // (bağlantı-yokluğu drop sayılmaz) → pct tıkanıklık sinyalidir.
         self->metrics_sub_.record_frame();
         // send() false döndürürse (aktif çıkış vardı ama gönderim başarısız) → drop.
-        if (!self->output_sub_.send(pkt.data, pkt.size, pkt.pts)) {
+        // RTMP_DARBOGAZ Faz 1: send süresi ölçülür — RTMP_Write bloklaması bu
+        // thread'i (= frame thread) durdurur; "yavaş ama başarılı" send hiçbir
+        // sayaçta görünmüyordu. wire-fps yalnız başarılı send'i sayar.
+        const int64_t send_t0 = qpc_ticks();
+        const bool sent = self->output_sub_.send(pkt.data, pkt.size, pkt.pts);
+        self->send_diag_.record_send_video(self->ticks_us(qpc_ticks() - send_t0), sent);
+        if (!sent) {
             self->frame_drops.fetch_add(1, std::memory_order_relaxed);
             self->metrics_sub_.record_frame_drop();
         }
@@ -335,7 +353,9 @@ struct Pipeline::Impl {
         // Ses Ayarları: ses ring'ini bu (encode) thread'de drain et → AAC encode
         // + send_audio. Video ile AYNI thread → tek-thread RTMP-yazım invariant'ı
         // korunur (kilit yok). Ses kapalıysa configure edilmemiştir → no-op.
+        const int64_t drain_t0 = qpc_ticks();
         self->audio_bridge_.drain(pkt.pts);
+        self->send_diag_.record_audio_drain(self->ticks_us(qpc_ticks() - drain_t0));
     }
 
     // Ses Ayarları: WASAPI capture callback'i (capture supervisor thread) — yalnız
@@ -701,18 +721,31 @@ bool Pipeline::run_frame() {
         // ExistingDesktopSource: DXGI capture_next() / WGC next_frame() dallarını
         // kapsar; handle'da döner (null-streak adapter içinde: geçerli karede
         // sıfırlanır, null'da artar — state() level sinyali üretir).
+        // RTMP_DARBOGAZ Faz 1: capture süresi + null/tex ayrımı — H2 (WGC teslimi)
+        // hipotezinin verisi. Null iterasyon drop DEĞİL (S1-ek4) ama SendDiag'da
+        // sayılır: RTMP_Write bloklarken kaybolan WGC kareleri burada null olarak
+        // görünür.
+        const int64_t cap_t0 = qpc_ticks();
         const SourceFrame frame = s.source_->next_frame();
+        const uint32_t cap_us = s.ticks_us(qpc_ticks() - cap_t0);
         // Level→edge HER karede beslenir: geçerli kare Running'i görüp
         // tetikleyiciyi temizler; yalnız null dalında beslemek bayat re-arm
         // sayacı bırakırdı (reinit_trigger_policy.h testleri bu kalıbı kilitler).
         const bool reinit_edge = s.reinit_trigger_.on_state(s.source_->state());
         ID3D11Texture2D* tex = static_cast<ID3D11Texture2D*>(frame.handle);
+        s.send_diag_.record_capture(cap_us, tex != nullptr);
 
         if (tex) {
             const int64_t pts_us = s.pacer_.pts_us(frame_start);
             // encode_frame(): encoder yoksa true (no-op) — eski `s.encoder && ...`
             // koşuluyla aynı: yalnızca gerçek encode hatasında drop + TDR recovery.
-            if (!s.encode_sub_.encode_frame(tex, pts_us)) {
+            // RTMP_DARBOGAZ Faz 1: süre ölçülür — NVENC senkron olduğundan
+            // on_packet (send dahil) bu çağrının İÇİNDE koşar; enc-sendV farkı
+            // saf encode maliyetini verir (H3).
+            const int64_t enc_t0 = qpc_ticks();
+            const bool enc_ok = s.encode_sub_.encode_frame(tex, pts_us);
+            s.send_diag_.record_encode(s.ticks_us(qpc_ticks() - enc_t0));
+            if (!enc_ok) {
                 if (counts_as_frame_drop(FrameOutcome::EncodeFailed))
                     s.frame_drops.fetch_add(1, std::memory_order_relaxed);
                 // 3) GPU TDR check  outside __try, free to use C++ objects
@@ -726,7 +759,11 @@ bool Pipeline::run_frame() {
             // Boyutlar: eski capture_sub_.width()/height() çağrılarının karşılığı
             // (metadata() aynı capture_->width()/height()'a delege eder).
             const SourceMetadata md = s.source_->metadata();
+            // RTMP_DARBOGAZ Faz 2: d3d11_frame_cb bloğu ölçülür — gpu_sub_
+            // interop (get_frame_images try_lock + cache) ve callback'in kendisi
+            // (hibrit-GPU çapraz kopya / GL-Vulkan interop) [SendDiag]'da yoktu.
             if (s.d3d11_frame_cb) {
+                const int64_t d3d_t0 = qpc_ticks();
                 // Guard eskisiyle bire bir: bridge + dxgi pipeline + shared_texture.
                 auto* dxgi = s.source_->dxgi();
                 if (s.gpu_sub_.raw() && dxgi && dxgi->shared_texture()) {
@@ -744,28 +781,38 @@ bool Pipeline::run_frame() {
 
                 s.d3d11_frame_cb(static_cast<void*>(tex),
                                  md.width, md.height);
+                s.send_diag_.record_interop(s.ticks_us(qpc_ticks() - d3d_t0));
             }
 
-            // v0.2 CPU preview: staging populated in capture_next() (DXGI only)
-            if (s.preview_cb && s.source_->dxgi()) {
-                auto* dxgi = s.source_->dxgi();
-                const void* data = nullptr; int pitch = 0;
-                if (dxgi->map_preview_frame(&data, &pitch)) {
-                    static int cnt = 0;
-                    if (++cnt == 1)
-                        printf("[Preview] First frame: %dx%d pitch=%d\n",
-                               (int)md.width, (int)md.height, pitch);
-                    s.preview_cb(data, (int)md.width, (int)md.height, pitch);
-                    dxgi->unmap_preview_frame();
+            // RTMP_DARBOGAZ Faz 2: preview yolu ölçülür (topolojiye göre biri
+            // aktif — DXGI map veya WGC emit; guard'lar birebir korundu, yalnız
+            // ortak preview_cb kontrolü dışa alındı).
+            if (s.preview_cb) {
+                const int64_t prev_t0 = qpc_ticks();
+
+                // v0.2 CPU preview: staging populated in capture_next() (DXGI only)
+                if (s.source_->dxgi()) {
+                    auto* dxgi = s.source_->dxgi();
+                    const void* data = nullptr; int pitch = 0;
+                    if (dxgi->map_preview_frame(&data, &pitch)) {
+                        static int cnt = 0;
+                        if (++cnt == 1)
+                            printf("[Preview] First frame: %dx%d pitch=%d\n",
+                                   (int)md.width, (int)md.height, pitch);
+                        s.preview_cb(data, (int)md.width, (int)md.height, pitch);
+                        dxgi->unmap_preview_frame();
+                    }
                 }
-            }
 
-            // WGC path — CPU staging preview (kontrat-dışı adapter yüzeyi).
-            // Preview tetikleme kararı (is_wgc + preview_cb var mı) orkestratörde;
-            // preview_cb parametre olarak geçilir — kaynak UI'ı bilmez.
-            if (s.source_->is_wgc() && s.preview_cb) {
-                s.source_->emit_wgc_preview(s.preview_cb, tex,
-                                            frame.width, frame.height);
+                // WGC path — CPU staging preview (kontrat-dışı adapter yüzeyi).
+                // Preview tetikleme kararı (is_wgc + preview_cb var mı) orkestratörde;
+                // preview_cb parametre olarak geçilir — kaynak UI'ı bilmez.
+                if (s.source_->is_wgc()) {
+                    s.source_->emit_wgc_preview(s.preview_cb, tex,
+                                                frame.width, frame.height);
+                }
+
+                s.send_diag_.record_preview(s.ticks_us(qpc_ticks() - prev_t0));
             }
 
         } else {
@@ -800,8 +847,35 @@ bool Pipeline::run_frame() {
     }
     s.metrics_sub_.record_frame_start(frame_start);  // fps ölçümü: bu frame'i sonraki için kaydet
 
+    // RTMP_DARBOGAZ Faz 1: 1Hz teşhis satırı (stderr → run.log). [Metrics]
+    // satırlarıyla aynı cadence; wire_fps burada — iç fps metriği döngü temposu
+    // sayarken bu, hatta GERÇEKTEN yazılan kareyi raporlar.
+    {
+        const int64_t freq = s.pacer_.qpc_freq();
+        const uint64_t now_us = freq > 0
+            ? static_cast<uint64_t>((qpc_ticks() * 1'000'000LL) / freq) : 0u;
+        if (!s.send_diag_window_open_) {
+            s.send_diag_.begin_window(now_us);
+            s.send_diag_window_open_ = true;
+        }
+        // Faz 2: run_frame iş toplamı (frame_start→şimdi; pace + bu flush'ın
+        // kendisi HARİÇ). cap+enc+d3d+prev toplamı ile fark, hâlâ ölçülmeyen
+        // bölgeyi (ör. command drain, metrics push) gösterir.
+        s.send_diag_.record_total(s.ticks_us(qpc_ticks() - frame_start));
+        SendDiagStats diag{};
+        if (s.send_diag_.maybe_flush(now_us, &diag)) {
+            fprintf(stderr, "%s\n", format_send_diag(diag).c_str());
+            fflush(stderr);
+        }
+    }
+
     // 5) Frame pacing  absolute deadline (FramePacer alt sistemi)
+    // Faz 2: pace süresi ölçülür — döngünün 60Hz temposunun kaynağı burası
+    // (WGC TryGetNextFrame beklemez; null iterasyonlar pace ile 16.7ms'e
+    // tamamlanır). Kayıt flush'tan sonra olduğundan bir sonraki pencereye düşer.
+    const int64_t pace_t0 = qpc_ticks();
     s.pacer_.pace();
+    s.send_diag_.record_pace(s.ticks_us(qpc_ticks() - pace_t0));
 
     // J8: metrics_sub_.poll() ARTIK burada değil — PDH/WMI sorguları AGENTS.md
     // gereği frame thread'inde koşmaz, MetricsSubsystem'in kendi 1Hz arka plan
