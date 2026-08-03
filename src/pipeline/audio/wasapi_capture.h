@@ -58,6 +58,10 @@ struct CoTaskMemDeleter {
 using UniqueWaveFormat = std::unique_ptr<WAVEFORMATEX, CoTaskMemDeleter>;
 } // namespace detail
 
+// C4324: alignas(64) scratch_ üyesi sınıf sonunda dolgu oluşturur — kasıtlı
+// (cache-line hizalı hot-path buffer). Uyarı bilgilendirme amaçlı; bastırılır.
+#pragma warning(push)
+#pragma warning(disable : 4324)
 class WasapiCapture {
 public:
     struct Config {
@@ -212,6 +216,7 @@ private:
     ULARGE_INTEGER cpu_prev_{};
     ULARGE_INTEGER wall_prev_{};
 };
+#pragma warning(pop)
 
 // ---- IMMNotificationClient gerçeklemesi (cihaz değişikliği) ----
 class DeviceNotifyClient : public IMMNotificationClient {

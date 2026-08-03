@@ -17,14 +17,14 @@ set(PIPELINE_SOURCES
 if(WIN32)
     list(APPEND PIPELINE_SOURCES
         capture/capture_dxgi.cpp
-        capture/capture_wgc.cpp
         capture/gpu_resource_manager.cpp
         existing_desktop_source.cpp
         encode/encode_nvenc.cpp
         encode_subsystem.cpp
         recovery_coordinator.cpp
-        screen_capture_factory.cpp
     )
+    # capture_wgc.cpp + screen_capture_factory.cpp burada değil —
+    # C++20 gerektirdikleri için reji_pipeline_wgc OBJECT hedefinde derlenirler.
 
     # Vulkan support (requires Vulkan SDK)
     if(NOT REJI_VULKAN_MOCK)
@@ -83,13 +83,23 @@ if(WIN32)
     endif()
 
     # capture_wgc.cpp and screen_capture_factory.cpp use C++/WinRT (C++20 required).
-    # Override just these TUs so the rest of the pipeline stays at C++17.
-    if(MSVC)
-        set_source_files_properties(
-            ${CMAKE_CURRENT_SOURCE_DIR}/capture/capture_wgc.cpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/screen_capture_factory.cpp
-            PROPERTIES COMPILE_OPTIONS "/std:c++20;/Zc:__cplusplus")
+    # Ayrı OBJECT hedefinde derlenirler: hedef seviyesinde CXX_STANDARD 20
+    # kullanılır, böylece /std:c++17 ile /std:c++20 aynı komut satırında
+    # çakışmaz (D9025). Nesneler reji_pipeline arşivine gömülür; pipeline'ın
+    # geri kalanı C++17'de kalır.
+    add_library(reji_pipeline_wgc OBJECT
+        capture/capture_wgc.cpp
+        screen_capture_factory.cpp)
+    set_target_properties(reji_pipeline_wgc PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON)
+    if(CPPWINRT_INCLUDE_DIR)
+        target_include_directories(reji_pipeline_wgc PRIVATE ${CPPWINRT_INCLUDE_DIR})
     endif()
+    if(MSVC)
+        target_compile_options(reji_pipeline_wgc PRIVATE /EHa /Zc:__cplusplus)
+    endif()
+    target_sources(reji_pipeline PRIVATE $<TARGET_OBJECTS:reji_pipeline_wgc>)
 
     target_link_libraries(reji_pipeline PUBLIC
         d3d11.lib
@@ -151,6 +161,10 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
     # /EHa: SEH + C++ exception interop — WASAPI ve SRT modülleri için zorunlu.
     # /EHa, /EHsc'nin üst kümesidir; mevcut kaynaklarla uyumlu.
+    # Varsayılan CMAKE_CXX_FLAGS'taki /EHsc bu dizin kapsamında kaldırılır;
+    # aksi halde /EHa onu ezerken her TU'da D9025 üretir. Efektif model
+    # değişmez — daha önce de /EHa geçerliydi.
+    string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     target_compile_options(reji_pipeline PRIVATE /EHa)
 endif()
 
