@@ -38,9 +38,25 @@ void FrameProfiler::markAcquireStart() {
   current_sample_.acquire_start_us = now_us();
 }
 
+// A frame sample is committed at markAcquireEnd() — acquire is the only
+// per-frame heartbeat guaranteed to fire (capture thread). Copy/paintGL
+// pairs run on other threads (or not at all) and annotate the most
+// recently committed frame when they complete.
 void FrameProfiler::markAcquireEnd() {
   std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.acquire_end_us = now_us();
+
+  if (current_sample_.acquire_start_us > 0 &&
+      current_sample_.acquire_end_us >= current_sample_.acquire_start_us) {
+    FrameTiming timing{
+        current_sample_.acquire_end_us - current_sample_.acquire_start_us,
+        0, 0};
+    samples_[head_ % MAX_SAMPLES] = timing;
+    ++head_;
+    count_ = std::min(count_ + 1, MAX_SAMPLES);
+  }
+  current_sample_.acquire_start_us = 0;
+  current_sample_.acquire_end_us = 0;
 }
 
 void FrameProfiler::markCopyStart() {
@@ -51,6 +67,15 @@ void FrameProfiler::markCopyStart() {
 void FrameProfiler::markCopyEnd() {
   std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.copy_end_us = now_us();
+
+  if (current_sample_.copy_start_us > 0 &&
+      current_sample_.copy_end_us >= current_sample_.copy_start_us &&
+      count_ > 0) {
+    samples_[(head_ - 1) % MAX_SAMPLES].copy_us =
+        current_sample_.copy_end_us - current_sample_.copy_start_us;
+  }
+  current_sample_.copy_start_us = 0;
+  current_sample_.copy_end_us = 0;
 }
 
 void FrameProfiler::markPaintGLStart() {
@@ -62,22 +87,14 @@ void FrameProfiler::markPaintGLEnd() {
   std::lock_guard<std::mutex> lock(mutex_);
   current_sample_.paintgl_end_us = now_us();
 
-  // After paintGL ends, finalize the frame and store it
-  if (current_sample_.acquire_start_us > 0 &&
-      current_sample_.acquire_end_us > current_sample_.acquire_start_us &&
-      current_sample_.copy_start_us > 0 &&
-      current_sample_.copy_end_us > current_sample_.copy_start_us &&
-      current_sample_.paintgl_start_us > 0 &&
-      current_sample_.paintgl_end_us > current_sample_.paintgl_start_us) {
-    FrameTiming timing{
-        current_sample_.acquire_end_us - current_sample_.acquire_start_us,
-        current_sample_.copy_end_us - current_sample_.copy_start_us,
-        current_sample_.paintgl_end_us - current_sample_.paintgl_start_us};
-    samples_[head_ % MAX_SAMPLES] = timing;
-    ++head_;
-    count_ = std::min(count_ + 1, MAX_SAMPLES);
-    current_sample_ = Sample();  // Reset
+  if (current_sample_.paintgl_start_us > 0 &&
+      current_sample_.paintgl_end_us >= current_sample_.paintgl_start_us &&
+      count_ > 0) {
+    samples_[(head_ - 1) % MAX_SAMPLES].paintgl_us =
+        current_sample_.paintgl_end_us - current_sample_.paintgl_start_us;
   }
+  current_sample_.paintgl_start_us = 0;
+  current_sample_.paintgl_end_us = 0;
 }
 
 size_t FrameProfiler::sampleCount() const {
