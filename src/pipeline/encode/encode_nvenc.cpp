@@ -36,6 +36,7 @@ bool NvencEncoder::set_bitrate(uint32_t)                   { return false; }
 bool NvencEncoder::set_resolution(float)                   { return false; }
 bool NvencEncoder::set_fps_limit(uint32_t)                 { return false; }
 bool NvencEncoder::is_initialized() const                  { return false; }
+NvencEncoder::EncodeTimings NvencEncoder::last_timings() const { return {}; }
 
 #else // RJ_NVENC_AVAILABLE
 // ===========================================================================
@@ -84,6 +85,21 @@ struct NvencEncoder::Impl {
     PacketCallback             on_packet;
     bool                       initialized   = false;
     int64_t                    frame_idx     = 0;
+
+    // RTMP_DARBOGAZ Faz 3: son encode_one çağrısının iç süre anatomisi.
+    // Tek thread (encode = frame thread) — kilit gerekmez.
+    NvencEncoder::EncodeTimings timings = {};
+
+    static int64_t qpc_now() {
+        LARGE_INTEGER li; QueryPerformanceCounter(&li); return li.QuadPart;
+    }
+    uint32_t qpc_us(int64_t dt) const {
+        return qpc_freq > 0
+            ? static_cast<uint32_t>((dt * 1'000'000LL) / qpc_freq) : 0u;
+    }
+    int64_t qpc_freq = []{
+        LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart;
+    }();
 
     // -----------------------------------------------------------------------
     // DLL load + function list population.
@@ -305,7 +321,9 @@ struct NvencEncoder::Impl {
     // Single-frame encode: map → submit → unmap → drain bitstream
     // -----------------------------------------------------------------------
     bool encode_one(ID3D11Texture2D* tex, int64_t pts, bool force_idr) {
+        timings = {};  // Faz 3: erken-dönüş yollarında bayat değer kalmasın
         if (!ensure_registered(tex)) { return false; }
+        const int64_t encp_t0 = qpc_now();
 
         // Map registered DIRECTX resource → NV_ENC_INPUT_PTR.
         // No data movement: NVENC reads directly from NVIDIA VRAM.
@@ -338,6 +356,7 @@ struct NvencEncoder::Impl {
 
         // Unmap must happen regardless of encode result.
         api.nvEncUnmapInputResource(session, map.mappedResource);
+        timings.encode_us = qpc_us(qpc_now() - encp_t0);
 
         if (s == NV_ENC_ERR_NEED_MORE_INPUT) {
             // NVENC buffering an initial frame (should not happen with frameIntervalP=1,
@@ -361,7 +380,9 @@ struct NvencEncoder::Impl {
         lock.outputBitstream = out_bufs[out_idx];
         lock.doNotWait       = 0;   // block — synchronous mode guarantees data is ready
 
+        const int64_t lock_t0 = qpc_now();
         NVENCSTATUS s = api.nvEncLockBitstream(session, &lock);
+        timings.lock_us = qpc_us(qpc_now() - lock_t0);
         if (s != NV_ENC_SUCCESS) {
             fprintf(stderr, "[NVENC] LockBitstream failed: %d\n", s);
             return false;
@@ -374,7 +395,9 @@ struct NvencEncoder::Impl {
             pkt.is_keyframe = (lock.pictureType == NV_ENC_PIC_TYPE_IDR ||
                                lock.pictureType == NV_ENC_PIC_TYPE_I);
             pkt.pts         = pts;
+            const int64_t cb_t0 = qpc_now();
             on_packet(pkt);
+            timings.cb_us = qpc_us(qpc_now() - cb_t0);
         }
 
         api.nvEncUnlockBitstream(session, lock.outputBitstream);
@@ -470,6 +493,10 @@ void NvencEncoder::shutdown() {
 bool NvencEncoder::encode_frame(ID3D11Texture2D* tex, int64_t pts, bool force_idr) {
     if (!impl_->initialized || !tex) { return false; }
     return impl_->encode_one(tex, pts, force_idr);
+}
+
+NvencEncoder::EncodeTimings NvencEncoder::last_timings() const {
+    return impl_->timings;
 }
 
 void NvencEncoder::flush() {

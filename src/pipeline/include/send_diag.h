@@ -34,6 +34,14 @@ struct SendDiagStats {
     uint32_t capn_max_us  = 0;
     uint32_t enc_avg_us   = 0;  // encode_frame() süresi (senkron send DAHİL)
     uint32_t enc_max_us   = 0;
+    // Faz 3 enc mikro-split: enc ≈ encp + lock + ecb (+µs sapma). lock senkron
+    // NVENC'in gerçek encode beklemesi; ecb on_packet (sendV+audioDrain dahil).
+    uint32_t encp_avg_us  = 0;  // nvEncEncodePicture (map+submit+unmap)
+    uint32_t encp_max_us  = 0;
+    uint32_t lock_avg_us  = 0;  // nvEncLockBitstream bloklu beklemesi
+    uint32_t lock_max_us  = 0;
+    uint32_t ecb_avg_us   = 0;  // on_packet callback toplamı
+    uint32_t ecb_max_us   = 0;
     uint32_t d3d_avg_us   = 0;  // d3d11_frame_cb bloğu (get_frame_images + cb)
     uint32_t d3d_max_us   = 0;
     uint32_t prev_avg_us  = 0;  // preview yolu (DXGI map / emit_wgc_preview)
@@ -48,6 +56,7 @@ struct SendDiagStats {
     uint32_t senda_max_us = 0;
     uint32_t n_frames     = 0;  // tex'li iterasyon sayısı
     uint32_t n_null       = 0;  // "yeni kare yok" iterasyonu (S1-ek4: drop değil)
+    uint32_t n_prev_miss  = 0;  // Faz 3(c): DO_NOT_WAIT map hazır değildi — atlandı
     uint32_t n_sendv_ok   = 0;  // wire-fps: başarıyla yazılan video karesi/sn
     uint32_t n_sendv_fail = 0;
     uint32_t n_senda      = 0;
@@ -64,6 +73,12 @@ public:
         else           { capn_.add(us); ++n_null_; }
     }
     void record_encode(uint32_t us)  { enc_.add(us); }
+    // Faz 3: enc mikro-split — encode_frame sonrası NvencEncoder::last_timings()
+    // ile beslenir (tek thread; encoder yoksa çağrılmaz).
+    void record_enc_split(uint32_t encp_us, uint32_t lock_us, uint32_t ecb_us) {
+        encp_.add(encp_us); lock_.add(lock_us); ecb_.add(ecb_us);
+    }
+    void record_preview_miss() { ++n_prev_miss_; }
     void record_interop(uint32_t us) { d3d_.add(us); }   // d3d11_frame_cb bloğu
     void record_preview(uint32_t us) { prev_.add(us); }  // preview yolu
     void record_total(uint32_t us)   { tot_.add(us); }   // run_frame işi (pace hariç)
@@ -83,6 +98,12 @@ public:
         out->capn_max_us  = capn_.max_us;
         out->enc_avg_us   = enc_.avg();
         out->enc_max_us   = enc_.max_us;
+        out->encp_avg_us  = encp_.avg();
+        out->encp_max_us  = encp_.max_us;
+        out->lock_avg_us  = lock_.avg();
+        out->lock_max_us  = lock_.max_us;
+        out->ecb_avg_us   = ecb_.avg();
+        out->ecb_max_us   = ecb_.max_us;
         out->d3d_avg_us   = d3d_.avg();
         out->d3d_max_us   = d3d_.max_us;
         out->prev_avg_us  = prev_.avg();
@@ -97,6 +118,7 @@ public:
         out->senda_max_us = senda_.max_us;
         out->n_frames     = n_frames_;
         out->n_null       = n_null_;
+        out->n_prev_miss  = n_prev_miss_;
         out->n_sendv_ok   = n_sendv_ok_;
         out->n_sendv_fail = n_sendv_fail_;
         out->n_senda      = senda_.count;
@@ -124,34 +146,40 @@ private:
     void reset(uint64_t now_us) {
         cap_ = {}; capn_ = {}; enc_ = {}; sendv_ = {}; senda_ = {};
         d3d_ = {}; prev_ = {}; tot_ = {}; pace_ = {};
-        n_frames_ = n_null_ = n_sendv_ok_ = n_sendv_fail_ = 0;
+        encp_ = {}; lock_ = {}; ecb_ = {};
+        n_frames_ = n_null_ = n_prev_miss_ = n_sendv_ok_ = n_sendv_fail_ = 0;
         window_start_us_ = now_us;
     }
 
     uint64_t window_start_us_ = 0;
     Acc cap_, capn_, enc_, sendv_, senda_;
     Acc d3d_, prev_, tot_, pace_;
-    uint32_t n_frames_ = 0, n_null_ = 0;
+    Acc encp_, lock_, ecb_;
+    uint32_t n_frames_ = 0, n_null_ = 0, n_prev_miss_ = 0;
     uint32_t n_sendv_ok_ = 0, n_sendv_fail_ = 0;
 };
 
 // Stats → tek satır insan-okur teşhis formatı ("[SendDiag] ...").
 // Süreler ms (bir ondalık): teşhiste 16.7ms kare bütçesiyle doğrudan kıyas için.
 inline std::string format_send_diag(const SendDiagStats& s) {
-    char buf[384];
+    char buf[512];
     auto ms = [](uint32_t us) { return static_cast<double>(us) / 1000.0; };
     std::snprintf(
         buf, sizeof(buf),
         "[SendDiag] wire_fps=%u frames=%u null=%u "
         "cap=%.1f/%.1fms capNull=%.1f/%.1fms enc=%.1f/%.1fms "
-        "d3d=%.1f/%.1fms prev=%.1f/%.1fms sendV=%.1f/%.1fms(fail=%u) "
+        "encP=%.1f/%.1fms lock=%.1f/%.1fms encCb=%.1f/%.1fms "
+        "d3d=%.1f/%.1fms prev=%.1f/%.1fms(miss=%u) sendV=%.1f/%.1fms(fail=%u) "
         "audioDrain=%.1f/%.1fms(n=%u) tot=%.1f/%.1fms pace=%.1f/%.1fms",
         s.n_sendv_ok, s.n_frames, s.n_null,
         ms(s.cap_avg_us), ms(s.cap_max_us),
         ms(s.capn_avg_us), ms(s.capn_max_us),
         ms(s.enc_avg_us), ms(s.enc_max_us),
+        ms(s.encp_avg_us), ms(s.encp_max_us),
+        ms(s.lock_avg_us), ms(s.lock_max_us),
+        ms(s.ecb_avg_us), ms(s.ecb_max_us),
         ms(s.d3d_avg_us), ms(s.d3d_max_us),
-        ms(s.prev_avg_us), ms(s.prev_max_us),
+        ms(s.prev_avg_us), ms(s.prev_max_us), s.n_prev_miss,
         ms(s.sendv_avg_us), ms(s.sendv_max_us), s.n_sendv_fail,
         ms(s.senda_avg_us), ms(s.senda_max_us), s.n_senda,
         ms(s.tot_avg_us), ms(s.tot_max_us),

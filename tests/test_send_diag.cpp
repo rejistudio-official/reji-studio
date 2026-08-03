@@ -150,6 +150,51 @@ TEST(SendDiagTest, FormatLineCarriesFaz2Fields) {
     EXPECT_NE(line.find("pace=7.0"), std::string::npos);
 }
 
+TEST(SendDiagTest, Faz3AggregatesEncSplitAndPrevMiss) {
+    // RTMP_DARBOGAZ Faz 3: enc mikro-split (encp=EncodePicture, lock=
+    // LockBitstream beklemesi, ecb=on_packet) + prev_miss (DO_NOT_WAIT map
+    // hazır değildi — kare atlandı) sayacı.
+    SendDiag d;
+    d.begin_window(0);
+    d.record_enc_split(1000, 2000, 3000);
+    d.record_enc_split(3000, 4000, 5000);
+    d.record_preview_miss();
+    d.record_preview_miss();
+    d.record_preview_miss();
+
+    SendDiagStats s{};
+    ASSERT_TRUE(d.maybe_flush(kSecUs, &s));
+    EXPECT_EQ(s.encp_avg_us, 2000u);
+    EXPECT_EQ(s.encp_max_us, 3000u);
+    EXPECT_EQ(s.lock_avg_us, 3000u);
+    EXPECT_EQ(s.lock_max_us, 4000u);
+    EXPECT_EQ(s.ecb_avg_us, 4000u);
+    EXPECT_EQ(s.ecb_max_us, 5000u);
+    EXPECT_EQ(s.n_prev_miss, 3u);
+
+    // Pencere sıfırlanır — sızıntı yok
+    SendDiagStats s2{};
+    ASSERT_TRUE(d.maybe_flush(2 * kSecUs, &s2));
+    EXPECT_EQ(s2.encp_max_us, 0u);
+    EXPECT_EQ(s2.n_prev_miss, 0u);
+}
+
+TEST(SendDiagTest, FormatLineCarriesFaz3Fields) {
+    SendDiagStats s{};
+    s.encp_avg_us = 2500; s.encp_max_us = 5000;
+    s.lock_avg_us = 1500; s.lock_max_us = 9000;
+    s.ecb_avg_us  = 800;  s.ecb_max_us  = 1200;
+    s.n_prev_miss = 7;
+
+    const std::string line = rj::format_send_diag(s);
+
+    EXPECT_NE(line.find("encP=2.5"), std::string::npos);
+    EXPECT_NE(line.find("lock=1.5"), std::string::npos);
+    EXPECT_NE(line.find("encCb=0.8"), std::string::npos);
+    // sendV'nin "(fail=N)" deseniyle tutarlı: prev=a/mms(miss=N)
+    EXPECT_NE(line.find("miss=7"), std::string::npos);
+}
+
 TEST(SendDiagTest, EmptyWindowFlushesZeros) {
     // Boş pencere (hiç örnek yok) çökmemeli; sıfırlar dönmeli.
     SendDiag d;

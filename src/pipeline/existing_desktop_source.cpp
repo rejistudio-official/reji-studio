@@ -92,25 +92,34 @@ SourceState ExistingDesktopSource::state() const noexcept {
                                   : SourceState::Running;
 }
 
-void ExistingDesktopSource::emit_wgc_preview(const PreviewCallback& preview_cb,
+bool ExistingDesktopSource::emit_wgc_preview(const PreviewCallback& preview_cb,
                                              ID3D11Texture2D* tex,
                                              uint32_t frame_w, uint32_t frame_h) {
-    // CaptureSubsystem::emit_wgc_preview'dan BİREBİR taşındı (wiring Faz 0
-    // karar 1) — davranış paritesi için mantık değiştirilmedi.
-    // Resolution change: reset staging texture if dimensions no longer match
-    if (wgc_staging_tex_) {
+    // RTMP_DARBOGAZ Faz 3(c): 2-slot staging ring + DO_NOT_WAIT try-map.
+    // Eski akış (tek staging + bloklu Map) GPU kopyasını frame thread'inde
+    // bekliyordu (~11-14ms, [SendDiag] prev). Yeni akış: bu kareyi yazma
+    // slotuna kopyala (yalnız submit), BİR ÖNCEKİ karenin slotunu beklemesiz
+    // map'le — kopya ~16ms önce submit edildiğinden normalde hazırdır; değilse
+    // kare atlanır (false → çağıran prev_miss sayar). Preview 1 kare geriden
+    // gelir; encode yolu etkilenmez.
+    D3D11_TEXTURE2D_DESC current{};
+    tex->GetDesc(&current);
+
+    // Çözünürlük değişimi: her iki slot da geçersiz — bayat boyutlu map önlenir
+    for (auto& slot : wgc_staging_) {
+        if (!slot) continue;
         D3D11_TEXTURE2D_DESC existing{};
-        wgc_staging_tex_->GetDesc(&existing);
-        D3D11_TEXTURE2D_DESC current{};
-        tex->GetDesc(&current);
+        slot->GetDesc(&existing);
         if (existing.Width != current.Width || existing.Height != current.Height) {
-            wgc_staging_tex_.Reset();
+            wgc_staging_[0].Reset();
+            wgc_staging_[1].Reset();
+            wgc_staging_valid_[0] = wgc_staging_valid_[1] = false;
+            break;
         }
     }
-    // NVIDIA device'da staging texture oluştur (bir kez)
-    if (!wgc_staging_tex_) {
-        D3D11_TEXTURE2D_DESC desc{};
-        tex->GetDesc(&desc);
+    // NVIDIA device'da staging slotlarını oluştur (lazy, bir kez)
+    if (!wgc_staging_[0] || !wgc_staging_[1]) {
+        D3D11_TEXTURE2D_DESC desc = current;
         desc.Usage          = D3D11_USAGE_STAGING;
         desc.BindFlags      = 0;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -118,21 +127,32 @@ void ExistingDesktopSource::emit_wgc_preview(const PreviewCallback& preview_cb,
         ID3D11Device* dev = nullptr;
         tex->GetDevice(&dev);
         if (dev) {
-            dev->CreateTexture2D(&desc, nullptr, &wgc_staging_tex_);
+            for (auto& slot : wgc_staging_)
+                if (!slot) dev->CreateTexture2D(&desc, nullptr, &slot);
             dev->Release();
         }
+        if (!wgc_staging_[0] || !wgc_staging_[1]) return false;
     }
-    // GPU → staging copy
-    if (wgc_staging_tex_) {
-        ID3D11Device* dev = nullptr;
-        tex->GetDevice(&dev);
-        if (dev) {
-            ID3D11DeviceContext* ctx = nullptr;
-            dev->GetImmediateContext(&ctx);
-            ctx->CopyResource(wgc_staging_tex_.Get(), tex);
+
+    bool emitted = false;
+    ID3D11Device* dev = nullptr;
+    tex->GetDevice(&dev);
+    if (dev) {
+        ID3D11DeviceContext* ctx = nullptr;
+        dev->GetImmediateContext(&ctx);
+
+        // 1) Bu kare → yazma slotu (submit; tamamlanması BEKLENMEZ)
+        const uint32_t w = wgc_write_idx_;
+        ctx->CopyResource(wgc_staging_[w].Get(), tex);
+        wgc_staging_valid_[w] = true;
+
+        // 2) Önceki karenin slotu → beklemesiz map dene. Hazır değilse
+        //    DXGI_ERROR_WAS_STILL_DRAWING döner — kare atlanır, bloklama yok.
+        const uint32_t r = w ^ 1u;
+        if (wgc_staging_valid_[r]) {
             D3D11_MAPPED_SUBRESOURCE mapped{};
-            if (SUCCEEDED(ctx->Map(wgc_staging_tex_.Get(), 0,
-                                   D3D11_MAP_READ, 0, &mapped))) {
+            if (SUCCEEDED(ctx->Map(wgc_staging_[r].Get(), 0, D3D11_MAP_READ,
+                                   D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped))) {
                 static int wgc_prev_cnt = 0;
                 if (++wgc_prev_cnt <= 3)
                     fprintf(stderr, "[WgcStaging] preview frame #%d %ux%u pitch=%u\n",
@@ -142,17 +162,20 @@ void ExistingDesktopSource::emit_wgc_preview(const PreviewCallback& preview_cb,
                            static_cast<int>(frame_w),
                            static_cast<int>(frame_h),
                            static_cast<int>(mapped.RowPitch));
-                ctx->Unmap(wgc_staging_tex_.Get(), 0);
+                ctx->Unmap(wgc_staging_[r].Get(), 0);
+                emitted = true;
             }
-            ctx->Release();
-            dev->Release();
         }
+        wgc_write_idx_ = r;  // slotları takas et
+        ctx->Release();
+        dev->Release();
     }
+    return emitted;
 }
 
 void ExistingDesktopSource::shutdown() {
     // RAII teardown — CaptureSubsystem::shutdown ile aynı model.
-    // wgc_staging_tex_ BİLEREK reset edilmez (parite): yalnız çözünürlük
+    // wgc_staging_[] BİLEREK reset edilmez (parite): yalnız çözünürlük
     // değişiminde (emit_wgc_preview) veya yıkımda serbest bırakılır.
     dxgi_ = nullptr;
     capture_.reset();

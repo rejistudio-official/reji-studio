@@ -207,6 +207,8 @@ struct Pipeline::Impl {
     // stderr). Tek thread (frame thread) — on_packet da aynı thread'de koşar.
     SendDiag send_diag_;
     bool     send_diag_window_open_ = false;
+    // Faz 3(b): WGC preview seyreltme sayacı — her 2. tex'li karede emit (30Hz).
+    uint32_t preview_seq_ = 0;
 
     // QPC delta → µs (SendDiag beslemesi; kırpma güvenli — süreler <1sn).
     uint32_t ticks_us(int64_t dt) const noexcept {
@@ -745,6 +747,13 @@ bool Pipeline::run_frame() {
             const int64_t enc_t0 = qpc_ticks();
             const bool enc_ok = s.encode_sub_.encode_frame(tex, pts_us);
             s.send_diag_.record_encode(s.ticks_us(qpc_ticks() - enc_t0));
+            // Faz 3: enc mikro-split — saf NVENC beklemesi (encP+lock) ile
+            // on_packet toplamı (encCb) ayrışır; keyframe spike'ları lock'ta,
+            // send/audio maliyeti encCb'de görünür.
+            if (auto* e = s.encode_sub_.raw()) {
+                const auto t = e->last_timings();
+                s.send_diag_.record_enc_split(t.encode_us, t.lock_us, t.cb_us);
+            }
             if (!enc_ok) {
                 if (counts_as_frame_drop(FrameOutcome::EncodeFailed))
                     s.frame_drops.fetch_add(1, std::memory_order_relaxed);
@@ -807,9 +816,15 @@ bool Pipeline::run_frame() {
                 // WGC path — CPU staging preview (kontrat-dışı adapter yüzeyi).
                 // Preview tetikleme kararı (is_wgc + preview_cb var mı) orkestratörde;
                 // preview_cb parametre olarak geçilir — kaynak UI'ı bilmez.
+                // Faz 3(b): 30Hz seyreltme — preview 60Hz şart değil, kalan
+                // memcpy maliyetini yarılar. Faz 3(c): emit artık beklemesiz
+                // try-map; hazır değilse false → prev_miss sayılır.
                 if (s.source_->is_wgc()) {
-                    s.source_->emit_wgc_preview(s.preview_cb, tex,
-                                                frame.width, frame.height);
+                    if ((s.preview_seq_++ & 1u) == 0u) {
+                        if (!s.source_->emit_wgc_preview(s.preview_cb, tex,
+                                                         frame.width, frame.height))
+                            s.send_diag_.record_preview_miss();
+                    }
                 }
 
                 s.send_diag_.record_preview(s.ticks_us(qpc_ticks() - prev_t0));

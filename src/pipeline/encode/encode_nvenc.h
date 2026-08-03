@@ -51,6 +51,18 @@ public:
 
     using PacketCallback = std::function<void(const Packet&)>;
 
+    /// RTMP_DARBOGAZ Faz 3: son encode_frame() çağrısının iç süre anatomisi (µs).
+    /// encode = Map+EncodePicture+Unmap, lock = LockBitstream bloklu beklemesi
+    /// (senkron modda gerçek encode gecikmesi), cb = on_packet toplamı (send +
+    /// audio drain dahil). Tek thread — encode_frame sonrası okunur; NEED_MORE_INPUT
+    /// yolunda lock/cb 0 kalır.
+    struct EncodeTimings {
+        uint32_t encode_us = 0;
+        uint32_t lock_us   = 0;
+        uint32_t cb_us     = 0;
+    };
+    EncodeTimings last_timings() const;
+
     NvencEncoder();
     ~NvencEncoder();
 

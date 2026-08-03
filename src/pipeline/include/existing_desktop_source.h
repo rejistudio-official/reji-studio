@@ -77,7 +77,13 @@ public:
     // map'le, preview_cb'ye BGRA gönder. preview_cb orkestratörden geçilir (UI
     // bilgisi yok); frame_w/frame_h WGC CapturedFrame dims. Orkestratör yalnızca
     // WGC+preview_cb varken çağırır (tetikleme kararı orkestratörde kalır).
-    void emit_wgc_preview(const PreviewCallback& preview_cb, ID3D11Texture2D* tex,
+    // RTMP_DARBOGAZ Faz 3(c): 2-slot staging ring + DO_NOT_WAIT — Map artık
+    // GPU kopyasını BEKLEMEZ (eski bloklu Map frame bütçesinden ~11-14ms
+    // yiyordu). Bu kare yazma slotuna kopyalanır (yalnız submit), bir önceki
+    // karenin slotu try-map edilir → preview 1 kare geriden gelir. Dönüş:
+    // preview_cb ateşlendi mi (false = kopya henüz hazır değildi, atlandı —
+    // çağıran SendDiag prev_miss ile sayar).
+    bool emit_wgc_preview(const PreviewCallback& preview_cb, ID3D11Texture2D* tex,
                           uint32_t frame_w, uint32_t frame_h);
 
 private:
@@ -91,7 +97,12 @@ private:
     // WGC path CPU staging — ilk preview frame'de lazy oluşturulur, çözünürlük
     // değişiminde reset edilir (emit_wgc_preview içinde yönetilir). shutdown()
     // BİLEREK dokunmaz — CaptureSubsystem davranış paritesi (yalnız yıkımda).
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> wgc_staging_tex_;
+    // Faz 3(c): 2-slot ring — [write] bu karenin kopya hedefi, [write^1] bir
+    // önceki karenin try-map kaynağı. valid: slota en az bir kopya submit
+    // edildi (ilk karede/çözünürlük resetinde bayat map'i önler).
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> wgc_staging_[2];
+    bool     wgc_staging_valid_[2] = {false, false};
+    uint32_t wgc_write_idx_ = 0;
 };
 
 } // namespace rj
