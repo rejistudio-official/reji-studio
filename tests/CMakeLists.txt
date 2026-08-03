@@ -514,8 +514,12 @@ if(Qt6_FOUND)
     # (diğer testlerdeki build/src/ui deseniyle aynı; DLL_NOT_FOUND'u önler).
     get_target_property(_qt_core_loc Qt6::Core LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    # Not: ENVIRONMENT bir CMake listesidir — PATH içindeki ';' kaçışsız
+    # bırakılırsa ctest ilk girdiden sonrasını ayrı liste öğesi sayar ve
+    # PATH tek dizine iner (HealingOverlayTest srt.dll bulamıyordu). '\;'
+    # kaçışı tüm dizinleri tek PATH değeri olarak korur.
     set_tests_properties(RulesWatchTest QrcResourcesTest HealingOverlayTest PROPERTIES
-        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+        ENVIRONMENT "PATH=${_qt_bin_dir}\;${CMAKE_BINARY_DIR}/src/ui\;$ENV{PATH}")
 else()
     message(STATUS "Qt6::Core bulunamadı — RulesWatchTest atlanıyor")
 endif()
