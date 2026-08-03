@@ -32,6 +32,24 @@ private:
     float    last_      = 0.f;
 };
 
+// MetricsCollector snapshot'ı → RjMetricSample genişletilmiş alan eşlemesi.
+// Saf/platform-bağımsız seam: build_sample() tek çağıran, birim test doğrudan
+// çağırır (PDH/thread gerekmez). Yeni bir Metrics alanı ABI'ye girdiğinde
+// eşleme BURAYA da eklenmeli — gpu_load_pct v0.5'te ABI'ye eklenip burada
+// eşlenmediği için drainer'ın GpuUsage event'i (ffi.rs
+// system_events_for_sample, `> 0` kapısı) üretimde hiç doğmuyordu.
+inline void apply_collector_metrics(RjMetricSample& m,
+                                    const Metrics& latest) noexcept {
+    m.frame_drop_pct   = latest.frame_drop_pct;
+    m.gpu_temp_c       = latest.gpu_temp_c;
+    m.cpu_temp_c       = latest.cpu_temp_c;
+    m.memory_usage_pct = latest.memory_usage_pct;
+    m.cpu_load_pct     = latest.cpu_load_pct;
+    m.gpu_load_pct     = latest.gpu_load_pct;
+    m.network_rtt_ms   = latest.network_rtt_ms;
+    m.network_loss_pct = latest.network_loss_pct;
+}
+
 class MetricsSubsystem {
 public:
     // J8: destructor arka plan poll thread'ini durdurur (RAII güvenlik ağı —

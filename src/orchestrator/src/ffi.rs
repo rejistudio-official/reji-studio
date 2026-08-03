@@ -1711,6 +1711,33 @@ mod tests {
     }
 
     #[test]
+    fn gpu_usage_event_emitted_when_real() {
+        // gpu_load_pct plumbing: C++ build_sample artık collector'ın PDH GPU
+        // yükünü sample'a taşıyor (apply_collector_metrics) — burada drainer
+        // yarısı kilitlenir: gerçek gpu_load_pct → GpuUsage{ratio=pct/100}.
+        let mut s = sample_for_events();
+        s.gpu_load_pct = 70;
+        let events = system_events_for_sample(&s);
+        let ratio = events.iter().find_map(|e| match e {
+            SystemEvent::GpuUsage { ratio } => Some(*ratio),
+            _ => None,
+        });
+        assert!(ratio.is_some(), "gerçek GPU yükünde GpuUsage yayılmalı");
+        assert!((ratio.unwrap() - 0.70).abs() < 0.001, "ratio = pct/100");
+    }
+
+    #[test]
+    fn gpu_usage_event_skipped_when_zero() {
+        // "0 = veri yok" konvansiyonu — sahte "her şey yolunda" sinyali yok.
+        let s = sample_for_events();  // gpu_load_pct = 0
+        let events = system_events_for_sample(&s);
+        assert!(
+            !events.iter().any(|e| matches!(e, SystemEvent::GpuUsage { .. })),
+            "sıfır GPU metriği GpuUsage üretmemeli"
+        );
+    }
+
+    #[test]
     fn cpu_usage_always_emitted_others_guarded() {
         // Regresyon: CpuUsage koşulsuz; gpu/mem/network 0 iken yayılmaz.
         let mut s = sample_for_events();

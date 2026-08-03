@@ -113,15 +113,10 @@ RjMetricSample MetricsSubsystem::build_sample(uint32_t bitrate_kbps,
     // v0.4+: Extended metrics from MetricsCollector
     // J8: PDH/WMI sorguları MetricsSubsystem'in kendi 1Hz arka plan thread'inde
     // koşar (poll_loop); burada (frame thread) yalnız atomik snapshot okunur.
+    // Alan eşlemesi apply_collector_metrics'te (header'da saf seam) —
+    // gpu_load_pct dahil.
     if (metrics_) {
-        auto latest = metrics_->get_latest();
-        m.frame_drop_pct   = latest.frame_drop_pct;
-        m.gpu_temp_c       = latest.gpu_temp_c;
-        m.cpu_temp_c       = latest.cpu_temp_c;
-        m.memory_usage_pct = latest.memory_usage_pct;
-        m.cpu_load_pct     = latest.cpu_load_pct;
-        m.network_rtt_ms   = latest.network_rtt_ms;
-        m.network_loss_pct = latest.network_loss_pct;
+        apply_collector_metrics(m, metrics_->get_latest());
     }
 
     m.source_id = 0;  // video
