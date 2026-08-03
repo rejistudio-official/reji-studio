@@ -1,4 +1,55 @@
-﻿## Oturum: 28 Temmuz 2026 — V10 Sprint 3 (L13-L20) + V10 TAM KAPANIŞ ✅
+﻿## Oturum: 3 Ağustos 2026 — RTMP_DARBOGAZ Faz 2/3: prev darboğazı bulundu ve kapatıldı ✅
+
+**Teşhis zinciri:** Faz 1 [SendDiag] üç hipotezi de çürütmüştü (sendV=0.3ms →
+RTMP masum; cap=0.2ms; enc başta 1.5ms). Faz 2 ölçüm boşluğunu kapattı
+(capNull/d3d/prev/tot/pace) ve suçluyu buldu: **prev (emit_wgc_preview) 10-14ms
+avg** — tek staging + bloklu `Map(READ)` GPU kopyasını frame thread'inde
+bekliyordu; tot 13-19ms > 16.7ms bütçe → döngü 60Hz'i tutamıyor, WGC pool
+(2 slot) taşıp kare düşürüyordu. İlk hipotez (librtmp chunk size) tamamen
+yanlıştı — ölçüm olmadan tahmin yine yanılttı.
+
+**Faz 3 düzeltmesi (kullanıcı onaylı tasarım (c)+(b)):**
+- (c) `emit_wgc_preview` 2-slot staging ring + `D3D11_MAP_FLAG_DO_NOT_WAIT`:
+  bu kare yazma slotuna kopyalanır (yalnız submit), önceki karenin slotu
+  beklemesiz map edilir; hazır değilse kare atlanır (`prev_miss` sayacı).
+  Preview 1 kare geriden gelir. Dönüş bool oldu (çağıran miss'i sayar).
+- (b) Orkestratörde 30Hz seyreltme (`preview_seq_ & 1`) — preview 60Hz şart
+  değil, kalan memcpy maliyetini yarılar.
+- enc mikro-split: `NvencEncoder::EncodeTimings` (encP=EncodePicture,
+  lock=LockBitstream, encCb=on_packet) → enc anatomisi netleşti: maliyetin
+  tamamına yakını `lock` (senkron NVENC'in gerçek encode beklemesi,
+  encP=0.3-0.4ms yalnız submit). encCb stream'de sendV+audioDrain taşır.
+- `enableEncodeAsync=1` ERTELENDİ: on_packet ayrı thread'e taşınır →
+  tek-thread RTMP-yazım invariant'ı bozulur; prev düzeltmesi sonrası bütçe
+  zaten rahat. Ancak enc_saf sürekli >16ms olursa (1440p/4K) yeniden bakılır.
+
+**Stream'li doğrulama (kullanıcı koşusu, 60s):** prev 10-14 → **3.2-4.5ms**,
+tot 13-19 → **6.7-8.8ms**, pace yeniden 8-11ms boşluk veriyor. miss≈0
+(try-map neredeyse hep hazır). SendDiagTest 9/9.
+
+**BULGU — null≈15 Reji değil, KAYNAK İÇERİĞİN kare hızı:** test videosu
+25 FPS; WGC yalnız DEĞİŞEN kareyi teslim eder (free-threaded pool,
+`TryGetNextFrame` non-blocking — kod kanıtı capture_wgc.cpp:175, veri kanıtı
+capNull=0.1-0.3ms: null'lar beklemeden döner). 60Hz döngüde ~25 üretim →
+null'lar normal; statik ekranda null daha da artar. Bu DOĞRU davranış,
+düzeltme gerekmez.
+
+**AÇIK TASARIM SORUSU (ayrı değerlendirme konusu):** Reji şu an sabit kare
+hızı (CFR) ÜRETMİYOR — yalnız değişen kareler encode edilip gönderiliyor
+(fiilen VFR). OBS ise son kareyi tekrarlayarak sabit FPS üretir. Canlı yayın
+platformları (Twitch/YouTube) genelde sabit kare hızı bekler: VFR ingest'te
+oynatıcı/transcoder tarafında stutter, süre kayması ve "low FPS" uyarıları
+görülebilir. Olası yön: null iterasyonda son tex'i yeniden encode etmek
+(pts pacer'dan zaten sabit aralıklı) — ama bitrate/CPU maliyeti ve WGC
+texture ömrü (borrowed pointer, sonraki next_frame'e kadar geçerli)
+değerlendirilmeli. Karar verilmedi; ayrı talimat/oturum konusu.
+
+**Kalan küçük borç:** prev emit-başına gerçek maliyet hâlâ ~9-11ms civarı
+(30Hz seyreltme ortalamayı düşürüyor; miss=0 → Map beklemiyor). Kalan şüpheli:
+8MB memcpy + uploadCpuFrame QByteArray COW detach (her karede yeni tampon).
+Bütçe rahatladığı için dokunulmadı; tot yeniden taşarsa ilk bakılacak yer.
+
+## Oturum: 28 Temmuz 2026 — V10 Sprint 3 (L13-L20) + V10 TAM KAPANIŞ ✅
 
 TALIMAT_V10_SPRINT3: sekiz düşük-öncelik/hijyen maddesi. **Faz 0: 8/8
 doğrulandı, çürütme yok** (V10 genelinde çürütülenler: L7 + L9-kısmi).
