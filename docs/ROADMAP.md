@@ -1535,6 +1535,141 @@ instance-level geçişi ya da gelecekte Vulkan API yüzeyinin genişlemesi
 gerekirse (yeni extension'lar, yeni fonksiyonlar), otomatik üretime
 geçmek bakım yükünü azaltabilir. Yalnızca fikir kaydı, taahhüt yok.
 
+## Gelecek Fikir — Genişletilebilirlik #1: Eklenti/Uzantı Mekanizması (henüz taahhüt edilmedi)
+
+**İçerik:** Şu an üçüncü taraf bir geliştirici Reji'ye yeni bir kaynak
+tipi, yeni bir healing aksiyonu veya yeni bir transport ekleyemiyor —
+kod tabanını fork'lamadan. `ISource` ve `IVideoEncoder` arayüzleri var
+ama **dışarıdan yüklenebilir** değil; derleme zamanında sabitleniyorlar.
+
+**Neden şimdi kayda değer:** ISource wiring'i (2026-07-30) tamamlandı;
+arayüz kontratı artık gerçek kodda kanıtlanmış durumda. Eklenti
+mekanizması, bu arayüzün doğal devamı olurdu — sıfırdan bir soyutlama
+icat etmek gerekmiyor.
+
+**Olası yaklaşımlar (hiçbiri değerlendirilmedi):**
+- Dinamik kütüphane yükleme (`.dll`/`.so`/`.dylib`) — en esnek, en
+  riskli.
+- WASM tabanlı eklentiler — sandbox'lı, ama GPU/capture erişimi
+  gerektiren kaynaklar için uygun değil.
+- Yalnızca "yüksek seviye" eklentiler (healing aksiyonları,
+  bildirimler) — düşük riskli alt küme, capture/encode'a hiç
+  dokunmadan.
+
+### ⚠️ Güvenlik yüzeyi (kayda geçirilmesi zorunlu)
+
+- **Keyfi kod yürütme:** Yüklenen bir eklenti, Reji'nin süreç
+  ayrıcalıklarıyla çalışır — kullanıcının tüm dosyalarına, ağına, ve
+  yayın kimlik bilgilerine (stream key!) erişebilir.
+- **Tedarik zinciri riski:** Bir eklenti deposu/pazaryeri, kötü niyetli
+  paket dağıtımının kanalı olabilir (npm/PyPI olaylarının emsali).
+- **Süreç kararlılığı:** Bir eklentideki çökme, tüm yayını düşürür —
+  canlı yayın bağlamında kabul edilemez. İzolasyon (ayrı süreç?)
+  gerekebilir, ki bu performans maliyeti getirir.
+- **İmzalama/doğrulama:** İmzasız eklenti yükleme, en baştan
+  reddedilmeli mi? Bu kararın kendisi bir Faz 0 sorusu.
+- **En düşük riskli başlangıç:** Yalnızca healing-aksiyonu seviyesinde
+  eklenti (capture/encode/transport'a dokunmayan), ve yalnızca
+  kullanıcının elle yerleştirdiği yerel dosyalar — pazaryeri/otomatik
+  indirme YOK.
+
+## Gelecek Fikir — Genişletilebilirlik #2: Genişletilebilir Healing Aksiyonları (henüz taahhüt edilmedi)
+
+**İçerik:** Healing aksiyonları şu an kapalı bir küme: `bitrate_reduce`,
+`bitrate_recover`, `cap_fps`, `scale_resolution`, `restore_resolution`,
+`log_only`. Kullanıcı kendi aksiyonunu tanımlayamıyor. Fikir: yeni bir
+aksiyon tipi (`exec` gibi) ile kullanıcının kendi scriptini/komutunu
+tetikleyebilmesi.
+
+Örnek (taslak):
+```json
+{
+  "id": "gpu_hot_notify",
+  "condition": "gpu_temp_c > 85",
+  "action": "exec",
+  "params": { "command": "notify.ps1", "args": ["GPU sicak"] }
+}
+```
+
+**Neden en yüksek sinerji potansiyeli bu:** Self-healing zaten projenin
+farklılaşma noktası. Onu açmak, "kendi kendini onaran yazılım"ı "**kendi
+kurallarınla** kendini onaran yazılım"a dönüştürür. Tek bir aksiyon tipi
+eklemek, tüm sistemi kullanıcıya açar.
+
+### ⚠️ Güvenlik yüzeyi (bu fikrin en kritik boyutu)
+
+- **`rules.json` PAYLAŞILABİLİR bir dosyadır.** Sütun 3 (kural seti
+  dışa/içe aktarımı) tam da bunu teşvik ediyor. `exec` aksiyonu
+  eklenirse, indirilen bir kural seti **keyfi komut çalıştırabilir** —
+  bu, klasik bir uzaktan kod yürütme (RCE) vektörüdür.
+- **Mevcut doğrulama yetersiz:** `rj_reload_rules` yalnızca JSON
+  yapısını doğruluyor; `action` alanının bilinen bir tip olduğunu bile
+  doğrulamıyor (V10/L22 bulgusu). `exec` eklenmeden önce bu doğrulama
+  katmanı güçlendirilmeli.
+- **Zorunlu görülen önlemler (tasarım turunda kesinleşecek):**
+  - `exec` **varsayılan olarak KAPALI** — kullanıcı ayarlardan açıkça
+    etkinleştirmeli.
+  - İçe aktarılan bir kural setinde `exec` varsa **belirgin uyarı** +
+    açık onay ("bu kural seti komut çalıştırma içeriyor").
+  - Komutlar bir **allowlist**/belirli bir dizinle sınırlanmalı
+    (keyfi yol değil).
+  - Argümanlar shell'e değil, doğrudan process'e geçirilmeli (shell
+    injection önlemi).
+  - Her `exec` tetiklenmesi **healing-log'a yazılmalı** (denetlenebilirlik
+    — projenin şeffaflık ilkesiyle tutarlı).
+- **Daha güvenli alternatif:** Keyfi `exec` yerine, önceden tanımlı
+  **güvenli aksiyon kataloğu** (bildirim gönder, webhook çağır, log
+  yaz) — kullanıcı komut değil, parametre veriyor. Esneklik daha az ama
+  RCE yüzeyi yok. Faz 0'da bu ikisi karşılaştırılmalı.
+
+## Gelecek Fikir — Genişletilebilirlik #3: Dışa Veri Akışı / Telemetri Yüzeyi (henüz taahhüt edilmedi)
+
+**İçerik:** Healing-log SQLite'ta, VendorEvent WS'te — ama bu verileri
+dış sistemlere taşıyan standart bir yol yok. Fikir: yapılandırılabilir
+bir dışa akış katmanı (webhook, Prometheus-uyumlu metrik endpoint'i,
+dosya-tabanlı export, ya da mevcut "Uzaktan Operasyon Köprüsü"
+fikrindeki gibi bir bağlantı ağ geçidi).
+
+**Bağlantılı kayıtlar:** "Uzaktan Operasyon Köprüsü" fikri (OpenConnector
+üzerinden Slack/Discord/Telegram) bu boşluğun somut bir varyantıydı;
+bu bölüm onun genelleştirilmiş hali.
+
+**Olası kullanım senaryoları:**
+- Uzak ekip, yayına bakmadan sistem sağlığını izler (Notion/Airtable/
+  Grafana panosu).
+- Yayın başladı/durdu → otomatik Discord/X duyurusu.
+- Healing olayları → merkezi log toplama sistemi (birden fazla makine
+  yöneten prodüksiyonlar için).
+
+### ⚠️ Güvenlik yüzeyi
+
+- **Sızıntı riski:** Dışa akan veri, yanlışlıkla hassas bilgi
+  taşıyabilir — özellikle **stream key**, WS parolası, dosya yolları,
+  makine adı. Export şeması **allowlist** temelli olmalı (ne
+  gönderileceği açıkça listelenmeli), blocklist değil.
+- **Giden bağlantı = yeni saldırı yüzeyi:** Webhook URL'i kullanıcı
+  tarafından yapılandırılıyorsa, kötü yapılandırılmış/ele geçirilmiş
+  bir hedef veri sızdırabilir. HTTPS zorunluluğu ve hedef doğrulaması
+  düşünülmeli.
+- **Kimlik bilgisi saklama:** Webhook token'ları/API anahtarları nerede
+  tutulacak? Mevcut kayıt defteri (registry) düz-metin yaklaşımı (J14
+  kabul edilmiş kararı) burada yetersiz kalabilir — daha hassas veri
+  söz konusu.
+- **Yayın performansına etki:** Dışa akış **asla** frame thread'inde
+  olmamalı. Bugün (2026-07-31) bulduğumuz RTMP darboğazı tam bu dersin
+  kanıtı: senkron bir ağ çağrısı, tüm pipeline'ı bloklar. Ayrı thread +
+  kuyruk zorunlu.
+- **Geri basınç:** Hedef yavaşsa/ulaşılamazsa ne olacak? Kuyruk
+  taşması, sessiz veri kaybı ya da bloklanma — üçü de tasarımda
+  açıkça ele alınmalı.
+
+**Üç genişletilebilirlik fikrinin ortak durumu:** Yalnızca fikir kaydı.
+Hiçbiri değerlendirilmedi, önkoşulu yok, taahhüt yok. Öncelik sırası:
+Windows sürümünün temel işlevselliği (RTMP teslim darboğazı, Faz 3
+kompozisyon, çözünürlük kontrolü) bu fikirlerin **hepsinden önce** gelir —
+bir platform, üzerine inşa edilecek kadar sağlam olmadan genişletilebilir
+yapılmamalı.
+
 ## Faz 5 — Zig Global State Tam Çözümü
 
 - [ ] external_memory_bridge.zig — state'i instance-level struct'a taşı
