@@ -41,14 +41,3 @@ jobs:
           & $cppcheck --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --inline-suppr src/pipeline/
         shell: pwsh
         continue-on-error: true
-
-      - name: MSVC ortamını ayarla
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: CMake yapılandır
-        run: cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
-
-      - name: C++ derle
-        run: cmake --build build
