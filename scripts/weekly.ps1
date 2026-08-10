@@ -19,15 +19,21 @@ if (Get-Command cargo-outdated -ErrorAction SilentlyContinue) {
 }
 
 Write-Host "=== [2/6] ABI ritueli: ffi_auto.h yeniden uretim ===" -ForegroundColor Cyan
-# ffi_auto.h'i build.rs (cbindgen) uretir - sil, yeniden urettir, diff bos olmali.
-Remove-Item src\ffi\ffi_auto.h -ErrorAction SilentlyContinue
+# ffi_auto.h uretilen ve git'e GIRMEYEN bir dosyadir (.gitignore:38) - git diff
+# ile kontrol EDILEMEZ (bos gecer). Ayrica dosyayi silmek cargo'yu build.rs'i
+# yeniden calistirmaya zorlamaz (cikti dosyasi fingerprint'e dahil degil).
+# Yontem: hash'i sakla, build.rs'e dokunarak cbindgen'i zorla, hash karsilastir.
+$abiOld = $null
+if (Test-Path src\ffi\ffi_auto.h) { $abiOld = (Get-FileHash src\ffi\ffi_auto.h -Algorithm SHA256).Hash }
+else { $warn += "ffi_auto.h diskte yoktu - onceki build eksik olabilir" }
+(Get-Item src\orchestrator\build.rs).LastWriteTime = Get-Date
 cargo build --manifest-path $manifest | Out-Null
 if (-not (Test-Path src\ffi\ffi_auto.h)) {
     $warn += "ffi_auto.h yeniden URETILEMEDI - build.rs kirik olabilir"
 } else {
-    $abiDiff = git diff --stat -- src/ffi/ffi_auto.h
-    if ($abiDiff) { $warn += "ffi_auto.h diff BOS DEGIL - ABI drift! ($abiDiff)" }
-    else { Write-Host "ffi_auto.h diff bos - ABI stabil" -ForegroundColor Green }
+    $abiNew = (Get-FileHash src\ffi\ffi_auto.h -Algorithm SHA256).Hash
+    if ($abiOld -and ($abiOld -ne $abiNew)) { $warn += "ffi_auto.h icerigi degisti - diskteki header BAYATTI (ABI drift)" }
+    elseif ($abiOld) { Write-Host "ffi_auto.h yeniden uretildi, icerik ayni - ABI stabil" -ForegroundColor Green }
 }
 
 Write-Host "=== [3/6] DOKUNMA dosyalari ===" -ForegroundColor Cyan

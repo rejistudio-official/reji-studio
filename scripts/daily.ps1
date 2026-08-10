@@ -16,7 +16,7 @@ Write-Host "=== [3/4] Son commit'ten bu yana degisiklik ===" -ForegroundColor Cy
 git diff --stat HEAD~1
 
 Write-Host "=== [4/4] TODO/FIXME sayimi (izlenen kaynak dosyalar) ===" -ForegroundColor Cyan
-$todoCount = (git grep -n -E "TODO|FIXME" -- src scripts 2>$null | Measure-Object -Line).Lines
+$todoCount = (git grep -n -E "TODO|FIXME" -- src scripts ":(exclude)scripts/daily.ps1" 2>$null | Measure-Object -Line).Lines
 Write-Host "TODO/FIXME: $todoCount adet"
 
 if ($fail -gt 0) { Write-Host "`nGUNLUK TARAMA: $fail kontrol basarisiz" -ForegroundColor Red; exit 1 }

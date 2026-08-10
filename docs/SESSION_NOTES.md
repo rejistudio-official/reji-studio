@@ -1,4 +1,62 @@
-﻿## Oturum: 3 Ağustos 2026 — RTMP_DARBOGAZ Faz 2/3: prev darboğazı bulundu ve kapatıldı ✅
+﻿# Bug Yaşam Süresi Kaydı (B1 — kalıcı bölüm)
+
+> Her bulunan bug'da `git log -S` ile "ne zaman girdi" sorusunu sor,
+> buraya satır ekle. Aylık gözden geçirmede ortak deseni ara.
+> Kaynak: `GELISTIRME_RITMI.md` B1. Açılış: 2026-08-10.
+
+| Bug | Giriş | Düzeltme | Süre | Desen |
+|---|---|---|---|---|
+| WS Ping/Pong bağlantı kopması | `1c29e43` 06-29 | `2a8f83d` 07-31 | ~1 ay | kontrol çerçevesi hiç ele alınmamış |
+| applyProfile qrc kaydı | `4a5807c` 07-20 | `72b4b09` 07-21 | ~1 gün | kaynak var, kayıt bağlanmamış |
+| gpu_load_pct kopyalanmıyor | `c9f0a8d` 06-24 | `d89f2b7` 08-03 | ~6 hafta | alan var, kopya bağlanmamış |
+| FrameProfiler örnek toplamıyor | `6f6820b` 06-02 | `598520a` 08-03 | ≤2 ay | kayıt çağrısı yanlış yerde |
+| İçe aktarım QFile::copy | `5a16f81` 07-16 | `c99f1b6` 07-20 | 4 gün | var olan hedefe yazamama |
+| Preview Map(READ) darboğazı | `aa02d1c` 06-28 | `5a816e5` 08-03 | ~5 hafta | bloklu okuma frame thread'inde |
+| weekly ABI ritüeli boş doğrulama | `6e93eed` 08-10 | `(B6 turu)` 08-10 | saatler | gitignore'lu dosyada git diff |
+| daily TODO sayacı kendini sayıyor | `6e93eed` 08-10 | `(B6 turu)` 08-10 | saatler | tarayıcı kendi çıktısında |
+
+**İlk desen tespiti (2026-08-10):** En uzun yaşayanlar Rust/C++
+sınırındaki "mekanizma var, son bağlantı eksik" sınıfı; UI-yakını
+bug'lar günler içinde yakalanıyor. B2 kuralı (kim çağırıyor / kim
+tüketiyor / hangi test) bu sınıfı hedefliyor — araçlar dahil.
+
+---
+
+## Oturum: 10 Ağustos 2026 — Geliştirme Ritmi: Faz 0 doğrulama + Aşama 2 (B2-B6) ✅
+
+**Faz 0:** Dışarıdan gelen ritim önerisi belgesi depo gerçeğiyle
+doğrulandı (`eeb9a22`): CLAUDE.md 8,0 KB ölçüldü; justfile'da
+lint/daily/weekly olmadığı (ve "just lint kuruldu" iddiasının boş
+olduğu) saptandı; B1 bug yaşam süreleri `git log -S` ile teyit edildi;
+docs/ ağacı gerçek içeriğe göre düzeltildi → `GELISTIRME_RITMI.md`.
+
+**Aşama 2 (her madde ayrı onayla):**
+- **B2** (`17ca5a5`): CLAUDE.md §7'ye Yeni Mekanizma Kuralı —
+  üç soru + gpu_load_pct örneği.
+- **B4** (`608eda2`): `docs/README.md` — soru→dosya indeksi + belge
+  statüleri (bağlayıcı/durum/tarihsel/bağlayıcı-değil/geçersiz);
+  reviews/ "iddia ≠ kanıt" uyarısı; iki CONTEXT.md ayrımı
+  (birincil: docs/CONTEXT.md).
+- **B3** (`6dbfad2`, `6e93eed`): justfile'a lint/daily/weekly +
+  scripts/daily.ps1, weekly.ps1. Doğrulama koşumları yeşil.
+  `just` winget ile kuruldu (makinede hiç yokmuş).
+- **B5** (`83a51a7`): CLAUDE.md bayat durum temizliği — §10 (06-09'dan
+  beri bayat) silindi, §1 versiyon satırı işarete çevrildi,
+  docs/memory.md referansları SESSION_NOTES'a düzeltildi.
+  8,6 → 7,2 KB; kalan bağlayıcı, zorla küçültme yok.
+- **B6** (bu commit): İlk haftalık sağlık taraması →
+  `docs/health/health-2026-08-10.md`. Kod tabanı yeşil (26/26,
+  145+5+37, ABI stabil, TODO 0). İki sapma insana: cargo-audit ve
+  cargo-outdated kurulu değil. Deneme, tarayıcının kendisinde iki
+  kusur çıkardı ve kapattı (ABI ritüeli boş doğrulamaydı; TODO
+  sayacı kendini sayıyordu) — B1 defterine işlendi.
+
+**Kalan işler:** PostToolUse hook, pre-commit hook (Bölüm C 8-9);
+cargo-audit/outdated kurulum kararı (triyaj).
+
+---
+
+## Oturum: 3 Ağustos 2026 — RTMP_DARBOGAZ Faz 2/3: prev darboğazı bulundu ve kapatıldı ✅
 
 **Teşhis zinciri:** Faz 1 [SendDiag] üç hipotezi de çürütmüştü (sendV=0.3ms →
 RTMP masum; cap=0.2ms; enc başta 1.5ms). Faz 2 ölçüm boşluğunu kapattı

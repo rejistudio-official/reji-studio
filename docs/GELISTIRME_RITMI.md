@@ -119,7 +119,9 @@ just daily
 ```
 just weekly
   → cargo audit + cargo outdated
-  → ABI ritüeli: ffi_auto.h sıfırdan üret, git diff boş mu?
+  → ABI ritüeli: ffi_auto.h'ı build.rs'e dokunarak yeniden ürettir,
+    SHA256 aynı mı? (git diff İŞE YARAMAZ — dosya gitignore'da;
+    2026-08-10 B6 denemesinde öğrenildi)
   → DOKUNMA dosyaları değişmiş mi? (metrics.rs, ffi_bridge.h)
   → Test sayısı düştü mü? (ctest 26, cargo 145+5+37 — sayılar
     özgün belgeden, kesinleşmedi)
@@ -185,22 +187,34 @@ Taşınacak şey varsa, bunlar değil. Karar Aşama 2'de (B5 maddesi)
 
 ### B6. Haftalık sağlık taraması `/goal` ile
 
-`/goal`'un ardışık başarıları bu fikri destekliyor:
+`/goal`'un ardışık başarıları bu fikri destekliyor. B3'ün `just
+weekly`/`just daily` altyapısı kurulduktan sonra prompt sadeleşti:
+`/goal`'un işi kanıt toplamak değil, raporlamak ve sapmaları
+yorumlamak. Nihai prompt (ilk deneme 2026-08-10,
+`docs/health/health-2026-08-10.md`):
 
 ```
-/goal Haftalık sağlık taraması yap ve rapor yaz.
+/goal Haftalık sağlık taraması: `just weekly` ve `just daily` çalıştır,
+çıktılarını docs/health/health-YYYY-MM-DD.md raporuna işle.
 
-Tamamlanma koşulu: docs/health/health-YYYY-MM-DD.md yazıldı ve
-şunları içeriyor: ctest sonucu (26/26 bekleniyor), cargo test
-sonucu, cargo audit çıktısı, ffi_auto.h yeniden-üretim diff'i
-(boş olmalı), DOKUNMA dosyalarının git durumu, TODO/FIXME sayısı,
-kullanicida etiketli açık görev sayısı.
+Rapor şunları içermeli: her kontrolün sonucu (geçti/uyarı/hata),
+beklenen değerlerden SAPMALAR açıkça işaretli (ctest 26, cargo
+145+5+37, ABI hash aynı, DOKUNMA dosyaları temiz), ve TODO/FIXME
+sayısı.
 
-Kapsam: SADECE rapor yaz, kod DEĞİŞTİRME. 15 turdan sonra dur.
+Kapsam: SADECE rapor yaz, kod DEĞİŞTİRME, bulunan sorunları
+DÜZELTME. Sapma varsa raporla ve dur — triyaj insana ait.
+15 turdan sonra dur.
 ```
 
-**Kritik kısıt:** "kod değiştirme" — tarama ile düzeltmeyi ayır.
-Tarama bulguları insan triyajından geçmeli (V10'da olduğu gibi).
+**Kritik kısıt:** "sapma varsa raporla ve dur" — tarama ile düzeltmeyi
+ayır. Tarama bulguları insan triyajından geçmeli (V10'da olduğu gibi;
+siyah kutu turundaki üç yanlış düzeltme bu ayrımın gerekçesi).
+
+**İlk denemenin dersi (2026-08-10):** İlk koşum, taranan koddan önce
+tarayıcının kendisinde iki kusur buldu — ABI ritüelinin git-diff
+kontrolü boş doğrulamaydı (ffi_auto.h gitignore'da), TODO sayacı
+kendini sayıyordu. B2'nin üç sorusu araçlara da uygulanmalı.
 
 ---
 
@@ -211,20 +225,21 @@ Tarama bulguları insan triyajından geçmeli (V10'da olduğu gibi).
 2. ~~justfile envanteri~~ → `lint`/`daily`/`weekly` yok (B3)
 3. ~~B1 yaşam sürelerini `git log -S` ile teyit et~~ → tablo güncellendi
 
-**Kısa vade (1-2 saat) — her madde ayrı onaya sunulacak:**
-4. `CLAUDE.md`'ye B2 kuralını ekle ("kim çağırıyor / kim tüketiyor /
-   hangi test kanıtlıyor")
-5. `docs/README.md` indeksi (B4)
-6. `justfile`'a `daily` ve `weekly` hedefleri (B3)
-7. `CLAUDE.md` boyut kararı (B5 — ölçüm: 8,0 KB)
+**Kısa vade — TAMAMLANDI (2026-08-10, her madde ayrı onayla):**
+4. ~~`CLAUDE.md`'ye B2 kuralı~~ ✅ (`17ca5a5`)
+5. ~~`docs/README.md` indeksi (B4)~~ ✅ (`608eda2` — + belge statüleri)
+6. ~~`justfile`'a `daily`/`weekly` (B3)~~ ✅ (`6dbfad2`, `6e93eed` — + `lint`)
+7. ~~`CLAUDE.md` boyut kararı (B5)~~ ✅ (`83a51a7` — §10 silindi,
+   8,6 → 7,2 KB; kalan bağlayıcı, zorla küçültme yok)
 
 **Orta vade:**
-8. `just lint` + PostToolUse hook kurulumu (B3 — özgün belgenin
-   "kuruldu" sandığı, gerçekte eksik olan adım)
+8. PostToolUse hook kurulumu (`just lint` hedefi B3'te kuruldu ✅,
+   hook hâlâ yok)
 9. Pre-commit hook (yalnız Rust, hızlı olmalı)
-10. Haftalık `/goal` sağlık taraması denemesi (B6)
-11. B1 kaydı: SESSION_NOTES'a "bug yaşam süresi" bölümü aç
-    (kod işi değil, alışkanlık)
+10. ~~Haftalık `/goal` sağlık taraması denemesi (B6)~~ ✅ ilk deneme
+    2026-08-10 (`docs/health/health-2026-08-10.md`)
+11. ~~B1 kaydı: SESSION_NOTES'a "bug yaşam süresi" bölümü aç~~ ✅
+    2026-08-10 (alışkanlık olarak sürdürülecek)
 
 **Bu belge kapsamı dışı:**
 - `build.yml` onarımı (ayrı talimat, Todoist P3)
