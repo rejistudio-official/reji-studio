@@ -170,6 +170,12 @@ pub struct CooldownTracker {
     adaptive_cooldown: Duration,
 }
 
+impl Default for CooldownTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CooldownTracker {
     pub fn new() -> Self {
         Self {
@@ -194,10 +200,7 @@ impl CooldownTracker {
             HealingLayer::Adaptive => self.last_adaptive.load().map(|t| t + self.adaptive_cooldown),
         };
 
-        match deadline {
-            Some(deadline) if now < deadline => false,
-            _ => true,
-        }
+        !matches!(deadline, Some(deadline) if now < deadline)
     }
 
     pub fn record(&self, layer: HealingLayer) {
@@ -703,6 +706,7 @@ impl HealingMonitor {
 ///  - `original == 0` → referans bilinmiyor — üretme (aktüatör no-op'lardı,
 ///    sahte UI event'i de üretilmesin),
 ///  - `current >= original` → bitrate zaten orijinalde/üstünde — düşüş yok.
+///
 /// Konfigüre değerlerle çalışır (C++ `rj_update_bitrate_state`); ölçülen kbps
 /// kullanılmaz — sağlıklı yayında nominal altı dalgalanma sahte tetik üretirdi.
 fn recovery_has_deficit(current_kbps: u32, original_kbps: u32) -> bool {
@@ -743,6 +747,16 @@ mod tests {
         assert!(tracker.can_fire(HealingLayer::Reactive));
         tracker.record(HealingLayer::Reactive);
         assert!(!tracker.can_fire(HealingLayer::Reactive));
+    }
+
+    /// Clippy temizliği regresyon guard'ı: `Default` impl'i `new()` ile aynı
+    /// başlangıç durumunu üretmeli — tüm katmanlar hemen ateşleyebilir.
+    #[test]
+    fn test_cooldown_tracker_default_matches_new() {
+        let tracker = CooldownTracker::default();
+        assert!(tracker.can_fire(HealingLayer::Reactive));
+        assert!(tracker.can_fire(HealingLayer::Predictive));
+        assert!(tracker.can_fire(HealingLayer::Adaptive));
     }
 
     #[tokio::test]

@@ -2,7 +2,6 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
-use crate::constants;
 
 /// Anlık metrik snapshot — C++ RjMetricSample ile birebir ABI uyumlu (#[repr(C)], 64 byte)
 ///
@@ -87,7 +86,7 @@ impl MetricState {
         if sample.source_id == 0 {
             self.bitrate_kbps.store(sample.bitrate_kbps, Ordering::Relaxed);
             let fps = sample.fps_actual;
-            if fps.is_finite() && fps >= 0.0 && fps <= 240.0 {
+            if fps.is_finite() && (0.0..=240.0).contains(&fps) {
                 self.fps_actual.store((fps * 100.0) as u32, Ordering::Relaxed);
             }
             // else: önceki değeri koru
@@ -173,6 +172,7 @@ impl Default for MetricState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants;
 
     fn valid_sample() -> MetricSample {
         MetricSample {

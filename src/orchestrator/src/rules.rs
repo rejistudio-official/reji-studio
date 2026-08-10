@@ -14,6 +14,7 @@ use tracing::{debug, info};
 
 /// Kural değerlendirmesi için metrik snapshot.
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 pub struct RuleMetrics {
     pub frame_drop_pct: u32,
     pub gpu_temp_c: i16,
@@ -25,20 +26,6 @@ pub struct RuleMetrics {
     pub network_loss_pct: u8,
 }
 
-impl Default for RuleMetrics {
-    fn default() -> Self {
-        Self {
-            frame_drop_pct: 0,
-            gpu_temp_c: 0,
-            cpu_temp_c: 0,
-            memory_usage_pct: 0,
-            cpu_load_pct: 0,
-            gpu_load_pct: 0,
-            network_rtt_ms: 0,
-            network_loss_pct: 0,
-        }
-    }
-}
 
 /// Aksiyon tipleri — bitrate, resolution, FPS adaptasyonu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -517,7 +504,7 @@ impl RuleEngine {
 
             // Condition evaluation (Özellik#5: kalibre eşiklerle)
             if eval_condition_calibrated(&rule.condition, metrics, &calib) {
-                let action = self.create_action(&rule, metrics, &calib)?;
+                let action = self.create_action(rule, metrics, &calib)?;
                 last_trigger.insert(rule.id.clone(), now);
                 actions.push(action);
             }
@@ -666,7 +653,9 @@ struct RuleFileJson {
     rules: Vec<Rule>,
     #[serde(default)]
     hysteresis_ms: u64,
+    // Dosya şemasının parçası; henüz okunmuyor (mod seçimi FFI'dan geliyor).
     #[serde(default)]
+    #[allow(dead_code)]
     default_mode: String,
 }
 
@@ -681,6 +670,8 @@ struct RuleFileTOML {
 #[derive(Debug, Deserialize, Default)]
 struct TomlMetadata {
     hysteresis_ms: Option<u64>,
+    // Dosya şemasının parçası; henüz okunmuyor (mod seçimi FFI'dan geliyor).
+    #[allow(dead_code)]
     default_mode: Option<String>,
 }
 
@@ -745,6 +736,22 @@ mod tests {
         assert!(!eval_condition("gpu_temp_c < 85", &metrics));
     }
 
+    /// Clippy temizliği regresyon guard'ı: türetilen `Default`, eski manuel
+    /// impl ile aynı olmalı — tüm metrikler sıfır (kural tetiklemeyen durum).
+    #[test]
+    fn test_rule_metrics_default_is_all_zero() {
+        let m = RuleMetrics::default();
+        assert_eq!(m.frame_drop_pct, 0);
+        assert_eq!(m.gpu_temp_c, 0);
+        assert_eq!(m.cpu_temp_c, 0);
+        assert_eq!(m.memory_usage_pct, 0);
+        assert_eq!(m.cpu_load_pct, 0);
+        assert_eq!(m.gpu_load_pct, 0);
+        assert_eq!(m.network_rtt_ms, 0);
+        assert_eq!(m.network_loss_pct, 0);
+        assert!(!eval_condition("frame_drop_pct > 0", &m));
+    }
+
     #[test]
     fn test_action_creation() {
         let engine = RuleEngine {
@@ -795,8 +802,7 @@ mod tests {
         };
         // hysteresis 0 → tek bastırıcı cooldown olsun.
         let engine = RuleEngine::new_test(vec![rule], 0);
-        let mut m = RuleMetrics::default();
-        m.frame_drop_pct = 12;
+        let m = RuleMetrics { frame_drop_pct: 12, ..Default::default() };
 
         assert_eq!(
             engine.evaluate(&m, "auto-pilot").unwrap().len(),

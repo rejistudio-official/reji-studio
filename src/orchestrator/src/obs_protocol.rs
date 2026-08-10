@@ -253,7 +253,7 @@ pub(crate) fn pseudo_uuid(name: &str) -> String {
     format!(
         "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
         (v >> 32) as u32,
-        (v >> 16) as u16 & 0xffff,
+        ((v >> 16) as u16),
         v as u16,
         (v >> 48) as u16,
         v & 0xffff_ffff_ffff

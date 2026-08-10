@@ -6,7 +6,6 @@
 //! - Rust → C++: command_queue (64-slot, lock-free ArrayQueue).
 
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
@@ -19,7 +18,6 @@ use tokio::sync::broadcast;
 use tokio::runtime::Runtime;
 use tokio::time::MissedTickBehavior;
 use tracing::{warn, debug, info};
-use crate::constants;
 
 use crate::event_bus::{EventBus, HealingEvent, MediaEvent, SystemEvent};
 use crate::healing::{HealingMonitor, HealingThresholds};
@@ -685,6 +683,9 @@ fn rj_start_monitor_impl() {
 /// C++ pipeline'dan MetricSample alır ve ring buffer'a yazar (non-blocking).
 /// Null pointer veya geçersiz canary varsa sessizce atlar.
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null-check + read_unaligned + catch_unwind; imza bilinçli olarak
+// unsafe DEĞİL — cbindgen çıktısı ve C++ çağrı sözleşmesi değişmemeli.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
     let _ = catch_unwind(AssertUnwindSafe(move || {
@@ -724,6 +725,9 @@ pub extern "C" fn rj_metrics_push(sample: *const MetricSample) {
 /// # Return
 /// 1 → `out` dolduruldu (snapshot yazıldı). 0 → yazılmadı (null `out` veya
 /// FFI_STATE henüz init değil). C++ tarafı 0'da UI güncellemesini atlar.
+// Güvenli: null-check sonrası tek yazma; caller sözleşmesi geçerli 64B buffer
+// garanti eder; catch_unwind sarmalı. İmza unsafe yapılmaz (ABI sabit).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_metrics_poll(out: *mut MetricSample) -> i32 {
     catch_unwind(AssertUnwindSafe(move || {
@@ -756,6 +760,9 @@ pub extern "C" fn rj_metrics_poll(out: *mut MetricSample) -> i32 {
 /// # Return
 /// Number of commands written (0 if error, null, or max > 64; -1 on init error)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null-check + max ≤ 64 clamp'i taşmayı önler + catch_unwind sarmalı;
+// caller sözleşmesi RjCommand[max] buffer garanti eder. İmza unsafe yapılmaz.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_command_drain(out: *mut RjCommand, max: i32) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
@@ -792,6 +799,9 @@ pub extern "C" fn rj_command_drain(out: *mut RjCommand, max: i32) -> i32 {
 
 /// SRT bağlantı kopuşunu event bus'a iletir; reason null-safe, UTF-8 beklenir.
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: cstr_bounded null-safe ve sınırlı tarama yapar (OOB read yok);
+// catch_unwind sarmalı. İmza unsafe yapılmaz (ABI sabit).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_connection_lost(reason: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(move || {
@@ -827,6 +837,9 @@ pub extern "C" fn rj_pipeline_status() -> i32 {
 /// v0.4+: Dequeue next adaptation action from Rust to C++
 /// Returns 1 if action available, 0 if queue empty
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null-check sonrası tek yazma + catch_unwind sarmalı; caller
+// sözleşmesi geçerli RjAction* garanti eder. İmza unsafe yapılmaz.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_action_dequeue(out: *mut RjAction) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
@@ -854,6 +867,9 @@ pub extern "C" fn rj_action_dequeue(out: *mut RjAction) -> i32 {
 /// (aktüatör) ile AYRI kuyruktur — UI artık aktüatör kuyruğunu POP etmez,
 /// böylece "her aksiyon rastgele tek tüketiciye gider" yarışı yok.
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null-check sonrası tek yazma + catch_unwind sarmalı; caller
+// sözleşmesi geçerli RjActionEvent* garanti eder. İmza unsafe yapılmaz.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_action_event_dequeue(out: *mut RjActionEvent) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
@@ -925,6 +941,9 @@ pub extern "C" fn rj_ws_command_v2(cmd: i32, param: i32) -> bool {
 /// ws_command_queue'dan bir komut çıkarır.
 /// Döndürür: 1 = komut var (cmd/param yazıldı), 0 = kuyruk boş veya hata.
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: her iki pointer da null-check'ten geçer, sonra tek yazma;
+// catch_unwind sarmalı. İmza unsafe yapılmaz (ABI sabit).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_ws_command_dequeue(cmd: *mut i32, param: *mut i32) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
@@ -1345,6 +1364,9 @@ pub extern "C" fn rj_set_action_auto_approve(category: u32, enabled: bool) -> bo
 /// mevcut doğrulanmış oturumlar sürer. UI (SettingsDialog) startup'ta ve OK'te
 /// çağırır (I19 startup senkronu deseni).
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: cstr_bounded null-safe ve sınırlı tarama yapar (null/NUL'suz girdi
+// None döner, panik yok); catch_unwind sarmalı. İmza unsafe yapılmaz.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_set_ws_password(password: *const c_char) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
@@ -1390,6 +1412,9 @@ pub extern "C" fn rj_get_healing_mode() -> u32 {
 /// çeviriyordu (motor-disk ayrışması). `FFI_STATE` gerektirmez — monitör
 /// başlamadan da çağrılabilir. Dönüş: 1 = geçerli, 0 = geçersiz/null.
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null-check + cstr_bounded sınırlı tarama + catch_unwind sarmalı.
+// İmza unsafe yapılmaz (ABI sabit).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_validate_rules(path: *const c_char) -> i32 {
     catch_unwind(AssertUnwindSafe(move || {
@@ -1433,6 +1458,9 @@ pub extern "C" fn rj_update_bitrate_state(current_kbps: u32, original_kbps: u32)
 
 /// Reload rules from file (async hot-reload)
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null path varsayılan dosyaya düşer; değilse cstr_bounded sınırlı
+// tarama (OOB read yok); catch_unwind sarmalı. İmza unsafe yapılmaz.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
     catch_unwind(AssertUnwindSafe(move || {
@@ -1510,6 +1538,9 @@ pub extern "C" fn rj_reload_rules(path: *const c_char) -> i32 {
 /// (kırpılmış JSON C++'ta parse edilemezdi) — güvenli `-1` döner. `rj_reload_rules`'un
 /// panik/poison desenini izler.
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null/cap kontrolü + "sığmazsa yazma" doğrulaması (bytes.len()+1 ≤ cap)
+// + catch_unwind sarmalı; caller sözleşmesi cap byte'lık buffer garanti eder.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_rules_snapshot_json(buf: *mut c_char, cap: i32) -> i32 {
     catch_unwind(AssertUnwindSafe(move || {
@@ -1561,6 +1592,9 @@ pub extern "C" fn rj_rules_snapshot_json(buf: *mut c_char, cap: i32) -> i32 {
 /// dönünce hiçbir ham pointer saklanmaz — C++ hemen sonra belleği serbest bırakabilir.
 /// Bloklamaz (kısa Mutex kilidi, hot-path değil). Panik sınırı geçmez (catch_unwind).
 /// SECURITY: Wrapped in catch_unwind to prevent panic unwind into C++
+// Güvenli: null-check + count ≤ 256 clamp + eleman başına null-check +
+// cstr_bounded sınırlı tarama; catch_unwind sarmalı. İmza unsafe yapılmaz.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn rj_push_scene_names(names: *const *const c_char, count: u32) {
     let _ = catch_unwind(AssertUnwindSafe(move || {
@@ -1616,6 +1650,7 @@ pub extern "C" fn rj_user_event_scene_switch(scene_id: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants;
 
     // V8/I33a: pending deposu + healing-mode testleri süreç-global FfiState'i
     // paylaşır; paralel çalışınca mod değişimi bir testin pending'ini drain
@@ -2047,7 +2082,7 @@ mod tests {
         let mut cmds = [RjCommand { cmd_type: 0, timestamp_us: 0, param_u32: 0, param_f32: 0.0 }; 64];
         // SECURITY: max = 64 (limit) should be allowed
         let n = rj_command_drain(cmds.as_mut_ptr(), 64);
-        assert!(n >= 0 && n <= 64, "max = 64 should succeed");
+        assert!((0..=64).contains(&n), "max = 64 should succeed");
     }
 
     #[test]

@@ -142,7 +142,7 @@ async fn next_json(ws: &mut Client) -> Value {
 }
 
 async fn send_text(ws: &mut Client, v: Value) {
-    ws.send(Message::Text(v.to_string().into())).await.expect("send");
+    ws.send(Message::Text(v.to_string())).await.expect("send");
 }
 
 #[tokio::test]
@@ -1224,7 +1224,7 @@ async fn yayin_dogrulanmamis_oturuma_gitmez_ama_dogrulanmisa_gider() {
     })
     .await;
     assert!(
-        matches!(leaked, Err(_)),
+        leaked.is_err(),
         "doğrulanmamış oturuma yayın SIZMAMALI (gelen: {:?})",
         leaked
     );
@@ -1268,7 +1268,7 @@ async fn ping_frame_baglantiyi_koparmaz_ve_pong_doner() {
     assert_eq!(identified["op"], 2);
 
     // İstemci keepalive Ping'i (python websockets'in 20. saniyede yaptığının birebiri).
-    ws.send(Message::Ping(vec![0xAB, 0xCD].into())).await.expect("ping gönder");
+    ws.send(Message::Ping(vec![0xAB, 0xCD])).await.expect("ping gönder");
 
     // RFC 6455: Pong, Ping payload'ını aynen taşımalı.
     let pong = tokio::time::timeout(Duration::from_secs(2), async {
@@ -1321,7 +1321,7 @@ async fn unsolicited_pong_yok_sayilir_baglanti_yasar() {
     let hello = next_json(&mut ws).await;
     assert_eq!(hello["op"], 0);
 
-    ws.send(Message::Pong(Vec::new().into())).await.expect("pong gönder");
+    ws.send(Message::Pong(Vec::new())).await.expect("pong gönder");
 
     let payload = r#"{"fps":59.9,"kbps":3500,"drop":0,"cpu":5,"gpu":8,"mem":40}"#.to_string();
     let publisher = tokio::spawn(async move {

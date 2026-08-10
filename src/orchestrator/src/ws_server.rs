@@ -350,10 +350,10 @@ enum WireMode {
 fn encode(mode: WireMode, env: &obs_protocol::WsEnvelope) -> Result<Message, String> {
     match mode {
         WireMode::Json => serde_json::to_string(env)
-            .map(|s| Message::Text(s.into()))
+            .map(Message::Text)
             .map_err(|e| e.to_string()),
         WireMode::Msgpack => rmp_serde::to_vec_named(env)
-            .map(|b| Message::Binary(b.into()))
+            .map(Message::Binary)
             .map_err(|e| e.to_string()),
     }
 }
@@ -682,12 +682,12 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<WsState>, wire_mode: Wi
                 }
                 if let Ok(data) = evt {
                     let msg = match wire_mode {
-                        WireMode::Json => Some(Message::Text(data.into())),
+                        WireMode::Json => Some(Message::Text(data)),
                         WireMode::Msgpack => serde_json::from_str::<Value>(&data)
                             .ok()
                             .filter(|v| v.get("op").is_some())
                             .and_then(|v| rmp_serde::to_vec_named(&v).ok())
-                            .map(|b| Message::Binary(b.into())),
+                            .map(Message::Binary),
                     };
                     if let Some(m) = msg {
                         if socket.send(m).await.is_err() {
