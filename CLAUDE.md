@@ -1,7 +1,8 @@
 # CLAUDE.md — Reji Studio Claude Code Oturum Kılavuzu
 
 > Her Claude Code oturumunda otomatik okunur.
-> Detaylı kurallar: AGENTS.md | Durum: CONTEXT.md | Geçmiş: docs/memory.md
+> Detaylı kurallar: docs/AGENTS.md | Durum: docs/CONTEXT.md | Geçmiş: docs/SESSION_NOTES.md
+> Belge indeksi ve statüleri: docs/README.md
 
 ---
 
@@ -15,7 +16,7 @@
 | Stack | C++17/MSVC + Rust/Tokio + Qt6 6.8.0 + Vulkan 1.4 |
 | GPU | AMD Radeon 780M (display/iGPU) + NVIDIA RTX 4070 Laptop (encode/dGPU) |
 | OS | Windows 11 |
-| Versiyon | v0.5.1 ✅ tamamlandı → v0.5.2 devam ediyor |
+| Versiyon | Son tag: v0.5.1 — güncel durum: `docs/CONTEXT.md` |
 
 ---
 
@@ -105,8 +106,8 @@ cd C:/reji-studio && python scripts/build.py --clean
 
 ### claude-mem
 - Oturumlar arası Vulkan kararları, FFI fix geçmişi ve mimari borçları hatırlar
-- `docs/memory.md` ile çapraz kontrol yap — claude-mem özetleri ile elle tutulan notlar çelişiyorsa `docs/memory.md` önceliklidir
-- Her büyük fix sonrası: `docs/memory.md` güncelle + claude-mem otomatik yakalar
+- `docs/SESSION_NOTES.md` ile çapraz kontrol yap — claude-mem özetleri ile elle tutulan notlar çelişiyorsa `docs/SESSION_NOTES.md` önceliklidir
+- Her büyük fix sonrası: `docs/SESSION_NOTES.md` güncelle + claude-mem otomatik yakalar
 
 ---
 
@@ -151,8 +152,8 @@ Her değişiklik için şu soruları sor:
 Her büyük görev bittikten sonra:
 
 ```
-1. docs/memory.md güncelle — ne yapıldı, neden, hangi karar alındı
-2. CONTEXT.md güncelle — mevcut durum bölümünü yansıt
+1. docs/SESSION_NOTES.md güncelle — ne yapıldı, neden, hangi karar alındı
+2. docs/CONTEXT.md güncelle — mevcut durum bölümünü yansıt
 3. git commit -m "fix/feat/docs: ..."
 4. git push
 5. /clear — yeni görev için bağlamı temizle
@@ -184,41 +185,3 @@ Güvenlik-hassas özellik mi (doğrulama akışı, FFI sınırı, auth)? Tek com
 | `ffi_bridge.h/.cpp` | C ABI — DOKUNMA | Kritik |
 | `metrics.rs` | Rust ABI — DOKUNMA | Kritik |
 | `CMakeLists.txt` | Build sistemi — onay al | Orta |
-
----
-
-## 10. Şu Anki Görev: v0.5.2
-
-### Tamamlanan ✅
-- Adım 1: `ExternalMemoryBridge` GL target pool + NT handle export
-
-### Adım 2 — ROOT CAUSE FIXED ✅
-- `copy_optimizer.cpp` — vkCmdBlitImage + timeline signal
-  - Timeline semaphore create ✅
-  - Image layout transitions ✅
-  - vkCmdBlitImage command record ✅
-  - **vkQueueSubmit was failing: VK_ERROR_DEVICE_LOST** ❌ → **NOW FIXED** ✅
-  - Root cause: image_pool_[] missing VK_IMAGE_USAGE_TRANSFER_SRC_BIT flag
-  - Fix: external_memory_bridge.cpp line 94 updated with TRANSFER_SRC_BIT
-  
-### Adım 2 Başarılı ✅
-- Adım 1: `ExternalMemoryBridge` pool + NT handle export ✅
-- Adım 2: `copy_optimizer.cpp` vkCmdBlitImage + timeline ✅
-  - VK_IMAGE_USAGE_TRANSFER_SRC_BIT fix → vkQueueSubmit çalışıyor ✅
-- Adım 3: `PreviewWidget` GL extension resolve ✅
-- Adım 4: `paintGL` NT handle import → GL texture ✅
-- Adım 5: `Pipeline::get_external_memory_bridge()` ✅
-- Adım 6: `main_window::setBridge()` wire ✅
-
-### Sonraki Adımlar
-- Build: x64 Native Tools Command Prompt'ta çalıştır (bash/PowerShell env sorunu)
-- Verify: [GpuCopyOptimizer] blit submitted + [PreviewWidget] GL texture created logs
-- Test: Ekranda frame görünüyor mu?
-
-### Hedef Log (v0.5.2 tamamlandığında)
-```
-[PreviewWidget] GL_EXT_memory_object=1 win32=1
-[PreviewWidget] GL interop texture created: 1920x1080
-[GpuCopyOptimizer] About to blit: src=... -> dst=..., 1920x1080
-[GpuCopyOptimizer] execute_copy: blit submitted, timeline=1
-```
