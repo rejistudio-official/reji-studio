@@ -6,5 +6,18 @@
       "Bash(powershell -ExecutionPolicy Bypass -File \"C:\\\\reji-studio\\\\fix_pipeline2.ps1\")",
       "Bash(powershell -ExecutionPolicy Bypass -Command \"Copy-Item -Path 'C:\\\\reji-studio\\\\src\\\\pipeline\\\\pipeline.cpp.tmp' -Destination 'C:\\\\reji-studio\\\\src\\\\pipeline\\\\pipeline.cpp' -Force; Write-Host 'COPY OK'\")"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\reji-studio\\scripts\\lint.ps1"
+          }
+        ]
+      }
+    ]
   }
 }
