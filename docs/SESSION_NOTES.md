@@ -17,6 +17,7 @@
 | weekly audit yanlış Cargo.lock yolu | `6e93eed` 08-10 | `07e8765` 08-10 | saatler | test edilmemiş dal = kopuk bağlantı |
 | **CI hayali bağımlılık kümesini tarıyordu** | `6f6820b` 06-02 | `7337762` 08-10 | **~2+ ay** | Cargo.lock gitignore'da → CI'daki audit + clippy + testlerin TÜMÜ taze çözümlemeyle koşuyordu; "CI yeşil" ≠ "yerel yeşil". RUSTSEC-2026-0204 bu yüzden görünmezdi. Defterin en geniş etkili kaydı. |
 | weekly.ps1 tek başına clippy koşmuyordu | `6e93eed` 08-10 | `65c6dc5` 08-10 | saatler | kapsam çağrı yoluna bağlıydı: clippy script'te değil `just weekly: lint` zincirindeydi; script doğrudan çağrılınca sessizce atlanıyordu |
+| ECC clippy hook'u hiç çalışmadı | `949c2f7` 06-10 | `79ef519` 08-10 | **2 ay** | Claude Code'un okumadığı şema/konum (`.claude/hooks/hooks.json`, uydurma `"event": "*.rs"` alanı) — hook'lar settings.json `hooks` anahtarından okunur; kayıt yanlış yerde olduğu için hiç tetiklenmedi. Yerine çalışan `scripts/lint.ps1` kuruldu, dört yolu test edildi. |
 
 **İlk desen tespiti (2026-08-10):** En uzun yaşayanlar Rust/C++
 sınırındaki "mekanizma var, son bağlantı eksik" sınıfı; UI-yakını
@@ -86,8 +87,26 @@ yapıldı, just hedefleri sarmalayıcı olarak korundu. Doğrulama:
 `scripts\weekly.ps1` doğrudan koşuldu — clippy temiz, tarama uçtan
 uca yeşil (26/26, 145+5+37, ABI stabil, exit 0).
 
-**Kalan işler:** PostToolUse hook, pre-commit hook (Bölüm C 8-9) —
-ertelendi, ayrı oturumda süre ölçümüyle.
+**Gece eki 2 — PostToolUse clippy hook kuruldu (`79ef519`):**
+Faz 0 dört kontrolüyle: (1) settings.json vardı ama hook'suz —
+permissions yapısı korunarak `hooks` anahtarı eklendi; bu sırada
+fosil bulundu: `.claude/hooks/hooks.json` (06-10, `949c2f7`) Claude
+Code'un okumadığı şema/konumda, 2 ay boyunca hiç çalışmamış → B1
+defterine işlendi + silindi. (2) Hook dokümanı doğrulandı:
+`CLAUDE_FILE_PATHS` diye bir değişken YOK — dosya yolu stdin
+JSON'daki `tool_input.file_path`'ten okunur; exit 2 = stderr Claude'a
+geri bildirim; matcher regex büyük/küçük harfe duyarlı. (3) Kabuk
+uyumu tek yerde: hook komutu yalnız `scripts/lint.ps1`'i çağırır;
+`.rs` dışı düzenlemeler 0,2 sn'de sessiz geçer. (4) Süre ölçümü:
+artımlı clippy ~2,6 sn (< 30 sn eşiği) → kuruldu. Doğrulama dört
+yolla: ilgisiz dosya exit 0, bozuk stdin exit 0, temiz .rs exit 0,
+kasıtlı ihlal exit 2 + stderr'de clippy hatası (stdin simülasyonu —
+canlı tetiklenme bir sonraki reji-studio oturumunda görülecek; hook
+kaydı oturum başında yüklenir). Not: `.gitignore:34 *.ps1` lint.ps1'i
+yutuyordu, diğer script'ler gibi `-f` ile eklendi.
+
+**Kalan işler:** Pre-commit hook (Bölüm C 9) — ertelendi, ayrı
+oturumda süre ölçümüyle.
 
 ---
 

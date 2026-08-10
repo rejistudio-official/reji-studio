@@ -92,8 +92,11 @@ kuruldu" iddiası bu depoda doğrulanamadı: justfile'da `lint` hedefi
 yok, `.claude/settings.json`'da PostToolUse hook'u yok. Bu adım
 **henüz kurulmamış** sayılmalı.
 
-**Her Rust düzenlemesinde (öneri — kurulmadı):**
-`just lint` + PostToolUse hook.
+**Her Rust düzenlemesinde (KURULDU, 2026-08-10 — `79ef519`):**
+PostToolUse hook → `scripts/lint.ps1` (`cargo clippy --all-targets
+-D warnings`; kırmızıda exit 2 ile stderr Claude'a döner). Ölçülen
+artımlı süre ~2,6 sn — 30 sn akış-bozma eşiğinin altında. `.rs` dışı
+düzenlemeler 0,2 sn'de sessiz geçer.
 
 **Her commit'te (henüz yok — öneri):**
 Pre-commit hook: `cargo fmt --check` + `cargo clippy -- -D warnings`.
@@ -245,8 +248,11 @@ kendini sayıyordu. B2'nin üç sorusu araçlara da uygulanmalı.
    8,6 → 7,2 KB; kalan bağlayıcı, zorla küçültme yok)
 
 **Orta vade:**
-8. PostToolUse hook kurulumu (`just lint` hedefi B3'te kuruldu ✅,
-   hook hâlâ yok)
+8. ~~PostToolUse hook kurulumu~~ ✅ 2026-08-10 (`79ef519` —
+   `scripts/lint.ps1` + settings.json `hooks` kaydı; süre ölçümü
+   ~2,6 sn < 30 sn eşiği. Bulgu: 06-10'dan beri duran
+   `.claude/hooks/hooks.json` Claude Code'un okumadığı şema/konumdaydı,
+   hook 2 ay boyunca hiç çalışmamıştı — B1 defterine işlendi)
 9. Pre-commit hook (yalnız Rust, hızlı olmalı)
 10. ~~Haftalık `/goal` sağlık taraması denemesi (B6)~~ ✅ ilk deneme
     2026-08-10 (`docs/health/health-2026-08-10.md`)
