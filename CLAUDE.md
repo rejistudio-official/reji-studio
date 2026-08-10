@@ -135,6 +135,15 @@ Her değişiklik için şu soruları sor:
 - [ ] Yeni vendor bağımlılığı ekleniyor mu? → Vendor lock-in yasağını kontrol et
 - [ ] clangd bu değişiklik için uyarı veriyor mu? → Uyarıyı önce çöz
 
+### Yeni Mekanizma Kuralı (metrik, event, bayrak, callback, config alanı)
+
+Üç soruyu cevapla ve raporda göster:
+1. Bunu kim **çağırıyor**? (çağıran yoksa ölü kod)
+2. Bunu kim **tüketiyor**? (tüketici yoksa sinyal boşa gidiyor)
+3. Çalıştığını hangi **test** kanıtlıyor? (uçtan uca, yalnız birim değil)
+
+> Örnek: `gpu_load_pct` ABI'de tanımlıydı, PDH ölçümü çalışıyordu, kural motoru tüketiciydi — ama `build_sample` kopyalamıyordu. Üç soru sorulsaydı ikincisinde ("kim tüketiyor, sinyal ona ulaşıyor mu?") yakalanırdı.
+
 ---
 
 ## 8. Mühürleme (Oturum Sonu)
