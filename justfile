@@ -22,6 +22,18 @@ run:
 test:
     cargo test --manifest-path src\orchestrator\Cargo.toml
 
+# Rust lint: clippy -D warnings (weekly'nin de on kosulu)
+lint:
+    cargo clippy --manifest-path src\orchestrator\Cargo.toml --all-targets -- -D warnings
+
+# Gunluk saglik taramasi (~5 dk): ctest + cargo test + diff ozeti + TODO/FIXME
+daily:
+    powershell -NoLogo -File scripts\daily.ps1
+
+# Haftalik saglik taramasi (~30 dk): audit/outdated + ABI ritueli + DOKUNMA + test sayilari
+weekly: lint
+    powershell -NoLogo -File scripts\weekly.ps1
+
 # Fable5 code review
 review:
     powershell -NoLogo -File scripts\fable5-review.ps1
