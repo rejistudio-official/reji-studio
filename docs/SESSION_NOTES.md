@@ -14,7 +14,8 @@
 | Preview Map(READ) darboğazı | `aa02d1c` 06-28 | `5a816e5` 08-03 | ~5 hafta | bloklu okuma frame thread'inde |
 | weekly ABI ritüeli boş doğrulama | `6e93eed` 08-10 | `2a64c0b` 08-10 | saatler | gitignore'lu dosyada git diff |
 | daily TODO sayacı kendini sayıyor | `6e93eed` 08-10 | `2a64c0b` 08-10 | saatler | tarayıcı kendi çıktısında |
-| weekly audit yanlış Cargo.lock yolu | `6e93eed` 08-10 | `(triyaj eki)` 08-10 | saatler | test edilmemiş dal = kopuk bağlantı |
+| weekly audit yanlış Cargo.lock yolu | `6e93eed` 08-10 | `07e8765` 08-10 | saatler | test edilmemiş dal = kopuk bağlantı |
+| **CI hayali bağımlılık kümesini tarıyordu** | `6f6820b` 06-02 | `7337762` 08-10 | **~2+ ay** | Cargo.lock gitignore'da → CI'daki audit + clippy + testlerin TÜMÜ taze çözümlemeyle koşuyordu; "CI yeşil" ≠ "yerel yeşil". RUSTSEC-2026-0204 bu yüzden görünmezdi. Defterin en geniş etkili kaydı. |
 
 **İlk desen tespiti (2026-08-10):** En uzun yaşayanlar Rust/C++
 sınırındaki "mekanizma var, son bağlantı eksik" sınıfı; UI-yakını
