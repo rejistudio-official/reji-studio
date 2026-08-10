@@ -106,9 +106,17 @@ derleme adımları `51583de` ile çıkarıldı).
 `build.yml` ❌ (üç parçalı onarım planı Todoist'te P3 — bu belgede
 doğrulanmadı, kaynak: özgün belge).
 
+> **Çağrı yolu güncellemesi (2026-08-10):** Birincil yol doğrudan
+> script çağrısıdır — `just`'a bağımlı değildir, PATH'i yenilenmemiş
+> kabuklarda ve CI'da da çalışır. `just daily`/`just weekly` hedefleri
+> sarmalayıcı olarak duruyor (just'ın göründüğü kabuklarda kısayol).
+> Clippy adımı da artık `weekly.ps1`'in **içinde** — eskiden yalnız
+> `just weekly: lint` zincirinde koşuyordu, script tek başına
+> çağrıldığında atlanıyordu.
+
 **Günlük (öneri, ~5 dk):**
 ```
-just daily
+powershell -ExecutionPolicy Bypass -File scripts\daily.ps1
   → ctest (tam paket, 26/26 beklenir)
   → cargo test
   → git diff --stat HEAD~1
@@ -117,7 +125,8 @@ just daily
 
 **Haftalık (öneri, ~30 dk) — Reji'ye özgü kontroller:**
 ```
-just weekly
+powershell -ExecutionPolicy Bypass -File scripts\weekly.ps1
+  → cargo clippy --all-targets -D warnings
   → cargo audit + cargo outdated
   → ABI ritüeli: ffi_auto.h'ı build.rs'e dokunarak yeniden ürettir,
     SHA256 aynı mı? (git diff İŞE YARAMAZ — dosya gitignore'da;
@@ -187,14 +196,17 @@ Taşınacak şey varsa, bunlar değil. Karar Aşama 2'de (B5 maddesi)
 
 ### B6. Haftalık sağlık taraması `/goal` ile
 
-`/goal`'un ardışık başarıları bu fikri destekliyor. B3'ün `just
-weekly`/`just daily` altyapısı kurulduktan sonra prompt sadeleşti:
+`/goal`'un ardışık başarıları bu fikri destekliyor. B3'ün
+`weekly.ps1`/`daily.ps1` altyapısı kurulduktan sonra prompt sadeleşti:
 `/goal`'un işi kanıt toplamak değil, raporlamak ve sapmaları
 yorumlamak. Nihai prompt (ilk deneme 2026-08-10,
-`docs/health/health-2026-08-10.md`):
+`docs/health/health-2026-08-10.md`; script çağrıları doğrudan —
+just'a bağımlılık yok):
 
 ```
-/goal Haftalık sağlık taraması: `just weekly` ve `just daily` çalıştır,
+/goal Haftalık sağlık taraması:
+`powershell -ExecutionPolicy Bypass -File scripts\weekly.ps1` ve
+`powershell -ExecutionPolicy Bypass -File scripts\daily.ps1` çalıştır,
 çıktılarını docs/health/health-YYYY-MM-DD.md raporuna işle.
 
 Rapor şunları içermeli: her kontrolün sonucu (geçti/uyarı/hata),

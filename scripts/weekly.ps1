@@ -1,11 +1,18 @@
 # weekly.ps1 - Haftalik saglik taramasi (~30 dk). Kaynak: docs/GELISTIRME_RITMI.md B3
 # Yalniz OTOMATIK kontroller. Insan gerektiren adimlar en altta yorum olarak listeli.
+# Clippy adimi script'in ICINDE - `just weekly: lint` zincirine bagimli degil,
+# dogrudan `powershell -File scripts\weekly.ps1` cagrisi da tam kapsam kosar.
 $ErrorActionPreference = "Continue"
 Set-Location "$PSScriptRoot\.."
 $manifest = "src\orchestrator\Cargo.toml"
 $warn = @()
 
-Write-Host "=== [1/6] cargo audit + cargo outdated ===" -ForegroundColor Cyan
+Write-Host "=== [1/7] cargo clippy --all-targets -D warnings ===" -ForegroundColor Cyan
+cargo clippy --manifest-path $manifest --all-targets -- -D warnings
+if ($LASTEXITCODE -ne 0) { $warn += "cargo clippy uyari/hata verdi (-D warnings)" }
+else { Write-Host "clippy: temiz" -ForegroundColor Green }
+
+Write-Host "=== [2/7] cargo audit + cargo outdated ===" -ForegroundColor Cyan
 if (Get-Command cargo-audit -ErrorAction SilentlyContinue) {
     # Cargo.lock depo kokunde (workspace) - CI (quality.yml) ile ayni cagri
     cargo audit
@@ -19,7 +26,7 @@ if (Get-Command cargo-outdated -ErrorAction SilentlyContinue) {
     $warn += "cargo-outdated kurulu degil (cargo install cargo-outdated)"
 }
 
-Write-Host "=== [2/6] ABI ritueli: ffi_auto.h yeniden uretim ===" -ForegroundColor Cyan
+Write-Host "=== [3/7] ABI ritueli: ffi_auto.h yeniden uretim ===" -ForegroundColor Cyan
 # ffi_auto.h uretilen ve git'e GIRMEYEN bir dosyadir (.gitignore:38) - git diff
 # ile kontrol EDILEMEZ (bos gecer). Ayrica dosyayi silmek cargo'yu build.rs'i
 # yeniden calistirmaya zorlamaz (cikti dosyasi fingerprint'e dahil degil).
@@ -37,21 +44,21 @@ if (-not (Test-Path src\ffi\ffi_auto.h)) {
     elseif ($abiOld) { Write-Host "ffi_auto.h yeniden uretildi, icerik ayni - ABI stabil" -ForegroundColor Green }
 }
 
-Write-Host "=== [3/6] DOKUNMA dosyalari ===" -ForegroundColor Cyan
+Write-Host "=== [4/7] DOKUNMA dosyalari ===" -ForegroundColor Cyan
 foreach ($f in @("src/orchestrator/src/metrics.rs", "src/ffi/ffi_bridge.h")) {
     $dirty = git status --porcelain -- $f
     if ($dirty) { $warn += "DOKUNMA dosyasi yerel degisiklik iceriyor: $f" }
     Write-Host "$f -> son commit: $(git log -1 --format='%h %ad %s' --date=short -- $f)"
 }
 
-Write-Host "=== [4/6] baseline_metrics.txt ===" -ForegroundColor Cyan
+Write-Host "=== [5/7] baseline_metrics.txt ===" -ForegroundColor Cyan
 # Dosya bilerek izleniyor; kontrol = son commit'te beklenmedik degisiklik var mi?
 Write-Host "Son commit: $(git log -1 --format='%h %ad %s' --date=short -- tests/baseline_metrics.txt)"
 if (git status --porcelain -- tests/baseline_metrics.txt) {
     $warn += "baseline_metrics.txt yerel degisiklik iceriyor - commit'lemeden once gerekce sor"
 }
 
-Write-Host "=== [5/6] Test sayisi kontrolu (ctest 26, cargo 145+5+37) ===" -ForegroundColor Cyan
+Write-Host "=== [6/7] Test sayisi kontrolu (ctest 26, cargo 145+5+37) ===" -ForegroundColor Cyan
 $ctestN = [int]((ctest --test-dir build -N 2>$null | Select-String "Total Tests: (\d+)").Matches[0].Groups[1].Value)
 if ($ctestN -ne 26) { $warn += "ctest sayisi sapti: $ctestN (beklenen 26)" }
 else { Write-Host "ctest: 26 - tamam" -ForegroundColor Green }
@@ -61,7 +68,7 @@ if (($cargoOut -join ",") -ne ($expected -join ",")) {
     $warn += "cargo test suite sayilari sapti: $($cargoOut -join '+') (beklenen 145+5+37)"
 } else { Write-Host "cargo: 145+5+37 - tamam" -ForegroundColor Green }
 
-Write-Host "=== [6/6] Ozet ===" -ForegroundColor Cyan
+Write-Host "=== [7/7] Ozet ===" -ForegroundColor Cyan
 if ($warn.Count -gt 0) {
     Write-Host "HAFTALIK TARAMA: $($warn.Count) uyari" -ForegroundColor Yellow
     $warn | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
