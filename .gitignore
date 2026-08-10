@@ -1,6 +1,8 @@
 # Rust derleme çıktıları
 target/
-Cargo.lock
+# Cargo.lock BILINCLI OLARAK IZLENIR (uygulama konvansiyonu):
+# CI'in (audit/clippy/test) gercek bagimlilik surumlerini kullanmasi icin.
+# Bkz: docs/health/health-2026-08-10.md — lock'suz CI hayali kumeyi tariyordu.
 
 # CMake derleme çıktıları
 build/
