@@ -16,6 +16,7 @@
 | daily TODO sayacı kendini sayıyor | `6e93eed` 08-10 | `2a64c0b` 08-10 | saatler | tarayıcı kendi çıktısında |
 | weekly audit yanlış Cargo.lock yolu | `6e93eed` 08-10 | `07e8765` 08-10 | saatler | test edilmemiş dal = kopuk bağlantı |
 | **CI hayali bağımlılık kümesini tarıyordu** | `6f6820b` 06-02 | `7337762` 08-10 | **~2+ ay** | Cargo.lock gitignore'da → CI'daki audit + clippy + testlerin TÜMÜ taze çözümlemeyle koşuyordu; "CI yeşil" ≠ "yerel yeşil". RUSTSEC-2026-0204 bu yüzden görünmezdi. Defterin en geniş etkili kaydı. |
+| weekly.ps1 tek başına clippy koşmuyordu | `6e93eed` 08-10 | `65c6dc5` 08-10 | saatler | kapsam çağrı yoluna bağlıydı: clippy script'te değil `just weekly: lint` zincirindeydi; script doğrudan çağrılınca sessizce atlanıyordu |
 
 **İlk desen tespiti (2026-08-10):** En uzun yaşayanlar Rust/C++
 sınırındaki "mekanizma var, son bağlantı eksik" sınıfı; UI-yakını
@@ -66,6 +67,24 @@ bunu neden yakalamadığı açık soru. outdated: 7 paket (öne çıkan:
 cbindgen 0.27→0.29). Üçüncü tarayıcı kusuru: weekly audit çağrısı
 var olmayan `src\orchestrator\Cargo.lock`'u gösteriyordu (test
 edilmemiş dal) — düz `cargo audit`'e düzeltildi.
+
+**Gece eki — "just kurulu değil" alarmı ve clippy bağımsızlığı
+(`65c6dc5`):** Kullanıcı kabuğunda `Get-Command just` / `where.exe
+just` boş döndü → "kurulum hiç gerçekleşmedi" şüphesi doğdu. Teşhis:
+**yanlış alarm** — just gerçekte kurulu (`%LOCALAPPDATA%\Microsoft\
+WinGet\Packages\Casey.Just_...\just.exe`, v1.58.0) ve paket dizini
+kalıcı kullanıcı PATH'inde; taze kabukta `just --version` çalışıyor.
+Boş dönmesinin nedeni kurulumdan önce açılmış kabuğun PATH'i
+yenilememesi (winget PATH'i değiştirir ama açık oturumlara yansımaz;
+WindowsApps taraması da boş döner çünkü winget oraya kurmaz —
+terminali yeniden başlatmak yeter). Alarm yine de gerçek bir boşluğu
+ortaya çıkardı (B1 defterine işlendi): clippy yalnız `just weekly:
+lint` zincirinde koşuyordu, `weekly.ps1` doğrudan çağrılınca kapsam
+sessizce daralıyordu. Düzeltme: clippy adımı script'in içine alındı
+([1/7]), GELISTIRME_RITMI.md'de birincil yol doğrudan script çağrısı
+yapıldı, just hedefleri sarmalayıcı olarak korundu. Doğrulama:
+`scripts\weekly.ps1` doğrudan koşuldu — clippy temiz, tarama uçtan
+uca yeşil (26/26, 145+5+37, ABI stabil, exit 0).
 
 **Kalan işler:** PostToolUse hook, pre-commit hook (Bölüm C 8-9) —
 ertelendi, ayrı oturumda süre ölçümüyle.
