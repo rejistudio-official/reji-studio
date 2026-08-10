@@ -22,6 +22,9 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
       - name: Cargo audit
         run: |
           cargo install cargo-audit --locked
