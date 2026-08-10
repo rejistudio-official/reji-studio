@@ -7,7 +7,8 @@ $warn = @()
 
 Write-Host "=== [1/6] cargo audit + cargo outdated ===" -ForegroundColor Cyan
 if (Get-Command cargo-audit -ErrorAction SilentlyContinue) {
-    cargo audit --file src\orchestrator\Cargo.lock
+    # Cargo.lock depo kokunde (workspace) - CI (quality.yml) ile ayni cagri
+    cargo audit
     if ($LASTEXITCODE -ne 0) { $warn += "cargo audit uyari/hata verdi" }
 } else {
     $warn += "cargo-audit kurulu degil (cargo install cargo-audit)"

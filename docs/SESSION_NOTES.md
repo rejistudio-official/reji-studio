@@ -12,8 +12,9 @@
 | FrameProfiler örnek toplamıyor | `6f6820b` 06-02 | `598520a` 08-03 | ≤2 ay | kayıt çağrısı yanlış yerde |
 | İçe aktarım QFile::copy | `5a16f81` 07-16 | `c99f1b6` 07-20 | 4 gün | var olan hedefe yazamama |
 | Preview Map(READ) darboğazı | `aa02d1c` 06-28 | `5a816e5` 08-03 | ~5 hafta | bloklu okuma frame thread'inde |
-| weekly ABI ritüeli boş doğrulama | `6e93eed` 08-10 | `(B6 turu)` 08-10 | saatler | gitignore'lu dosyada git diff |
-| daily TODO sayacı kendini sayıyor | `6e93eed` 08-10 | `(B6 turu)` 08-10 | saatler | tarayıcı kendi çıktısında |
+| weekly ABI ritüeli boş doğrulama | `6e93eed` 08-10 | `2a64c0b` 08-10 | saatler | gitignore'lu dosyada git diff |
+| daily TODO sayacı kendini sayıyor | `6e93eed` 08-10 | `2a64c0b` 08-10 | saatler | tarayıcı kendi çıktısında |
+| weekly audit yanlış Cargo.lock yolu | `6e93eed` 08-10 | `(triyaj eki)` 08-10 | saatler | test edilmemiş dal = kopuk bağlantı |
 
 **İlk desen tespiti (2026-08-10):** En uzun yaşayanlar Rust/C++
 sınırındaki "mekanizma var, son bağlantı eksik" sınıfı; UI-yakını
@@ -51,8 +52,22 @@ docs/ ağacı gerçek içeriğe göre düzeltildi → `GELISTIRME_RITMI.md`.
   kusur çıkardı ve kapattı (ABI ritüeli boş doğrulamaydı; TODO
   sayacı kendini sayıyordu) — B1 defterine işlendi.
 
-**Kalan işler:** PostToolUse hook, pre-commit hook (Bölüm C 8-9);
-cargo-audit/outdated kurulum kararı (triyaj).
+**Triyaj sonrası ek (aynı gün):** Clippy turunun "ffi_auto.h bayt-bayt
+aynı" iddiası — kusur 1 nedeniyle içeriksiz kanıta dayanıyordu —
+worktree'de SHA256 yöntemiyle geriye dönük teyit edildi: `3a74ce9`
+(öncesi) = `cc0f29d` (sonrası) = güncel HEAD, üçü de `CCAAF6F2…`.
+ABI gerçekten değişmemiş; iddia artık kanıtlı (ayrıntı:
+`health/health-2026-08-10.md` eki). cargo-audit + cargo-outdated
+yerel kuruldu (`--locked`; rustc 1.95/kstring uyuşmazlığı nedeniyle).
+İlk audit koşumu 1 zafiyet buldu: `crossbeam-epoch` 0.9.18
+(RUSTSEC-2026-0204, geçişli) — düzeltilmedi, triyaja bırakıldı; CI'ın
+bunu neden yakalamadığı açık soru. outdated: 7 paket (öne çıkan:
+cbindgen 0.27→0.29). Üçüncü tarayıcı kusuru: weekly audit çağrısı
+var olmayan `src\orchestrator\Cargo.lock`'u gösteriyordu (test
+edilmemiş dal) — düz `cargo audit`'e düzeltildi.
+
+**Kalan işler:** PostToolUse hook, pre-commit hook (Bölüm C 8-9) —
+ertelendi, ayrı oturumda süre ölçümüyle.
 
 ---
 
