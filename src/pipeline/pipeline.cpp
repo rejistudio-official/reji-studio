@@ -25,6 +25,7 @@
 #include "include/command_router.h"
 #include "include/bitrate_policy.h"
 #include "include/frame_drop_policy.h"
+#include "include/frame_repeat_policy.h"
 #include "gpu/external_memory_bridge.h"
 #include "gpu/vulkan_initializer.h"
 #ifndef REJI_VULKAN_MOCK
@@ -897,11 +898,37 @@ bool Pipeline::run_frame() {
             // besleyip START'sız recovery banner döngüsü üretiyordu.
             if (counts_as_frame_drop(FrameOutcome::NoNewFrame))
                 s.frame_drops.fetch_add(1, std::memory_order_relaxed);
+            // VFR/CFR Faz 2 (K2): kopya varsa son kare tekrar encode edilir —
+            // CFR üretimi + ses drain kadansı (on_packet → audio_bridge_.drain
+            // artık her tick koşar; A5 kapanır). NeedsReinit'te de sürer (yayın
+            // kopmasın). Tekrar drop DEĞİL (frame_drop_policy değişmez); yalnız
+            // gerçek encode hatası valid-daldaki gibi drop + recovery sayılır.
+            bool recovered_this_tick = false;
+            if (should_repeat_frame(s.repeat_tex_ != nullptr, /*is_null_tick=*/true)) {
+                const int64_t pts_us = s.pacer_.pts_us(frame_start);
+                const int64_t enc_t0 = qpc_ticks();
+                const bool enc_ok = s.encode_sub_.encode_frame(s.repeat_tex_.Get(), pts_us);
+                s.send_diag_.record_encode(s.ticks_us(qpc_ticks() - enc_t0));
+                if (auto* e = s.encode_sub_.raw()) {
+                    const auto t = e->last_timings();
+                    s.send_diag_.record_enc_split(t.encode_us, t.lock_us, t.cb_us);
+                }
+                s.send_diag_.record_repeat();
+                if (!enc_ok) {
+                    if (counts_as_frame_drop(FrameOutcome::EncodeFailed))
+                        s.frame_drops.fetch_add(1, std::memory_order_relaxed);
+                    (void)RecoveryCoordinator::handle_device_lost(
+                        *s.source_, s.encode_sub_, s.cfg,
+                        s.bitrate_kbps.load(std::memory_order_relaxed),
+                        s.width, s.height);
+                    recovered_this_tick = true;  // reinit_edge ile çifte recovery önlenir
+                }
+            }
             // Null-streak sayacı adapter'da (state() NeedsReinit level sinyali);
             // reinit_trigger_ geçişte bir kez + 60 karede re-arm ile edge üretir
             // — eski handle_null_frame() cadence'ı birebir (Faz 0 karar 3).
             // Gerçek reinit RecoveryCoordinator'a delege edilir (cross-subsystem).
-            if (reinit_edge) {
+            if (reinit_edge && !recovered_this_tick) {
                 dbglog("[Pipeline] Capture loss detected (60 frames) — reinit");
                 (void)RecoveryCoordinator::handle_device_lost(
                     *s.source_, s.encode_sub_, s.cfg,
