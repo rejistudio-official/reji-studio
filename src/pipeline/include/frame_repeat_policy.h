@@ -28,7 +28,10 @@ constexpr bool should_repeat_frame(bool have_copy, bool is_null_tick) noexcept {
     return have_copy && is_null_tick;
 }
 
-inline constexpr int64_t kDefaultIdrIntervalUs = 2'000'000;  // platform sınırı: 2 sn
+// Yedek eşik 3 sn: doğal GOP kadansının (120 kare @60 = tam 2.0 sn) ÜSTÜNDE pay
+// bırakır — 2 sn eşik doğal keyframe'le yarışıp sahte idrF tetikliyordu (canlı
+// ölçüm, Faz 2 commit 6) — ve YouTube'un 4 sn üst sınırının altında kalır.
+inline constexpr int64_t kDefaultIdrIntervalUs = 3'000'000;
 
 // Zaman bazlı yedek IDR kadansı. Epoch GERÇEKLEŞEN keyframe'lerle ölçülür
 // (on_packet is_keyframe) — isteklere göre değil; istek kaybolursa da kadans

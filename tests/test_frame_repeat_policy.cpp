@@ -74,6 +74,15 @@ TEST(IdrCadenceTest, RearmsAfterKeyframeObserved) {
     EXPECT_TRUE(c.should_force_idr(4 * kSecUs + 50'000));   // yeni epoch doldu
 }
 
+TEST(IdrCadenceTest, DefaultIntervalHasHeadroomAboveNaturalGop) {
+    // Canlı ölçüm bulgusu (Faz 2 commit 6): gopLength=120 @60 encode/sn = doğal
+    // keyframe kadansı TAM 2.0 sn. Varsayılan yedek eşik de 2.0 sn olunca ikisi
+    // yarışıyor ve idrF ~7-9 sn'de bir sahte tetikliyordu. Eşik doğal kadansın
+    // üstünde pay bırakmalı, platform üst sınırının (YouTube 4 sn) altında kalmalı.
+    EXPECT_GT(rj::kDefaultIdrIntervalUs, 2'500'000);
+    EXPECT_LE(rj::kDefaultIdrIntervalUs, 4'000'000);
+}
+
 TEST(IdrCadenceTest, NormalGopCadenceNeverFires) {
     // Normal akış: keyframe her 2 sn'de gerçekleşiyor (gopLength birincil) —
     // yedek katman hiç devreye girmemeli (idrF=0 beklentisinin saf karşılığı).
