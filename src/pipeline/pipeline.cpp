@@ -210,6 +210,58 @@ struct Pipeline::Impl {
     // Faz 3(b): WGC preview seyreltme sayacı — her 2. tex'li karede emit (30Hz).
     uint32_t preview_seq_ = 0;
 
+    // VFR/CFR Faz 2 (K1): WGC encode girdisinin kalıcı kopyası. WGC pool
+    // texture'ı borrowed (null çağrıda bile bırakılıyor — capture_wgc.cpp:171)
+    // ve pool pointer'ları dönüşümlü; NVENC tek-slot kayıt cache'i
+    // (encode_nvenc.cpp:285) her pointer değişiminde unregister+register
+    // yapıyordu. Kalıcı kopya: (a) null tick'te tekrar edilecek son kareyi
+    // elde tutar, (b) NVENC kaydını oturum başına bire indirir. DXGI'de
+    // gereksiz — GpuResourceManager'ın kalıcı shared texture'ı zaten kararlı.
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> repeat_tex_;
+
+    // src'yi kalıcı kopyaya çek; kopyayı döndürür. Boyut/format/cihaz
+    // değişiminde yeniden yaratır (cihaz kıyası: device-lost recovery yeni WGC
+    // cihazı kurar — bayat cihazın texture'ına CopyResource geçersiz olurdu).
+    // Başarısızlıkta nullptr — çağıran canlı texture ile encode'a düşer
+    // (bugünkü davranış), tekrar o karede mümkün olmaz. CopyResource
+    // submit-only: CPU beklemesi yok (preview ringinin dersi).
+    ID3D11Texture2D* copy_for_repeat(ID3D11Texture2D* src) noexcept {
+        D3D11_TEXTURE2D_DESC want{};
+        src->GetDesc(&want);
+        Microsoft::WRL::ComPtr<ID3D11Device> dev;
+        src->GetDevice(&dev);
+        if (!dev) return nullptr;
+
+        if (repeat_tex_) {
+            D3D11_TEXTURE2D_DESC have{};
+            repeat_tex_->GetDesc(&have);
+            Microsoft::WRL::ComPtr<ID3D11Device> have_dev;
+            repeat_tex_->GetDevice(&have_dev);
+            if (have.Width != want.Width || have.Height != want.Height ||
+                have.Format != want.Format || have_dev.Get() != dev.Get())
+                repeat_tex_.Reset();
+        }
+        if (!repeat_tex_) {
+            D3D11_TEXTURE2D_DESC desc = want;
+            desc.Usage          = D3D11_USAGE_DEFAULT;
+            desc.BindFlags      = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+            desc.CPUAccessFlags = 0;
+            desc.MiscFlags      = 0;
+            desc.MipLevels      = 1;
+            desc.ArraySize      = 1;
+            if (FAILED(dev->CreateTexture2D(&desc, nullptr, &repeat_tex_))) {
+                fprintf(stderr, "[Pipeline] repeat_tex_ CreateTexture2D FAILED %ux%u\n",
+                        want.Width, want.Height);
+                return nullptr;
+            }
+        }
+        Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx;
+        dev->GetImmediateContext(&ctx);
+        if (!ctx) return nullptr;
+        ctx->CopyResource(repeat_tex_.Get(), src);
+        return repeat_tex_.Get();
+    }
+
     // QPC delta → µs (SendDiag beslemesi; kırpma güvenli — süreler <1sn).
     uint32_t ticks_us(int64_t dt) const noexcept {
         const int64_t f = pacer_.qpc_freq();
@@ -739,13 +791,22 @@ bool Pipeline::run_frame() {
 
         if (tex) {
             const int64_t pts_us = s.pacer_.pts_us(frame_start);
+            // VFR/CFR Faz 2 (K1): WGC'de encode girdisi kalıcı kopya — hem null
+            // tick tekrarının kaynağı hem NVENC kayıt thrash'inin sonu. Preview
+            // ve d3d11_frame_cb canlı texture'la sürer (davranış değişmez).
+            ID3D11Texture2D* enc_tex = tex;
+            if (s.source_->is_wgc()) {
+                const int64_t copy_t0 = qpc_ticks();
+                if (ID3D11Texture2D* copy = s.copy_for_repeat(tex)) enc_tex = copy;
+                s.send_diag_.record_copy(s.ticks_us(qpc_ticks() - copy_t0));
+            }
             // encode_frame(): encoder yoksa true (no-op) — eski `s.encoder && ...`
             // koşuluyla aynı: yalnızca gerçek encode hatasında drop + TDR recovery.
             // RTMP_DARBOGAZ Faz 1: süre ölçülür — NVENC senkron olduğundan
             // on_packet (send dahil) bu çağrının İÇİNDE koşar; enc-sendV farkı
             // saf encode maliyetini verir (H3).
             const int64_t enc_t0 = qpc_ticks();
-            const bool enc_ok = s.encode_sub_.encode_frame(tex, pts_us);
+            const bool enc_ok = s.encode_sub_.encode_frame(enc_tex, pts_us);
             s.send_diag_.record_encode(s.ticks_us(qpc_ticks() - enc_t0));
             // Faz 3: enc mikro-split — saf NVENC beklemesi (encP+lock) ile
             // on_packet toplamı (encCb) ayrışır; keyframe spike'ları lock'ta,
@@ -935,6 +996,7 @@ bool Pipeline::shutdown() {
         s.output_sub_.shutdown();   // transport_atomic null + transport_ reset (SEH-leaf DIŞINDA)
         s.encode_sub_.shutdown();   // encoder_ reset (SEH-leaf DIŞINDA)
         if (s.source_) s.source_->shutdown();  // capture_ reset + dxgi_ null
+        s.repeat_tex_.Reset();  // VFR/CFR Faz 2: kopya, kaynak cihazıyla ölür
 
         // B10: Shutdown bridge before VulkanInitializer can release the device.
         // ExternalMemoryBridge holds raw VkDevice/VkImage handles; resetting here
