@@ -54,8 +54,16 @@ struct SendDiagStats {
     uint32_t sendv_max_us = 0;
     uint32_t senda_avg_us = 0;  // audio_bridge_.drain (AAC encode + send_audio)
     uint32_t senda_max_us = 0;
+    // VFR/CFR Faz 2: kare tekrarı gözlemlenebilirliği. copy = geçerli karede
+    // repeat-texture'a CopyResource submit süresi; dup = null tick'te tekrar
+    // encode edilen kare; idrF = zaman bazlı YEDEK IDR tetiklendi (normalde 0 —
+    // sürekli >0, tekrar mekanizmasının aksadığının erken uyarısı).
+    uint32_t copy_avg_us  = 0;
+    uint32_t copy_max_us  = 0;
     uint32_t n_frames     = 0;  // tex'li iterasyon sayısı
     uint32_t n_null       = 0;  // "yeni kare yok" iterasyonu (S1-ek4: drop değil)
+    uint32_t n_dup        = 0;  // tekrar kare (dup ≠ drop; n_null alt kümesi)
+    uint32_t n_idr_fallback = 0;
     uint32_t n_prev_miss  = 0;  // Faz 3(c): DO_NOT_WAIT map hazır değildi — atlandı
     uint32_t n_sendv_ok   = 0;  // wire-fps: başarıyla yazılan video karesi/sn
     uint32_t n_sendv_fail = 0;
@@ -88,6 +96,10 @@ public:
         if (ok) ++n_sendv_ok_; else ++n_sendv_fail_;
     }
     void record_audio_drain(uint32_t us) { senda_.add(us); }
+    // VFR/CFR Faz 2: tekrar/kopya/yedek-IDR kayıtları (tek thread — frame thread).
+    void record_repeat()             { ++n_dup_; }
+    void record_copy(uint32_t us)    { copy_.add(us); }
+    void record_idr_fallback()       { ++n_idr_fallback_; }
 
     // Pencere (1sn) dolduysa `out`u doldurur, pencereyi sıfırlar, true döner.
     bool maybe_flush(uint64_t now_us, SendDiagStats* out) {
@@ -116,8 +128,12 @@ public:
         out->sendv_max_us = sendv_.max_us;
         out->senda_avg_us = senda_.avg();
         out->senda_max_us = senda_.max_us;
+        out->copy_avg_us  = copy_.avg();
+        out->copy_max_us  = copy_.max_us;
         out->n_frames     = n_frames_;
         out->n_null       = n_null_;
+        out->n_dup        = n_dup_;
+        out->n_idr_fallback = n_idr_fallback_;
         out->n_prev_miss  = n_prev_miss_;
         out->n_sendv_ok   = n_sendv_ok_;
         out->n_sendv_fail = n_sendv_fail_;
@@ -145,35 +161,38 @@ private:
 
     void reset(uint64_t now_us) {
         cap_ = {}; capn_ = {}; enc_ = {}; sendv_ = {}; senda_ = {};
-        d3d_ = {}; prev_ = {}; tot_ = {}; pace_ = {};
+        d3d_ = {}; prev_ = {}; tot_ = {}; pace_ = {}; copy_ = {};
         encp_ = {}; lock_ = {}; ecb_ = {};
         n_frames_ = n_null_ = n_prev_miss_ = n_sendv_ok_ = n_sendv_fail_ = 0;
+        n_dup_ = n_idr_fallback_ = 0;
         window_start_us_ = now_us;
     }
 
     uint64_t window_start_us_ = 0;
     Acc cap_, capn_, enc_, sendv_, senda_;
-    Acc d3d_, prev_, tot_, pace_;
+    Acc d3d_, prev_, tot_, pace_, copy_;
     Acc encp_, lock_, ecb_;
     uint32_t n_frames_ = 0, n_null_ = 0, n_prev_miss_ = 0;
     uint32_t n_sendv_ok_ = 0, n_sendv_fail_ = 0;
+    uint32_t n_dup_ = 0, n_idr_fallback_ = 0;
 };
 
 // Stats → tek satır insan-okur teşhis formatı ("[SendDiag] ...").
 // Süreler ms (bir ondalık): teşhiste 16.7ms kare bütçesiyle doğrudan kıyas için.
 inline std::string format_send_diag(const SendDiagStats& s) {
-    char buf[512];
+    char buf[640];
     auto ms = [](uint32_t us) { return static_cast<double>(us) / 1000.0; };
     std::snprintf(
         buf, sizeof(buf),
-        "[SendDiag] wire_fps=%u frames=%u null=%u "
-        "cap=%.1f/%.1fms capNull=%.1f/%.1fms enc=%.1f/%.1fms "
+        "[SendDiag] wire_fps=%u frames=%u null=%u dup=%u idrF=%u "
+        "cap=%.1f/%.1fms capNull=%.1f/%.1fms copy=%.1f/%.1fms enc=%.1f/%.1fms "
         "encP=%.1f/%.1fms lock=%.1f/%.1fms encCb=%.1f/%.1fms "
         "d3d=%.1f/%.1fms prev=%.1f/%.1fms(miss=%u) sendV=%.1f/%.1fms(fail=%u) "
         "audioDrain=%.1f/%.1fms(n=%u) tot=%.1f/%.1fms pace=%.1f/%.1fms",
-        s.n_sendv_ok, s.n_frames, s.n_null,
+        s.n_sendv_ok, s.n_frames, s.n_null, s.n_dup, s.n_idr_fallback,
         ms(s.cap_avg_us), ms(s.cap_max_us),
         ms(s.capn_avg_us), ms(s.capn_max_us),
+        ms(s.copy_avg_us), ms(s.copy_max_us),
         ms(s.enc_avg_us), ms(s.enc_max_us),
         ms(s.encp_avg_us), ms(s.encp_max_us),
         ms(s.lock_avg_us), ms(s.lock_max_us),

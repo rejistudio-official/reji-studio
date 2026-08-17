@@ -195,6 +195,48 @@ TEST(SendDiagTest, FormatLineCarriesFaz3Fields) {
     EXPECT_NE(line.find("miss=7"), std::string::npos);
 }
 
+TEST(SendDiagTest, Faz4AggregatesDupCopyIdrFallback) {
+    // VFR/CFR Faz 2: kare tekrarı gözlemlenebilirliği — dup (penceredeki tekrar
+    // kare sayısı), copy (CopyResource submit süresi), idrF (zaman bazlı yedek
+    // IDR tetik sayısı; normal akışta 0 beklenir — >0 tekrar mekanizmasının
+    // aksadığının erken uyarısıdır).
+    SendDiag d;
+    d.begin_window(0);
+    d.record_repeat();
+    d.record_repeat();
+    d.record_repeat();
+    d.record_copy(200);
+    d.record_copy(600);
+    d.record_idr_fallback();
+
+    SendDiagStats s{};
+    ASSERT_TRUE(d.maybe_flush(kSecUs, &s));
+    EXPECT_EQ(s.n_dup, 3u);
+    EXPECT_EQ(s.copy_avg_us, 400u);
+    EXPECT_EQ(s.copy_max_us, 600u);
+    EXPECT_EQ(s.n_idr_fallback, 1u);
+
+    // Pencere sıfırlanır — sızıntı yok
+    SendDiagStats s2{};
+    ASSERT_TRUE(d.maybe_flush(2 * kSecUs, &s2));
+    EXPECT_EQ(s2.n_dup, 0u);
+    EXPECT_EQ(s2.copy_max_us, 0u);
+    EXPECT_EQ(s2.n_idr_fallback, 0u);
+}
+
+TEST(SendDiagTest, FormatLineCarriesFaz4Fields) {
+    SendDiagStats s{};
+    s.n_dup       = 42;
+    s.copy_avg_us = 300;  s.copy_max_us = 1500;
+    s.n_idr_fallback = 2;
+
+    const std::string line = rj::format_send_diag(s);
+
+    EXPECT_NE(line.find("dup=42"), std::string::npos);
+    EXPECT_NE(line.find("copy=0.3"), std::string::npos);
+    EXPECT_NE(line.find("idrF=2"), std::string::npos);
+}
+
 TEST(SendDiagTest, EmptyWindowFlushesZeros) {
     // Boş pencere (hiç örnek yok) çökmemeli; sıfırlar dönmeli.
     SendDiag d;
