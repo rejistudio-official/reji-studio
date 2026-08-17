@@ -220,6 +220,20 @@ struct Pipeline::Impl {
     // gereksiz — GpuResourceManager'ın kalıcı shared texture'ı zaten kararlı.
     Microsoft::WRL::ComPtr<ID3D11Texture2D> repeat_tex_;
 
+    // VFR/CFR Faz 2 (K3): zaman bazlı yedek IDR — gopLength (120 kare) birincil;
+    // bu katman yalnız gerçekleşen keyframe kadansı 2 sn'yi aşınca devreye girer
+    // (normalde hiç — idrF>0 sürekliyse tekrar mekanizması aksıyor demektir).
+    IdrCadence idr_cadence_{};
+
+    // Her iki encode dalının ortak IDR-kadans kontrolü — encode'dan ÖNCE çağrılır
+    // ki istek bu karede tüketilsin (encode_subsystem request_idr → FORCEIDR).
+    void maybe_force_idr(int64_t pts_us) noexcept {
+        if (idr_cadence_.should_force_idr(pts_us)) {
+            encode_sub_.request_idr();
+            send_diag_.record_idr_fallback();
+        }
+    }
+
     // src'yi kalıcı kopyaya çek; kopyayı döndürür. Boyut/format/cihaz
     // değişiminde yeniden yaratır (cihaz kıyası: device-lost recovery yeni WGC
     // cihazı kurar — bayat cihazın texture'ına CopyResource geçersiz olurdu).
@@ -386,6 +400,11 @@ struct Pipeline::Impl {
             fprintf(stderr, "[NVENC] packet #%d size=%zu pts=%lld keyframe=%d\n",
                     n, pkt.size, (long long)pkt.pts, pkt.is_keyframe ? 1 : 0);
         fflush(stderr);
+
+        // VFR/CFR Faz 2 (K3): yedek IDR kadansı GERÇEKLEŞEN keyframe'lerle
+        // ölçülür — istek kaybolsa da epoch doğru kalır. streaming kontrolünden
+        // ÖNCE: encoder init'ten beri keyframe üretir, kadans yayın öncesi de işler.
+        if (pkt.is_keyframe) self->idr_cadence_.on_keyframe(pkt.pts);
 
         if (!self->streaming.load(std::memory_order_acquire)) return;
         // V10/L22: frame_drop_pct beslemesi — send aşamasına ulaşan her paket
@@ -806,6 +825,7 @@ bool Pipeline::run_frame() {
             // RTMP_DARBOGAZ Faz 1: süre ölçülür — NVENC senkron olduğundan
             // on_packet (send dahil) bu çağrının İÇİNDE koşar; enc-sendV farkı
             // saf encode maliyetini verir (H3).
+            s.maybe_force_idr(pts_us);  // K3: yedek IDR (encode'dan önce)
             const int64_t enc_t0 = qpc_ticks();
             const bool enc_ok = s.encode_sub_.encode_frame(enc_tex, pts_us);
             s.send_diag_.record_encode(s.ticks_us(qpc_ticks() - enc_t0));
@@ -906,6 +926,7 @@ bool Pipeline::run_frame() {
             bool recovered_this_tick = false;
             if (should_repeat_frame(s.repeat_tex_ != nullptr, /*is_null_tick=*/true)) {
                 const int64_t pts_us = s.pacer_.pts_us(frame_start);
+                s.maybe_force_idr(pts_us);  // K3: tekrar dalında da kadans korunur
                 const int64_t enc_t0 = qpc_ticks();
                 const bool enc_ok = s.encode_sub_.encode_frame(s.repeat_tex_.Get(), pts_us);
                 s.send_diag_.record_encode(s.ticks_us(qpc_ticks() - enc_t0));
