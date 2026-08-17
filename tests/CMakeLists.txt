@@ -240,6 +240,24 @@ target_link_libraries(test_frame_drop_policy
 
 add_test(NAME FrameDropPolicyTest COMMAND test_frame_drop_policy)
 
+# ── VFR/CFR Faz 2: kare tekrarı + yedek IDR kadansı saf karar testi ──
+# frame_repeat_policy.h header-only (yalnız <cstdint>) — reji_pipeline/Rust link
+# gerekmez, sadece gtest. K2 (her null tick'te tekrar, kopya önkoşulu) ve K3
+# (2 sn yedek IDR, çifte-istek yok, normal kadansta sessiz) kararlarını kilitler.
+add_executable(test_frame_repeat_policy
+    test_frame_repeat_policy.cpp
+)
+
+target_include_directories(test_frame_repeat_policy PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pipeline/include
+)
+
+target_link_libraries(test_frame_repeat_policy
+    gtest gtest_main
+)
+
+add_test(NAME FrameRepeatPolicyTest COMMAND test_frame_repeat_policy)
+
 # ── RTMP_DARBOGAZ Faz 1: SendDiag 1Hz gönderim teşhis agregatörü saf testi ──
 # send_diag.h header-only (yalnız <cstdint>/<string>) — reji_pipeline/Rust link
 # gerekmez, sadece gtest. Pencere/flush sözleşmesini ve wire-fps sayımını
