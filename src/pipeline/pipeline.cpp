@@ -811,11 +811,15 @@ bool Pipeline::run_frame() {
 
         if (tex) {
             const int64_t pts_us = s.pacer_.pts_us(frame_start);
-            // VFR/CFR Faz 2 (K1): WGC'de encode girdisi kalıcı kopya — hem null
-            // tick tekrarının kaynağı hem NVENC kayıt thrash'inin sonu. Preview
-            // ve d3d11_frame_cb canlı texture'la sürer (davranış değişmez).
+            // VFR/CFR Faz 2 (K1): encode girdisi kalıcı kopya — hem null tick
+            // tekrarının kaynağı hem (WGC'de) NVENC kayıt thrash'inin sonu.
+            // İKİ backend'de de kopyalanır: DXGI handle'ı kararlı ama yaşamı
+            // GpuResourceManager'a bağlı (reinit'te yenilenir) — kendi kopyamız
+            // tekrar dalını backend'den bağımsız güvenli kılar; ölçülen maliyet
+            // ~0.0-0.1ms (copy=). Preview ve d3d11_frame_cb canlı texture'la
+            // sürer (davranış değişmez).
             ID3D11Texture2D* enc_tex = tex;
-            if (s.source_->is_wgc()) {
+            {
                 const int64_t copy_t0 = qpc_ticks();
                 if (ID3D11Texture2D* copy = s.copy_for_repeat(tex)) enc_tex = copy;
                 s.send_diag_.record_copy(s.ticks_us(qpc_ticks() - copy_t0));

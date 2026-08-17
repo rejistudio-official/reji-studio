@@ -1688,6 +1688,27 @@ yapılmamalı.
 >   (tek Vulkan instance/device çoklu kaynakta da doğrudur). Bu madde **hiçbir fazı bloklamaz**;
 >   saf mimari temizlik olarak **bağımsız/paralel** ele alınabilir, istenirse ertelenebilir.
 
+## Tamamlanan — VFR→CFR: Kare Tekrarı ile Sabit Kare Hızı (2026-08-17)
+
+WGC yalnız değişen kareyi teslim ettiğinden hatta giden akış VFR'ydi;
+kare-sayısı bazlı GOP statik içerikte keyframe aralığını zaman ekseninde
+sınırsız uzatıyordu ve ses draini video callback'ine bağlı olduğundan tam
+statik ekranda RTMP'ye hiç veri akmıyordu.
+
+Çözüm (OBS deseni, encode katmanında): her geçerli kare pipeline'a ait
+kalıcı texture'a kopyalanır ve encoder hep kopyayı görür; null tick'te
+son kopya pacer pts'iyle yeniden encode edilir → 60 fps CFR. Savunma
+katmanı: gerçekleşen keyframe kadansı 3 sn'yi aşarsa zaman bazlı yedek
+IDR. Gözlem: `[SendDiag] dup=/copy=/idrF=`.
+
+- Araştırma: `BULGULAR_VFR_CFR_FAZ0.md` · Tasarım: `TASARIM_VFR_CFR_FAZ1.md`
+  · Ölçüm: `OLCUM_VFR_CFR_FAZ2.md`
+- Yerel doğrulama: `frames+dup=60/sn`, `copy≈0,0 ms`, `tot` ort < 16,7 ms,
+  `idrF=0`, encoder çıkışı 60 paket/sn.
+- [ ] Kalan: kullanıcı canlı testi (Twitch 5-10 dk, yarısı statik BRB) —
+  platform davranışı + ses sürekliliği + statik bitrate; DXGI makinesinde
+  bir koşu.
+
 ## Durum Takibi
 
 Her faz tamamlandığında docs/SESSION_NOTES.md'ye özet eklenir, bu dosyada
