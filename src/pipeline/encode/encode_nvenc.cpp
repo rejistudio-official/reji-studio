@@ -48,6 +48,15 @@ typedef NVENCSTATUS (NVENCAPI* PFN_NvEncodeAPIGetMaxSupportedVersion)(uint32_t*)
 
 static constexpr int kBitstreamPoolSize = 3;  // triple-buffer; keeps GPU pipeline full
 
+// Streaming CBR için VBV = 1 saniyelik bitrate (yayın standardı; OBS/FFmpeg
+// bufsize=bitrate eşdeğeri). Kare-bazlı VBV her kareyi avg/fps bitine kilitler
+// ve skip karelerden bit-banking'i imkânsız kılar (Twitch 741kbps teşhisi).
+// init_encoder + set_bitrate aynı formülü buradan alır — üç yerde elle tekrar
+// bu bug'ın oluşma biçimiydi (init doğru, set_bitrate yarım, set_fps_limit hiç).
+static constexpr uint32_t vbv_bits(uint32_t bitrate_kbps) {
+    return bitrate_kbps * 1000u;
+}
+
 // ---------------------------------------------------------------------------
 // Impl — all NVENC state is private to this translation unit
 // ---------------------------------------------------------------------------
@@ -206,8 +215,7 @@ struct NvencEncoder::Impl {
         enc.rcParams.rateControlMode  = NV_ENC_PARAMS_RC_CBR;
         enc.rcParams.averageBitRate   = config.bitrate_kbps     * 1000u;
         enc.rcParams.maxBitRate       = config.max_bitrate_kbps * 1000u;
-        // VBV size = 1 frame of data — minimum buffering, maximum responsiveness.
-        enc.rcParams.vbvBufferSize    = config.bitrate_kbps * 1000u / config.fps_num;
+        enc.rcParams.vbvBufferSize    = vbv_bits(config.bitrate_kbps);
         enc.rcParams.vbvInitialDelay  = enc.rcParams.vbvBufferSize;
 
         // No B-frames: every P-frame depends only on the previous frame.
@@ -507,10 +515,10 @@ void NvencEncoder::flush() {
 bool NvencEncoder::set_bitrate(uint32_t kbps) {
     if (!impl_->initialized) { return false; }
 
-    impl_->saved_cfg.rcParams.averageBitRate = kbps * 1000u;
-    impl_->saved_cfg.rcParams.maxBitRate     = kbps * 1000u;
-    impl_->saved_cfg.rcParams.vbvBufferSize  =
-        kbps * 1000u / impl_->config.fps_num;
+    impl_->saved_cfg.rcParams.averageBitRate  = kbps * 1000u;
+    impl_->saved_cfg.rcParams.maxBitRate      = kbps * 1000u;
+    impl_->saved_cfg.rcParams.vbvBufferSize   = vbv_bits(kbps);
+    impl_->saved_cfg.rcParams.vbvInitialDelay = impl_->saved_cfg.rcParams.vbvBufferSize;
 
     NV_ENC_RECONFIGURE_PARAMS rp = {};
     rp.version                         = impl_->sv(2, true);  // NV_ENC_RECONFIGURE_PARAMS_VER
