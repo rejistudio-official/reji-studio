@@ -136,3 +136,40 @@ platformları genelde CFR bekler; VFR ingest'te stutter / süre kayması /
   - Seçenek B stres testi (gerçek GPU yükü altında).
   - VFR/CFR kararı (§6).
   - Çok-makineli tekrar (tek makine sonucu genellenemez).
+
+## 8. Ek Kayıt — NVENC VBV Düzeltmesi, Canlı Twitch Doğrulaması (2026-09-01)
+
+**Bağlam:** `8743a4f` öncesi VBV tek kareydi (`bitrate/fps`; 6000 kbps
+@ 60 fps → 100.000 bit ≈ 12,5 KB/kare tavanı). Canlı Twitch teşhisinde
+encoder hedefin ~%12'sini üretiyordu; `run.log` maks paket 13.342 B bu
+tavanın kanıtıydı. Düzeltme: VBV = 1 saniyelik bitrate (OBS/FFmpeg
+`bufsize = bitrate` eşdeğeri, yayın standardı).
+
+**Canlı Twitch testi (düzeltme sonrası, kullanıcı koşumu):**
+
+| Metrik | Önce | Sonra |
+|---|---|---|
+| Maks keyframe paketi | 13.342 B (VBV tavanı) | 46.656 B (tavan kalktı) |
+| Twitch Inspector bitrate | 741 kbps | 2.471 kbps (**3,3×**) |
+| Inspector Yapılandırma Kontrolü | — | **Excellent** |
+
+**Dürüst okuma:** Düzeltmenin hedeflediği mekanizma doğrulandı —
+keyframe'ler artık tek-kare bütçesine ezilmiyor ve ingest bitrate'i
+3,3× arttı. Ancak 2.471 kbps, yapılandırılan hedefin hâlâ altında
+olabilir; bu koşuda hedef-tutturma ayrıca ölçülmedi (içerik
+karmaşıklığı / VFR etkisi olası — §6 ile bağlantılı). "Excellent"
+Inspector'ın yapılandırma değerlendirmesidir, hedef doğrulaması değil.
+
+**Neden §2 bunu görmedi:** Reji'nin bitrate metriği yapılandırılan
+hedefi raporlar (`pipeline.cpp:970`, `s.bitrate_kbps.load()`) — §2
+tablosundaki düz "12000 kbps" ölçüm değil, ayar yansımasıydı. İçerideki
+ölçüm bug'la aynı varsayımı paylaştığı için dış gözlemci (Inspector)
+gerekti. Metriğin ölçülen çıkışa çevrilmesi iyileştirme adayı.
+
+**Bug yaşam süresi (B1 defteri):** formül `3fe1fbb` (2026-05-21,
+`encode_nvenc.cpp`'nin ilk commit'i) → `8743a4f` (2026-09-01) =
+**~3,4 ay**. Desen: ultra-low-latency reçetesi yanlış bağlamda
+kopyalanmış. Ayrıntı: `SESSION_NOTES.md` B1 tablosu.
+
+**Kapsam notu:** tuning ULTRA_LOW_LATENCY ve preset P4 bilinçli olarak
+değişmedi; geri-adım noktası VBV 0,5 sn.

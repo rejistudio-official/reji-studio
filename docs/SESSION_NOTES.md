@@ -18,11 +18,46 @@
 | **CI hayali bağımlılık kümesini tarıyordu** | `6f6820b` 06-02 | `7337762` 08-10 | **~2+ ay** | Cargo.lock gitignore'da → CI'daki audit + clippy + testlerin TÜMÜ taze çözümlemeyle koşuyordu; "CI yeşil" ≠ "yerel yeşil". RUSTSEC-2026-0204 bu yüzden görünmezdi. Defterin en geniş etkili kaydı. |
 | weekly.ps1 tek başına clippy koşmuyordu | `6e93eed` 08-10 | `65c6dc5` 08-10 | saatler | kapsam çağrı yoluna bağlıydı: clippy script'te değil `just weekly: lint` zincirindeydi; script doğrudan çağrılınca sessizce atlanıyordu |
 | ECC clippy hook'u hiç çalışmadı | `949c2f7` 06-10 | `79ef519` 08-10 | **2 ay** | Claude Code'un okumadığı şema/konum (`.claude/hooks/hooks.json`, uydurma `"event": "*.rs"` alanı) — hook'lar settings.json `hooks` anahtarından okunur; kayıt yanlış yerde olduğu için hiç tetiklenmedi. Yerine çalışan `scripts/lint.ps1` kuruldu, dört yolu test edildi. |
+| **NVENC tek-kare VBV — CBR hedefin ~%12'sini üretiyordu** | `3fe1fbb` 05-21 | `8743a4f` 09-01 | **~3,4 ay** | ultra-low-latency reçetesi yanlış bağlamda kopyalanmış: "VBV = 1 kare" cloud-gaming/uzak-masaüstü tarifi streaming CBR yoluna, yorum satırı gerekçesiyle birlikte ("minimum buffering, maximum responsiveness") girmiş. `encode_nvenc.cpp`'nin İLK commit'inden beri vardı; her kare avg/fps bitine kilitli, keyframe'ler eziliyordu. Yerel loopback benchmark'ı yakalayamadı: Reji'nin bitrate metriği yapılandırılan hedefi rapor eder (`pipeline.cpp:970` — `s.bitrate_kbps.load()`), ölçülen çıkışı değil; BENCHMARK_RESULTS §2'deki kuşkulu düz "12000 kbps" buydu. Ancak canlı Twitch + Inspector (dış gözlemci) görünür kıldı. Defterin en uzun yaşayan kaydı. |
 
 **İlk desen tespiti (2026-08-10):** En uzun yaşayanlar Rust/C++
 sınırındaki "mekanizma var, son bağlantı eksik" sınıfı; UI-yakını
 bug'lar günler içinde yakalanıyor. B2 kuralı (kim çağırıyor / kim
 tüketiyor / hangi test) bu sınıfı hedefliyor — araçlar dahil.
+
+**İkinci desen tespiti (2026-09-01):** VBV kaydı yeni bir sınıf açtı:
+**"reçete yanlış bağlamda kopyalanmış"** — başka bir kullanım senaryosu
+için doğru olan tarif (tek-kare VBV: cloud gaming / uzak masaüstü),
+gerekçe yorumu ile birlikte streaming yoluna taşınmış; kod "bilinçli
+tasarım kararı" gibi göründüğü için hiçbir gözden geçirme sorgulamamış.
+Ek ders: bug'ı içeriden hiçbir metrik yakalayamazdı çünkü ölçüm de aynı
+varsayımı paylaşıyordu (bitrate = hedef); dış gözlemci (Twitch
+Inspector) gerekti. Aylık gözden geçirmede sorulacak soru: "başka hangi
+parametre bir reçeteden geldi ve hangi bağlam için yazılmıştı?"
+
+---
+
+## Oturum: 1 Eylül 2026 — NVENC VBV düzeltmesi canlı Twitch'te doğrulandı ✅
+
+- **`8743a4f` (VBV = 1 sn bitrate) canlı Twitch testiyle doğrulandı:**
+  keyframe maks paket 13.342 → 46.656 bayt (tek-kare VBV tavanı kalktı;
+  13.342 eski kilidin kanıtıydı), Twitch Inspector bitrate 741 → 2.471
+  kbps (**3,3×**), Inspector "Yapılandırma Kontrolü: **Excellent**".
+  Ayrıntılı ölçüm kaydı: `BENCHMARK_RESULTS.md` §8. Commit push edildi
+  (`2b72b97..8743a4f`).
+- **Bug yaşam süresi çıkarıldı ve B1 defterine işlendi:** `git log -S
+  "1000u / config.fps_num"` → formül `3fe1fbb`'de (2026-05-21,
+  `encode_nvenc.cpp`'nin İLK commit'i) girmiş; düzeltme 2026-09-01 →
+  **~3,4 ay, defterin en uzun kaydı.** Desen yeni bir sınıf:
+  "ultra-low-latency reçetesi yanlış bağlamda kopyalanmış" (yukarıda
+  ikinci desen tespiti).
+- **Açık kalemler:** Inspector ortalamasının (2.471 kbps) yapılandırılan
+  hedefle ilişkisi bu koşuda ayrıca doğrulanmadı (içerik karmaşıklığı /
+  VFR etkisi olabilir — BENCHMARK_RESULTS §6 ile bağlantılı). Tuning
+  ULTRA_LOW_LATENCY + preset P4 bilinçli olarak yerinde (önce yalnız
+  VBV ölçüldü); geri-adım noktası VBV 0,5 sn. Bitrate metriğinin hedef
+  yerine ölçülen çıkışı raporlaması ayrı bir iyileştirme adayı
+  (`pipeline.cpp:970`).
 
 ---
 
