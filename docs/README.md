@@ -21,6 +21,7 @@ Hangi soruya hangi belgenin cevap verdiği ve her belgenin **statüsü**
 | Healing log şeması? | `HEALING_LOG_SCHEMA.md` |
 | Geliştirme ritmi/tarama düzeni? | `GELISTIRME_RITMI.md` |
 | Son sağlık taraması ne buldu? | `health/health-YYYY-MM-DD.md` (en yeni tarihli) |
+| V11 taraması neyi kapsayacak? | `V11_KAPSAM_ADAYLARI.md` (durum kaydı — her tur kapanışında güncellenir) |
 | Eski/geçersiz kayıtlar | `archive/` (memory.md, progress.md — ⚠ ARŞİV uyarılı) |
 
 ## Belge Statüleri
@@ -30,7 +31,7 @@ Aynı klasörde duran belgeler aynı ağırlıkta değildir:
 | Statü | Belgeler | Anlamı |
 |---|---|---|
 | **Bağlayıcı** (karar/sözleşme) | `../CLAUDE.md`, `FFI_CONTRACT.md`, `ROADMAP.md`'nin faz tanımları | Kurallardır; ihlal edilmez, değişiklik onay gerektirir. |
-| **Durum kaydı** (güncel gerçek) | `CONTEXT.md`, `SESSION_NOTES.md`, `BENCHMARK_RESULTS.md`, `health/` | Mevcut durumu yansıtır; her mühürlemede güncellenir. `health/` haftalık tarama raporları — her hafta yenisi gelir, en yeni tarihli geçerlidir. |
+| **Durum kaydı** (güncel gerçek) | `CONTEXT.md`, `SESSION_NOTES.md`, `BENCHMARK_RESULTS.md`, `V11_KAPSAM_ADAYLARI.md`, `health/` | Mevcut durumu yansıtır; her mühürlemede güncellenir. `health/` haftalık tarama raporları — her hafta yenisi gelir, en yeni tarihli geçerlidir. |
 | **Tarihsel** (tamamlanmış, referans) | `talimatlar/` (60 dosya), `FABLE5_BUG_PLAN_V8/V9/V10.md` | Bitmiş işlerin kaydı; "nasıl yapılmıştı"ya bakılır, güncel durum buradan okunmaz. |
 | **Bağlayıcı DEĞİL** (tarama çıktısı/arka plan) | `reviews/` | Model taramalarının ham çıktıları — aşağıdaki uyarıya bak. |
 | **Geçersiz** | `archive/` | Proje başında (2026-05/06) yazıldı, güncel durumla çelişir; dosyaların başında ⚠ uyarı var. |
