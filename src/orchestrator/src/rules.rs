@@ -1056,7 +1056,7 @@ mod tests {
             condition: "cpu_load_pct > 80 || gpu_load_pct > 85".to_string(),
             action: "bitrate_reduce".to_string(),
             params,
-            modes: vec!["auto".to_string(), "co_pilot".to_string()],
+            modes: vec!["auto-pilot".to_string(), "co-pilot".to_string()],
         };
         let engine = RuleEngine::new_test(vec![rule], 0);
 
@@ -1067,7 +1067,7 @@ mod tests {
         assert_eq!(parsed[0].id, "high_cpu_reduce_bitrate");
         assert_eq!(parsed[0].condition, "cpu_load_pct > 80 || gpu_load_pct > 85");
         assert_eq!(parsed[0].action, "bitrate_reduce");
-        assert_eq!(parsed[0].modes, vec!["auto".to_string(), "co_pilot".to_string()]);
+        assert_eq!(parsed[0].modes, vec!["auto-pilot".to_string(), "co-pilot".to_string()]);
         assert_eq!(parsed[0].params.get("step_kbps").and_then(|v| v.as_i64()), Some(1000));
     }
 

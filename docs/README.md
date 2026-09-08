@@ -19,6 +19,7 @@ Hangi soruya hangi belgenin cevap verdiği ve her belgenin **statüsü**
 | Vulkan tarafı nasıl çalışır? | `VULKAN_DEV_GUIDE.md`, `vulkan-sync-diagram.md` |
 | Ajan/model tarama çıktıları? | `reviews/` (⚠ statü notuna bak — iddia, kanıt değil) |
 | Healing log şeması? | `HEALING_LOG_SCHEMA.md` |
+| rules.json şeması? Kuralım neden çalışmıyor? | `RULES_SCHEMA.md` (Bölüm 8: sessiz başarısızlıklar) |
 | Geliştirme ritmi/tarama düzeni? | `GELISTIRME_RITMI.md` |
 | Son sağlık taraması ne buldu? | `health/health-YYYY-MM-DD.md` (en yeni tarihli) |
 | V11 taraması neyi kapsayacak? | `V11_KAPSAM_ADAYLARI.md` (durum kaydı — her tur kapanışında güncellenir) |
