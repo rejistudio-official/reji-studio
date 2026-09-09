@@ -403,13 +403,21 @@ impl RuleEngine {
             .map_err(|e| format!("Cannot stat rules file: {}", e))?;
         let mtime = metadata.modified().ok();
 
+        // P2-2: mtime burada YALNIZ okunur — kayıt başarılı yüklemenin sonunda.
+        // Eskiden burada güncelleniyordu; parse/doğrulama hatasında dosya
+        // değişmeden yapılan sonraki çağrı Ok(SkippedUnchanged) dönüp kalıcı
+        // hatayı bir kez raporlayıp susturuyordu. (Bugün tek üretim çağıranı
+        // `new()` olduğundan latent'ti; gelecekteki watcher/periyodik çağıran
+        // için tuzaktı.) Başarısızlıkta eski mtime korunur → tekrar deneme
+        // hatayı görünür tutar. NOT (ileriki periyodik çağırana): hata sürdüğü
+        // sürece her çağrı yeniden okuma/parse + warn üretir; 1 sn throttle
+        // bunu sınırlar, ek bastırma bilinçli olarak eklenmedi (YAGNI).
         {
-            let mut last_mtime = self.last_file_mtime.lock().unwrap();
+            let last_mtime = self.last_file_mtime.lock().unwrap();
             if mtime == *last_mtime {
                 debug!("hot_reload skipped: file unchanged");
                 return Ok(ReloadOutcome::SkippedUnchanged);
             }
-            *last_mtime = mtime;
         }
 
         // Read & parse
@@ -446,6 +454,9 @@ impl RuleEngine {
         }
 
         // Rollback: keep old rules on error
+        // P2-2: bu noktaya gelindiyse yükleme başarılı — mtime ancak şimdi
+        // kaydedilir (yukarıdaki nota bakın).
+        *self.last_file_mtime.lock().unwrap() = mtime;
         let mut rules = self.rules.lock().unwrap();
         *rules = new_rules;
         *self.hysteresis_ms.lock().unwrap() = new_hysteresis;
@@ -1252,5 +1263,38 @@ mod tests {
         let snapshot = engine.snapshot_json();
         assert!(snapshot.contains("good_rule"), "eski kurallar korunmalı: {}", snapshot);
         assert!(!snapshot.contains("typo_rule"), "bozuk kural sızmamalı: {}", snapshot);
+    }
+
+    // --- P2-2: başarısız reload mtime'ı YAKMAMALI ---
+
+    #[test]
+    fn failed_reload_keeps_reporting_error_on_retry() {
+        // P2-2: mtime doğrulamadan ÖNCE kaydedilirse başarısız reload'dan sonra
+        // dosya değişmeden yapılan ikinci hot_reload Ok(SkippedUnchanged) döner —
+        // kalıcı hata bir kez raporlanıp susar. Doğrusu: mtime yalnız BAŞARILI
+        // yüklemede güncellenir; tekrar deneme hatayı görünür tutar.
+        let dir = std::env::temp_dir().join("reji_p22_retry");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rules.json");
+        std::fs::write(
+            &path,
+            r#"{"rules":[{"id":"good_rule","condition":"cpu_load_pct > 80","action":"bitrate_reduce","modes":["auto-pilot"]}]}"#,
+        )
+        .unwrap();
+        let engine = RuleEngine::new(&path).unwrap();
+
+        // Dosya bozulur (parse edilemez içerik — commit-1'in action
+        // doğrulamasından bağımsız bir hata yolu).
+        std::fs::write(&path, "{ bozuk json").unwrap();
+        *engine.last_reload.lock().unwrap() = Instant::now() - Duration::from_secs(2);
+        *engine.last_file_mtime.lock().unwrap() = None; // mtime granülaritesine yaslanma
+        assert!(engine.hot_reload().is_err(), "ilk deneme Err dönmeli");
+
+        // Dosya DEĞİŞMEDEN ikinci deneme: hata yine raporlanmalı.
+        *engine.last_reload.lock().unwrap() = Instant::now() - Duration::from_secs(2);
+        assert!(
+            engine.hot_reload().is_err(),
+            "dosya hâlâ bozukken ikinci deneme de Err dönmeli — SkippedUnchanged ile susmamalı"
+        );
     }
 }
