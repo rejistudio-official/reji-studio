@@ -28,6 +28,16 @@ jobs:
         with:
           arch: x64
 
+      # Vulkan SDK: yalnız Headers + Loader, Khronos kaynağından (~1 dk, ~20 MB).
+      # Tam SDK gereksiz — link ediyoruz, çalıştırmıyoruz (GPU sürücüsü yok).
+      # Sürüm yerelde çalışanla sabit (C:\VulkanSDK\1.4.350.0).
+      - name: Vulkan SDK kur (headers + loader)
+        uses: humbletim/setup-vulkan-sdk@v1.2.1
+        with:
+          vulkan-query-version: 1.4.350.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+
       - name: Build Rust orchestrator
         run: cargo build --release --verbose 2>&1
         working-directory: ${{ github.workspace }}
