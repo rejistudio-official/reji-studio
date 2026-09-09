@@ -7,42 +7,6 @@ on:
     branches: [ master ]
 
 jobs:
-  # Bit-rot nöbetçisi: -DREJI_VULKAN_MOCK=ON derlemesi ayrı bir kapı.
-  # Mock'u hiçbir test tam derlemediği için çürümesi fark edilmiyordu
-  # (copy_optimizer C1083, TALIMAT_CI_CPP_BUILD_ONARIMI Parça 3) — Clippy
-  # kapısıyla aynı mantık: kullanılmayan mekanizma her koşumda derlenerek
-  # canlı tutulur. Yalnız reji_pipeline hedefi: statik lib → link yok →
-  # Vulkan SDK, Zig ve Rust gerektirmez (~en ucuz gerçek kapı).
-  # Runner'da Qt yok → reji_ui stub; UI tarafının mock derlemesi yerel
-  # tam-mock build ile doğrulanır. Zig yalnız `ffi` hedefi için gerekli:
-  # src/ffi/CMakeLists.txt:9 configure'da reji_ffi.lib'in varlığını
-  # FATAL_ERROR ile şart koşar (SDK istemez, ~30 sn).
-  mock-build:
-    name: Mock Build (bit-rot nöbetçisi)
-    runs-on: windows-latest
-    steps:
-      - name: Kodu indir
-        uses: actions/checkout@v4
-
-      - name: MSVC ortamını ayarla
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Zig kur
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-
-      - name: Zig FFI lib derle
-        run: zig build ffi
-
-      - name: CMake yapılandır (mock)
-        run: cmake -B build_mock -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DREJI_VULKAN_MOCK=ON
-
-      - name: Mock derle (reji_pipeline)
-        run: cmake --build build_mock --target reji_pipeline
-
   build-windows:
     name: Windows Build
     runs-on: windows-latest
@@ -127,6 +91,22 @@ jobs:
 
       - name: Rust testleri çalıştır
         run: cargo test
+
+      # Bit-rot nöbetçisi: -DREJI_VULKAN_MOCK=ON derlemesi her koşumda çalışan
+      # bir kapı — Clippy kapısıyla aynı mantık: kullanılmayan mekanizma her
+      # koşumda derlenerek canlı tutulur (mock'u hiçbir test tam derlemediği
+      # için çürümesi fark edilmiyordu; TALIMAT_CI_CPP_BUILD_ONARIMI Parça 3).
+      # Bu job'un içinde koşar çünkü configure zinciri cargo'nun ürettiği
+      # ffi_auto.h'yi (build.rs/cbindgen, izlenmez) ve zig-out lib'lerini
+      # ister — hepsi yukarıdaki adımlarda zaten üretildi. Yalnız
+      # reji_pipeline hedefi: statik lib, tüm mock C++ TU'larını derler.
+      # Runner'da Qt yok → UI tarafının mock derlemesi yerel tam-mock
+      # build ile doğrulanır.
+      - name: Mock yapılandır (bit-rot nöbetçisi)
+        run: cmake -B build_mock -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DREJI_VULKAN_MOCK=ON
+
+      - name: Mock derle (bit-rot nöbetçisi)
+        run: cmake --build build_mock --target reji_pipeline
 
       - name: Validate Vulkan (headless)
         run: |
