@@ -63,7 +63,7 @@ Her iki formatta da **bilinmeyen alanlar sessizce yok sayılır**
 | `id` | string | **Evet**, boş olamaz | — | Benzersiz kimlik; hysteresis, cooldown ve UI bu ID üzerinden izler |
 | `description` | string | Hayır | `""` | Yalnız insan için; motor okumaz |
 | `condition` | string | **Evet**, boş olamaz | — | Bölüm 4'teki gramer |
-| `action` | string | **Evet**, boş olamaz | — | Bölüm 6'daki 7 değerden biri; yüklemede doğrulanmaz (SB-5) |
+| `action` | string | **Evet**, boş olamaz | — | Bölüm 6'daki 7 değerden biri; yüklemede doğrulanır (SB-5 düzeltmesi, 86fada3) |
 | `params` | nesne | Hayır | `{}` | Aksiyona göre anlamlı anahtarlar (Bölüm 6) |
 | `modes` | string dizisi | **Evet** (serde varsayılanı yok; eksikse parse hatası) | — | Bölüm 7'deki tam string'ler; içerik doğrulanmaz (SB-6) |
 
@@ -149,9 +149,11 @@ listesi (`[]`) de doğrulamadan geçer ve kuralı fiilen kapatır.
 ## 8. Sessiz başarısızlıklar ⚠
 
 **Bu bölüm şemanın en kritik parçasıdır.** Motor "fail fast" değil
-"sessizce yut" felsefesiyle yazılmıştır; aşağıdaki durumların hiçbiri
+"sessizce yut" felsefesiyle yazılmıştır; aşağıdaki durumların çoğu
 kullanıcıya hata olarak yansımaz. "Kuralım neden çalışmıyor?" sorusunun
-cevabı neredeyse her zaman bu tablodadır.
+cevabı neredeyse her zaman bu tablodadır. **DÜZELTİLDİ** işaretli
+maddeler tarihsel kayıt olarak korunur — eski davranış artık geçerli
+değildir.
 
 | # | Girdi | Ne olur | Kod |
 |---|---|---|---|
@@ -159,14 +161,14 @@ cevabı neredeyse her zaman bu tablodadır.
 | SB-2 | Eşik tamsayı değil (`> 0.5`, `> 85C`, eşik boş) veya operatör yok (`log_always`) | Yaprak sessizce `false` → kural hiç tetiklenmez. | `rules.rs:279-281`, `rules.rs:189` |
 | SB-3 | Parantezli koşul (`(cpu_load_pct > 80) && ...`) | `(cpu_load_pct` bilinmeyen metrik sayılır → yaprak `false` → kural sessizce ölür. Parantez desteklenmiyor ama hata da üretmiyor. | `rules.rs:214-223` |
 | SB-4 | `&&` ile `\|\|` karışımında beklenmeyen gruplama | Hata değil ama tuzak: gruplama her zaman `(… && …) \|\| (… && …)`; parantezle değiştirilemez (SB-3). | `rules.rs:171-187` |
-| SB-5 | Bilinmeyen `action` string'i (`"reduce_bitrate"` — doğrusu `"bitrate_reduce"`) | Yüklemede **geçer** (yalnız boş-string kontrolü var). Kural ilk tetiklendiğinde `create_action` hata döner ve `evaluate` `?` ile kesilir → **o tick'te diğer sağlıklı kuralların aksiyonları da düşer**; healing tarafı yalnız `warn!` loglar. Her tetiklenmede tekrarlanır. | `rules.rs:555`, `rules.rs:507`, `healing.rs:544-549` |
+| SB-5 | Bilinmeyen `action` string'i (`"reduce_bitrate"` — doğrusu `"bitrate_reduce"`) | **DÜZELTİLDİ (86fada3).** Eski davranış: yüklemede geçer, kural ilk tetiklendiğinde `create_action` hatası `?` ile yayılıp o tick'teki tüm sağlıklı aksiyonları da düşürürdü. Yeni davranış: bilinmeyen action **yüklemede reddedilir** (kural id + action değeriyle; rollback eski kuralları korur, `rj_validate_rules` da artık bu dosyayı reddeder). Savunma katmanı: `evaluate` yine de tek kuralın hatasında kuralı atlayıp loglar, kalanları çalıştırır. | `rules.rs` (`action_type_from_str`, yükleme doğrulaması, `evaluate` atla-devam) |
 | SB-6 | Geçersiz `modes` değeri (`"auto"`, `"co_pilot"`, büyük harf) veya boş `[]` | Kural o modda hiçbir zaman eşleşmez; uyarı yok. Doğrulama `modes` içeriğine bakmaz. | `rules.rs:466`, `rules.rs:430-434` |
 | SB-7 | `default_mode` alanını değiştirmek | **Hiçbir etkisi yok.** Alan her iki formatta da şemanın parçası ama kod okumuyor (`#[allow(dead_code)]`); aktif mod FFI'dan (`rj_set_healing_mode`) gelir. | `rules.rs:656-659`, `rules.rs:673-675` |
 | SB-8 | `gpu_temp_c` geçen herhangi bir kural, GPU termal okuma stub'ken (metrik `0`) | Kural **tamamen atlanır** — substring kontrolü: bileşik koşulda (`cpu_load_pct > 80 && gpu_temp_c < 70`) diğer yapraklar da değerlendirilmez. Yalnız `debug!` log. Gerçek termal okuma gelince guard kendiliğinden kalkar. | `rules.rs:500-503` |
 | SB-9 | `params` değeri yanlış tipte (`"step_kbps": "500"` — string) | `as_i64()` → `None` → `param1 = 0` → aksiyon fiilen no-op'a yakın çalışır. `scale_factor` yanlış tipteyse sessizce `1.0`. | `rules.rs:564-578` |
 | SB-10 | Üst düzey/kural alan adında yazım hatası (`hystersis_ms`, `Modes`) | Bilinmeyen alan sessizce yok sayılır (`deny_unknown_fields` yok); alan varsayılanına düşer. `modes` gibi zorunlu alanda bu, parse hatası olarak yakalanır — opsiyonel alanlarda yakalanmaz. | `rules.rs:651-676` |
 | SB-11 | Bozuk JSON dosyası | Hata mesajı yanıltır: JSON parse hatası yutulup TOML denenir; kullanıcıya **TOML hatası** gösterilir ("Cannot parse rules as JSON or TOML: …"). JSON'daki asıl hata (eksik virgül vb.) mesajda görünmez. | `rules.rs:420-427` |
-| SB-12 | Doğrulamadan geçemeyen dosya ile tekrar `hot_reload` | İlk çağrı hata döner ama **mtime hataya rağmen güncellenmiş olur**; dosya değişmeden yapılan sonraki çağrılar `Ok(SkippedUnchanged)` döner — kalıcı hata bir kez raporlanıp susar. | `rules.rs:406-413` |
+| SB-12 | Doğrulamadan geçemeyen dosya ile tekrar `hot_reload` | **DÜZELTİLDİ (8401d8b).** Eski davranış: mtime doğrulamadan önce kaydedildiğinden, başarısız reload sonrası dosya değişmeden yapılan çağrılar `Ok(SkippedUnchanged)` dönerdi. Yeni davranış: mtime yalnız başarılı yüklemede güncellenir; tekrar deneme hatayı görünür tutar. **Nüans:** bu hata hiç canlı tetiklenmedi (latent) — tek üretim çağıranı `RuleEngine::new` idi ve `rj_reload_rules` her reload'da taze engine kurduğundan bayat mtime atılan engine'le ölüyordu. Gelecekteki watcher/periyodik çağıran için sertleştirme. | `rules.rs` (`hot_reload` mtime bloğu) |
 | SB-13 | `\|\|` koşulunda ikinci yaprak tetiklerken UI açıklaması | Açıklama her zaman **ilk yaprağın** metrik/eşiğini gösterir (Faz 1 kararı) — tetikleyen gerçek yaprak farklıysa açıklama yanıltıcı olabilir. | `rules.rs:229-238`, `rules.rs:257` |
 | SB-14 | `bitrate_recover` kuralı, kurtarılacak düşüş yokken tetiklenirse | Aksiyon sessizce düşürülür (kasıtlı — sahte healing banner'ı önlenir); yalnız `debug!` log. | `healing.rs:554-569` |
 
