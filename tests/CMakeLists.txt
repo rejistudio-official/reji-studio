@@ -34,17 +34,22 @@ target_link_libraries(test_frame_profiler
 
 add_test(NAME FrameProfilerTest COMMAND test_frame_profiler)
 
-# Shader cache testi
-add_executable(test_shader_cache
-    test_shader_cache.cpp
-)
+# Shader cache testi — shader_cache.cpp yalnız Qt6 varken reji_ui'a derlenir
+# (src/ui/CMakeLists.txt Qt6_FOUND bloğu); Qt'siz ortamda (CI runner, stub UI)
+# bu hedef LNK2019 (ShaderCache::compute_hash) ile kırılıyordu. Dosyanın alt
+# kısmındaki reji_ui-bağımlı testlerle aynı desen: Qt6_FOUND kapısı.
+if(Qt6_FOUND)
+    add_executable(test_shader_cache
+        test_shader_cache.cpp
+    )
 
-target_link_libraries(test_shader_cache
-    gtest gtest_main
-    reji_ui
-)
+    target_link_libraries(test_shader_cache
+        gtest gtest_main
+        reji_ui
+    )
 
-add_test(NAME ShaderCacheTest COMMAND test_shader_cache)
+    add_test(NAME ShaderCacheTest COMMAND test_shader_cache)
+endif()
 
 # Pipeline entegrasyon testi (headless — REJI_VULKAN_MOCK etkin)
 add_executable(test_pipeline_integration

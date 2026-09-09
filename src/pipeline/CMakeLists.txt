@@ -22,6 +22,12 @@ if(WIN32)
         encode/encode_nvenc.cpp
         encode_subsystem.cpp
         recovery_coordinator.cpp
+        # zig_win32_compat.c: MinGW/Zig lib'lerini MSVC'ye bağlayan shim'ler
+        # (__stack_chk_fail vb.). Vulkan bağımlılığı YOK ve zig-out lib'leri
+        # mock'ta da link edildiğinden mock dışlamasında olamaz — eskiden
+        # oradaydı, mock'ta test exe'leri LNK2019 __stack_chk_fail veriyordu
+        # (TALIMAT_CI_CPP_BUILD_ONARIMI Parça 3'te bulundu).
+        gpu/zig_win32_compat.c
     )
     # capture_wgc.cpp + screen_capture_factory.cpp burada değil —
     # C++20 gerektirdikleri için reji_pipeline_wgc OBJECT hedefinde derlenirler.
@@ -32,7 +38,12 @@ if(WIN32)
             gpu/vulkan_initializer.cpp
             gpu/external_memory_bridge.cpp
             gpu_interop_subsystem.cpp
-            gpu/zig_win32_compat.c
+        )
+    else()
+        # pipeline.cpp + reji_app bu sınıfların sembollerine koşulsuz başvurur
+        # (Aşama 7 / v0.5.1) — mock'ta exe link'i için stub'lar gerekli.
+        list(APPEND PIPELINE_SOURCES
+            gpu/vulkan_mock_stubs.cpp
         )
     endif()
 endif()
@@ -47,7 +58,9 @@ add_library(reji_pipeline STATIC ${PIPELINE_SOURCES} ${PIPELINE_HEADERS})
 
 # zig_win32_compat.asm — MASM ayri hedefte derlenir
 # ml64.exe CXX flag'lari (/W4 vb.) desteklemiyor; compile kuralini sadeleştir.
-if(WIN32 AND NOT REJI_VULKAN_MOCK AND MSVC)
+# Mock'ta da gerekli: zig-out lib'leri (MinGW obj) ___chkstk_ms ister ve
+# mock'ta da link edilirler (bkz. zig_win32_compat.c notu).
+if(WIN32 AND MSVC)
     set(CMAKE_ASM_MASM_COMPILE_OBJECT
         "<CMAKE_ASM_MASM_COMPILER> -c -Fo <OBJECT> <SOURCE>")
     add_library(zig_win32_compat_asm STATIC

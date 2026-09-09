@@ -3,6 +3,18 @@
 #include <cstdio>
 #include <algorithm>
 
+// REJI_VULKAN_MOCK: gerçek gövde vulkan çağrılarıyla dolu — mock'ta aynı
+// imzalı stub'lar derlenir (link için gerekli; copy_optimizer.cpp deseni).
+#ifdef REJI_VULKAN_MOCK
+
+bool GpuQueryTiming::init(VkDevice, VkQueue, VkPhysicalDevice) { return false; }
+bool GpuQueryTiming::record_timestamp(VkCommandBuffer, const char*) { return false; }
+bool GpuQueryTiming::retrieve_results(QueryResult*) { return false; }
+void GpuQueryTiming::shutdown() {}
+float GpuQueryTiming::convert_timestamp_ns_to_ms(uint64_t) const { return 0.0f; }
+
+#else
+
 bool GpuQueryTiming::init(VkDevice device, VkQueue queue, VkPhysicalDevice phys_device) {
     if (!device || !phys_device) {
         fprintf(stderr, "[GpuQueryTiming] Invalid device or phys_device\n");
@@ -122,3 +134,5 @@ void GpuQueryTiming::shutdown() {
 float GpuQueryTiming::convert_timestamp_ns_to_ms(uint64_t delta_ns) const {
     return delta_ns / 1000000.0f;  // 1 million ns = 1 ms
 }
+
+#endif  // REJI_VULKAN_MOCK

@@ -46,7 +46,11 @@ endif()
 # CRT tutarliligi (Windows)
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
-    add_compile_options(/W4 /WX-)
+    # Yalnız C/CXX: VS generator'da dizin bayrakları ASM_MASM'a da sızar ve
+    # ml64 /WX-'i sayısal /W argümanı sanıp A1013 fatal verir — mock'ta
+    # zig_win32_compat.asm hedefi var olunca görünür oldu (NMake yolu özel
+    # COMPILE_OBJECT kuralıyla kaçınıyordu; TALIMAT_CI_CPP_BUILD_ONARIMI P3).
+    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/W4;/WX->")
 
     # Disable manifest file generation (RC.exe / MT.exe missing)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /MANIFEST:NO")

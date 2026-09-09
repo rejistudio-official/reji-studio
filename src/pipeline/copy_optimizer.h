@@ -1,10 +1,13 @@
 #pragma once
 
 #include "include/reji_constants.h"
-#include <vulkan/vulkan.h>
 #include <cstdint>
 #include <array>
 #include <atomic>
+// Mock'ta vulkan.h yok — takma-adlar vulkan_mock_types.h'ten
+// (external_memory_bridge.h deseni; CI bit-rot onarımı, TALIMAT Parça 3).
+#ifndef REJI_VULKAN_MOCK
+#include <vulkan/vulkan.h>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -14,6 +17,9 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
 #include <vulkan/vulkan_win32.h>
+#endif
+#else
+#include "include/vulkan_mock_types.h"
 #endif
 
 class GpuResourceManager;  // Forward declare

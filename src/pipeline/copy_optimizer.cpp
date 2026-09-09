@@ -1,3 +1,4 @@
+#ifndef REJI_VULKAN_MOCK
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -7,7 +8,34 @@
 #endif
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
+#endif
 #include "copy_optimizer.h"
+
+// REJI_VULKAN_MOCK: gerçek implementasyon vulkan çağrılarıyla dolu — mock'ta
+// başlıkla aynı imzalı stub'lar derlenir (UI/pipeline linki için gerekli).
+// init=false döner; çağıran GPU-yolu-kapalı davranır (gerçekte de init
+// başarısız olabildiğinden bu yol zaten mevcut). Gerçek gövde dosya sonuna
+// dek süren #else dalında.
+#ifdef REJI_VULKAN_MOCK
+
+bool GpuCopyOptimizer::init(VkDevice, VkQueue, VkPhysicalDevice, uint32_t,
+                            const Config&) {
+    return false;  // mock: GPU yok — çağıran CPU yoluna düşer
+}
+
+bool GpuCopyOptimizer::execute_copy(VkImage, VkImage, uint32_t, uint32_t,
+                                    uint32_t, uint32_t, VkSemaphore*, uint64_t*,
+                                    VkImage*, VkSemaphore, VkDeviceMemory) {
+    return false;
+}
+
+bool GpuCopyOptimizer::is_copy_ready(VkSemaphore, uint64_t) { return false; }
+
+void GpuCopyOptimizer::shutdown() { alive_.store(false, std::memory_order_release); }
+
+void GpuCopyOptimizer::cleanup_pipeline() {}
+
+#else
 #include "gpu/vulkan_initializer.h"
 #include "seh_filter.h"  // V8/I10: paylaşımlı SEH filtresi
 #include <cstdio>
@@ -533,3 +561,5 @@ void GpuCopyOptimizer::shutdown() {
 void GpuCopyOptimizer::cleanup_pipeline() {
     // Cleanup descriptors, pipeline, layout (Task 1.5)
 }
+
+#endif  // REJI_VULKAN_MOCK

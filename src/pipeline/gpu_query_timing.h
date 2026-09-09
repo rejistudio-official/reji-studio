@@ -1,6 +1,12 @@
 #pragma once
 
+// Mock'ta vulkan.h yok — takma-adlar vulkan_mock_types.h'ten
+// (external_memory_bridge.h deseni; CI bit-rot onarımı, TALIMAT Parça 3).
+#ifndef REJI_VULKAN_MOCK
 #include <vulkan/vulkan.h>
+#else
+#include "include/vulkan_mock_types.h"
+#endif
 #include <cstdint>
 
 class GpuQueryTiming {

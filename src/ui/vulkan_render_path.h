@@ -14,6 +14,7 @@ using VkCommandPool = void*;
 using VkCommandBuffer = void*;
 using VkResult = int;
 const int VK_SUCCESS = 0;
+const int VK_FORMAT_UNDEFINED = 0;  // ctor swapchain_format_ başlangıcı mock'ta da derlensin
 #endif
 
 #include <vector>
