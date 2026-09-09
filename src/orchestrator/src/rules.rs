@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Kural değerlendirmesi için metrik snapshot.
 #[derive(Debug, Clone, Copy)]
@@ -431,6 +431,18 @@ impl RuleEngine {
             if rule.id.is_empty() || rule.condition.is_empty() || rule.action.is_empty() {
                 return Err("Rule missing required fields (id, condition, action)".into());
             }
+            // P2-1: bilinmeyen action YÜKLEMEDE reddedilir — eskiden dosya geçerli
+            // sayılıp hata ancak kural ilk tetiklendiğinde (create_action) patlıyordu;
+            // o noktada da tüm tick'i düşürüyordu. Burada yakalanınca mevcut
+            // rollback devreye girer ve rj_validate_rules (GUI import/profil
+            // doğrulaması) da bozuk dosyayı doğru şekilde reddeder.
+            if action_type_from_str(&rule.action).is_none() {
+                return Err(format!(
+                    "Rule '{}' has unknown action: '{}'",
+                    rule.id, rule.action
+                )
+                .into());
+            }
         }
 
         // Rollback: keep old rules on error
@@ -504,7 +516,18 @@ impl RuleEngine {
 
             // Condition evaluation (Özellik#5: kalibre eşiklerle)
             if eval_condition_calibrated(&rule.condition, metrics, &calib) {
-                let action = self.create_action(rule, metrics, &calib)?;
+                // P2-1: tek kuralın hatası tüm tick'i düşürmez — eskiden `?`
+                // yayılımı o ana dek üretilen GEÇERLİ aksiyonları da atıyordu
+                // (healing.rs bunu boş listeye çeviriyordu = healing sessizce
+                // iptal). Bozuk kural atlanır, loglanır, kalanlar çalışır.
+                let action = match self.create_action(rule, metrics, &calib) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        warn!(rule_id = %rule.id, error = %e,
+                            "kural atlandı — aksiyon üretilemedi, diğer kurallar çalışmaya devam ediyor");
+                        continue;
+                    }
+                };
                 last_trigger.insert(rule.id.clone(), now);
                 actions.push(action);
             }
@@ -544,16 +567,11 @@ impl RuleEngine {
         metrics: &RuleMetrics,
         calib: &CalibrationTable,
     ) -> Result<Action, Box<dyn std::error::Error>> {
-        let action_type = match rule.action.as_str() {
-            "bitrate_reduce" => ActionType::BitrateReduce,
-            "bitrate_recover" => ActionType::BitrateRecover,
-            "scale_resolution" => ActionType::ScaleResolution,
-            "restore_resolution" => ActionType::RestoreResolution,
-            "cap_fps" => ActionType::CapFps,
-            "restore_fps" => ActionType::RestoreFps,
-            "log_only" => ActionType::LogOnly,
-            _ => return Err(format!("Unknown action: {}", rule.action).into()),
-        };
+        // P2-1: yükleme doğrulaması (hot_reload) bilinmeyen action'ı zaten
+        // reddettiğinden bu Err normalde ölü — yalnız savunma katmanı
+        // (new_test ile enjekte kurallar veya ileride eklenen action tipleri).
+        let action_type = action_type_from_str(&rule.action)
+            .ok_or_else(|| format!("Unknown action: {}", rule.action))?;
 
         // HP2: param1 taşıdığı büyüklük aksiyona göre değişir:
         //  - bitrate aksiyonları: `step_kbps` (kbps, doğrudan)
@@ -604,6 +622,23 @@ impl RuleEngine {
             is_critical,
             explanation,
         })
+    }
+}
+
+/// Dosyadaki `action` string'ini `ActionType`'a çevirir; bilinmeyen → `None`.
+/// Hem yükleme doğrulaması (`hot_reload`) hem `create_action` TEK bu tablodan
+/// okur (DRY — `metric_value_and_id` deseniyle aynı gerekçe): yeni action tipi
+/// eklerken iki listeyi senkron tutma tuzağı olmaz.
+fn action_type_from_str(action: &str) -> Option<ActionType> {
+    match action {
+        "bitrate_reduce" => Some(ActionType::BitrateReduce),
+        "bitrate_recover" => Some(ActionType::BitrateRecover),
+        "scale_resolution" => Some(ActionType::ScaleResolution),
+        "restore_resolution" => Some(ActionType::RestoreResolution),
+        "cap_fps" => Some(ActionType::CapFps),
+        "restore_fps" => Some(ActionType::RestoreFps),
+        "log_only" => Some(ActionType::LogOnly),
+        _ => None,
     }
 }
 
@@ -1167,5 +1202,55 @@ mod tests {
         *engine.last_reload.lock().unwrap() = Instant::now() - Duration::from_secs(2);
         *engine.last_file_mtime.lock().unwrap() = None;
         assert_eq!(engine.hot_reload().unwrap(), ReloadOutcome::Reloaded);
+    }
+
+    // --- P2-1: bilinmeyen action yüklemede yakalanmalı ---
+
+    #[test]
+    fn load_rejects_unknown_action() {
+        // P2-1: `"action": "bitrate_reducee"` gibi yazım hatası dosya yüklenirken
+        // reddedilmeli — çalışma zamanında ilk tetiklenmede değil. Hata mesajı
+        // hangi kuralın hangi action'ıyla sorunlu olduğunu söylemeli.
+        let dir = std::env::temp_dir().join("reji_p21_load_reject");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rules.json");
+        std::fs::write(
+            &path,
+            r#"{"rules":[{"id":"typo_rule","condition":"cpu_load_pct > 80","action":"bitrate_reducee","modes":["auto-pilot"]}]}"#,
+        )
+        .unwrap();
+
+        let err = RuleEngine::new(&path).expect_err("bilinmeyen action yüklemede reddedilmeli");
+        let msg = err.to_string();
+        assert!(msg.contains("typo_rule"), "hata kural id'sini söylemeli: {}", msg);
+        assert!(msg.contains("bitrate_reducee"), "hata action değerini söylemeli: {}", msg);
+    }
+
+    #[test]
+    fn hot_reload_unknown_action_rolls_back_to_old_rules() {
+        // P2-1: canlı engine'de dosya bilinmeyen action'la bozulursa reload
+        // Err dönmeli ve BELLEK-İÇİ kurallar (rollback) değişmemeli.
+        let dir = std::env::temp_dir().join("reji_p21_rollback");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rules.json");
+        std::fs::write(
+            &path,
+            r#"{"rules":[{"id":"good_rule","condition":"cpu_load_pct > 80","action":"bitrate_reduce","modes":["auto-pilot"]}]}"#,
+        )
+        .unwrap();
+        let engine = RuleEngine::new(&path).unwrap();
+
+        std::fs::write(
+            &path,
+            r#"{"rules":[{"id":"typo_rule","condition":"cpu_load_pct > 80","action":"bitrate_reducee","modes":["auto-pilot"]}]}"#,
+        )
+        .unwrap();
+        *engine.last_reload.lock().unwrap() = Instant::now() - Duration::from_secs(2);
+        *engine.last_file_mtime.lock().unwrap() = None;
+
+        assert!(engine.hot_reload().is_err(), "bozuk dosya reload'da Err dönmeli");
+        let snapshot = engine.snapshot_json();
+        assert!(snapshot.contains("good_rule"), "eski kurallar korunmalı: {}", snapshot);
+        assert!(!snapshot.contains("typo_rule"), "bozuk kural sızmamalı: {}", snapshot);
     }
 }

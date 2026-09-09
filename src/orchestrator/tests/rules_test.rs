@@ -57,6 +57,44 @@ fn test_hysteresis_blocks_rapid_retrigger() {
 }
 
 #[test]
+fn evaluate_skips_broken_rule_and_runs_valid_ones() {
+    // P2-1: bozuk kural (bilinmeyen action) tüm tick'i düşürmemeli — atlanmalı,
+    // listedeki geçerli kurallar çalışmaya devam etmeli. Bozuk kural kasten
+    // İLKTE: eski davranışta (`?` yayılımı) sonraki geçerli kuralı da götürürdü.
+    let mut params = HashMap::new();
+    params.insert("step_kbps".to_string(), serde_json::json!(500));
+
+    let rules = vec![
+        Rule {
+            id: "broken".to_string(),
+            description: String::new(),
+            condition: "cpu_load_pct > 80".to_string(),
+            action: "does_not_exist".to_string(),
+            params: HashMap::new(),
+            modes: vec!["auto-pilot".to_string()],
+        },
+        Rule {
+            id: "valid".to_string(),
+            description: String::new(),
+            condition: "cpu_load_pct > 80".to_string(),
+            action: "bitrate_reduce".to_string(),
+            params,
+            modes: vec!["auto-pilot".to_string()],
+        },
+    ];
+
+    let engine = RuleEngine::new_test(rules, 0);
+    let metrics = RuleMetrics { cpu_load_pct: 90, ..Default::default() };
+
+    let actions = engine
+        .evaluate(&metrics, "auto-pilot")
+        .expect("bozuk kural evaluate'i Err'e düşürmemeli");
+    assert_eq!(actions.len(), 1, "geçerli kural yine de aksiyon üretmeli");
+    assert_eq!(actions[0].rule_id, "valid");
+    assert_eq!(actions[0].action_type, ActionType::BitrateReduce);
+}
+
+#[test]
 fn test_conflict_resolution_reduce_wins() {
     let actions = vec![
         Action { action_type: ActionType::BitrateReduce, ..Default::default() },
