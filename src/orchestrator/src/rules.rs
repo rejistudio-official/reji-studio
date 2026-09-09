@@ -753,6 +753,15 @@ mod tests {
             .map(|h| PathBuf::from(h).join(".reji").join("rules.json"))
             .unwrap_or_else(|_| PathBuf::from("rules.json"));
 
+        // CI güvenliği: bu test kullanıcının GERÇEK config dosyasının yüklenebilir
+        // olduğunu doğrular — dosya hiç yoksa (CI runner'ı, taze kurulum) doğrulanacak
+        // bir şey de yok, atla. Dosya VARSA parse hatası yine panic'ler (yerel tanı
+        // değeri korunur). Todoist P3 / 6hRxmxPM4wXjPFQ5.
+        if !path.exists() {
+            eprintln!("[Rules] SKIP: {:?} yok — doğrulanacak kullanıcı config'i bulunmuyor", path);
+            return;
+        }
+
         match RuleEngine::new(&path) {
             Ok(engine) => {
                 let rules = engine.rules.lock().unwrap();
