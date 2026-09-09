@@ -52,6 +52,25 @@ jobs:
           Write-Host "OK: reji_orchestrator.lib found"
         shell: pwsh
 
+      # Zig katmanı: reji_pipeline ve test hedefleri zig-out/lib/*.lib'e link
+      # eder (reji_ffi, vulkan_init_zig, ext_bridge_zig, rtmp_transport_zig).
+      # zig-out git'te takipli değil — her koşumda derlenir. Sürüm yerelde
+      # çalışanla sabit (zig version = 0.16.0). gpu/ext-bridge hedefleri
+      # Vulkan SDK başlıklarını ister → SDK adımından sonra koşmalı.
+      - name: Zig kur
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Zig lib'leri derle
+        # pwsh ara komutun exit kodunu yutar — her hedef sonrası açık kapı.
+        run: |
+          zig build ffi; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          zig build gpu -Dvulkan-sdk="$env:VULKAN_SDK"; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          zig build ext-bridge -Dvulkan-sdk="$env:VULKAN_SDK"; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          zig build rtmp; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        shell: pwsh
+
       - name: Install Google Test
         run: |
           git clone https://github.com/google/googletest.git
