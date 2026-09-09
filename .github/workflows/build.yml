@@ -7,6 +7,32 @@ on:
     branches: [ master ]
 
 jobs:
+  # Bit-rot nöbetçisi: -DREJI_VULKAN_MOCK=ON derlemesi ayrı bir kapı.
+  # Mock'u hiçbir test tam derlemediği için çürümesi fark edilmiyordu
+  # (copy_optimizer C1083, TALIMAT_CI_CPP_BUILD_ONARIMI Parça 3) — Clippy
+  # kapısıyla aynı mantık: kullanılmayan mekanizma her koşumda derlenerek
+  # canlı tutulur. Yalnız reji_pipeline hedefi: statik lib → link yok →
+  # Vulkan SDK, Zig ve Rust gerektirmez (~en ucuz gerçek kapı).
+  # Runner'da Qt yok → reji_ui stub; UI tarafının mock derlemesi yerel
+  # tam-mock build ile doğrulanır.
+  mock-build:
+    name: Mock Build (bit-rot nöbetçisi)
+    runs-on: windows-latest
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: MSVC ortamını ayarla
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: CMake yapılandır (mock)
+        run: cmake -B build_mock -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DREJI_VULKAN_MOCK=ON
+
+      - name: Mock derle (reji_pipeline)
+        run: cmake --build build_mock --target reji_pipeline
+
   build-windows:
     name: Windows Build
     runs-on: windows-latest
