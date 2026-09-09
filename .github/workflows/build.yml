@@ -14,7 +14,9 @@ jobs:
   # canlı tutulur. Yalnız reji_pipeline hedefi: statik lib → link yok →
   # Vulkan SDK, Zig ve Rust gerektirmez (~en ucuz gerçek kapı).
   # Runner'da Qt yok → reji_ui stub; UI tarafının mock derlemesi yerel
-  # tam-mock build ile doğrulanır.
+  # tam-mock build ile doğrulanır. Zig yalnız `ffi` hedefi için gerekli:
+  # src/ffi/CMakeLists.txt:9 configure'da reji_ffi.lib'in varlığını
+  # FATAL_ERROR ile şart koşar (SDK istemez, ~30 sn).
   mock-build:
     name: Mock Build (bit-rot nöbetçisi)
     runs-on: windows-latest
@@ -26,6 +28,14 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      - name: Zig kur
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Zig FFI lib derle
+        run: zig build ffi
 
       - name: CMake yapılandır (mock)
         run: cmake -B build_mock -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DREJI_VULKAN_MOCK=ON
