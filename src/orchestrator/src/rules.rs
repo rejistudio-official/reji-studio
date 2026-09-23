@@ -709,6 +709,12 @@ pub struct ParsedRules {
 /// bir tip olmalı (P2-1). `RuleEngine::new` / `hot_reload` dosyayı okuyup
 /// bunu çağırır; `rj_validate_rules` de dolayısıyla aynı yoldan geçer.
 pub fn parse_rules_content(content: &str) -> Result<ParsedRules, Box<dyn std::error::Error>> {
+    // UTF-8 BOM toleransı: serde_json BOM'u değer saymaz ve JSON denemesi
+    // düşer; ardından TOML hatası ("invalid key") kullanıcıya gösterilirdi.
+    // Şablon (a03ff0d'den beri) ve Windows editörleri BOM üretebilir —
+    // içerik seviyesinde soyulur ki dosyanın nereden geldiği fark etmesin.
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
+
     // Try JSON first, then TOML
     let (rules, hysteresis_ms) = match serde_json::from_str::<RuleFileJson>(content) {
         Ok(rf) => (rf.rules, rf.hysteresis_ms),
@@ -784,6 +790,25 @@ mod tests {
         .expect("geçerli TOML kabul edilmeli");
         assert_eq!(parsed.rules.len(), 1);
         assert_eq!(parsed.hysteresis_ms, 500);
+    }
+
+    // Regresyon (fuzz Faz 0 bulgusu): docs/config/rules.json.template a03ff0d'den
+    // beri UTF-8 BOM'luydu; seedRulesFromTemplate byte-aynen kopyaladığından ilk
+    // "Kuralları Düzenle" sonrası varsayılan kural seti hiç yüklenmiyordu
+    // ("TOML parse error ... invalid key"). Şablonu düzeltmek tek başına yetmez:
+    // kullanıcının editörü (Notepad, VS Code "UTF-8 with BOM") da BOM ekleyebilir.
+    #[test]
+    fn parse_rules_content_tolerates_utf8_bom_before_json() {
+        let content = "\u{FEFF}{\"rules\": [{\"id\": \"r1\", \"condition\": \"cpu_load_pct > 80\", \"action\": \"log_only\", \"modes\": [\"auto-pilot\"]}]}";
+        let parsed = parse_rules_content(content).expect("BOM'lu JSON kabul edilmeli");
+        assert_eq!(parsed.rules.len(), 1);
+    }
+
+    #[test]
+    fn parse_rules_content_tolerates_utf8_bom_before_toml() {
+        let content = "\u{FEFF}[[rules]]\nid = \"r1\"\ncondition = \"cpu_load_pct > 80\"\naction = \"log_only\"\nmodes = [\"auto-pilot\"]\n";
+        let parsed = parse_rules_content(content).expect("BOM'lu TOML kabul edilmeli");
+        assert_eq!(parsed.rules.len(), 1);
     }
 
     #[test]
