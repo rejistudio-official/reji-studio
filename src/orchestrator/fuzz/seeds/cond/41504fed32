@@ -1,0 +1,1 @@
+cpu_load_pct > 80 && frame_drop_pct > 1

@@ -1,0 +1,8 @@
+[metadata]
+hysteresis_ms = 500
+
+[[rules]]
+id = "t1"
+condition = "cpu_load_pct > 80 && gpu_temp_c < 70"
+action = "log_only"
+modes = ["auto-pilot"]

@@ -1,0 +1,34 @@
+[package]
+name = "reji-orchestrator-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+[dependencies.reji-orchestrator]
+path = ".."
+
+[[bin]]
+name = "cond"
+path = "fuzz_targets/cond.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rules-content"
+path = "fuzz_targets/rules_content.rs"
+test = false
+doc = false
+bench = false
+
+# Kök workspace'in (C:/reji-studio/Cargo.toml) DIŞINDA tutulur: nightly-only
+# derleme bayrakları kök `cargo clippy --all-targets` / `cargo test` (CI) ile
+# karışmasın, kök Cargo.lock etkilenmesin. Kendi Cargo.lock'u vardır.
+[workspace]

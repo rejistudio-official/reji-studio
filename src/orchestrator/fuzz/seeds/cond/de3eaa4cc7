@@ -1,0 +1,1 @@
+cpu_load_pct > 80 && memory_usage_pct > 50 || gpu_load_pct > 85
