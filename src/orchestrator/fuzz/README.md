@@ -57,6 +57,16 @@ PATH="$ASAN_BIN:$PATH" cargo +nightly fuzz tmin --target-dir C:/Temp/rjft <hedef
 biçimindeki bileşik koşullar. `corpus/`, `artifacts/`, `coverage/` ve
 `target/` gitignore'dadır — **commit'lenmez**.
 
+## Bilinen bulgular
+
+- **2026-09-23, rules-content, roundtrip:** 82 haneli `fps_limit` literal'i
+  serde_json'da f64'e düşer ve iki geçişte 1 ulp farklı serileşir
+  (`3.0222222222222226e+81` → `3.022222222222222e+81`). Kök neden serde_json'un
+  `float_roundtrip` özelliği olmadan doğru yuvarlamaması (std::parse ile
+  ölçüldü). Ürün etkisi yok (`fps_limit` `as_i64` → `None` → 0, SB-9);
+  harness float'ları ≤4 ulp toleransla karşılaştırır. Ürün tarafı kararı
+  (`serde_json` `float_roundtrip` açmak, ~2× parse maliyeti) açık.
+
 ## Bulgu disiplini
 
 Crash → `tmin` ile küçült → rapor (minimal girdi, stack trace, kök neden
