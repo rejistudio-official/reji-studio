@@ -420,38 +420,12 @@ impl RuleEngine {
             }
         }
 
-        // Read & parse
+        // Read & parse — parse+doğrulama çekirdeği içerik-tabanlı
+        // `parse_rules_content`'ta (fuzz hedefi; dosya sistemi gerektirmez).
         let content = fs::read_to_string(&self.file_path)
             .map_err(|e| format!("Cannot read rules file: {}", e))?;
-
-        // Try JSON first, then TOML
-        let (new_rules, new_hysteresis) = match serde_json::from_str::<RuleFileJson>(&content) {
-            Ok(rf) => (rf.rules, rf.hysteresis_ms),
-            Err(_) => {
-                let toml_data = toml::from_str::<RuleFileTOML>(&content)
-                    .map_err(|e| format!("Cannot parse rules as JSON or TOML: {}", e))?;
-                (toml_data.rules, toml_data.metadata.hysteresis_ms.unwrap_or(0))
-            }
-        };
-
-        // Validation: check all rules have required fields
-        for rule in &new_rules {
-            if rule.id.is_empty() || rule.condition.is_empty() || rule.action.is_empty() {
-                return Err("Rule missing required fields (id, condition, action)".into());
-            }
-            // P2-1: bilinmeyen action YÜKLEMEDE reddedilir — eskiden dosya geçerli
-            // sayılıp hata ancak kural ilk tetiklendiğinde (create_action) patlıyordu;
-            // o noktada da tüm tick'i düşürüyordu. Burada yakalanınca mevcut
-            // rollback devreye girer ve rj_validate_rules (GUI import/profil
-            // doğrulaması) da bozuk dosyayı doğru şekilde reddeder.
-            if action_type_from_str(&rule.action).is_none() {
-                return Err(format!(
-                    "Rule '{}' has unknown action: '{}'",
-                    rule.id, rule.action
-                )
-                .into());
-            }
-        }
+        let ParsedRules { rules: new_rules, hysteresis_ms: new_hysteresis } =
+            parse_rules_content(&content)?;
 
         // Rollback: keep old rules on error
         // P2-2: bu noktaya gelindiyse yükleme başarılı — mtime ancak şimdi
@@ -721,6 +695,52 @@ struct TomlMetadata {
     default_mode: Option<String>,
 }
 
+/// `parse_rules_content` çıktısı: dosyadan bağımsız kural seti.
+#[derive(Debug)]
+pub struct ParsedRules {
+    pub rules: Vec<Rule>,
+    pub hysteresis_ms: u64,
+}
+
+/// Kural dosyası İÇERİĞİNİ ayrıştırır ve yükleme doğrulamasından geçirir —
+/// `hot_reload`'un dosya sistemi olmayan çekirdeği (fuzz Faz 1 refactor'u).
+/// Önce JSON (`RuleFileJson`), olmazsa TOML (`RuleFileTOML`) denenir; sonra
+/// her kuralda `id`/`condition`/`action` boş olmamalı ve `action` bilinen
+/// bir tip olmalı (P2-1). `RuleEngine::new` / `hot_reload` dosyayı okuyup
+/// bunu çağırır; `rj_validate_rules` de dolayısıyla aynı yoldan geçer.
+pub fn parse_rules_content(content: &str) -> Result<ParsedRules, Box<dyn std::error::Error>> {
+    // Try JSON first, then TOML
+    let (rules, hysteresis_ms) = match serde_json::from_str::<RuleFileJson>(content) {
+        Ok(rf) => (rf.rules, rf.hysteresis_ms),
+        Err(_) => {
+            let toml_data = toml::from_str::<RuleFileTOML>(content)
+                .map_err(|e| format!("Cannot parse rules as JSON or TOML: {}", e))?;
+            (toml_data.rules, toml_data.metadata.hysteresis_ms.unwrap_or(0))
+        }
+    };
+
+    // Validation: check all rules have required fields
+    for rule in &rules {
+        if rule.id.is_empty() || rule.condition.is_empty() || rule.action.is_empty() {
+            return Err("Rule missing required fields (id, condition, action)".into());
+        }
+        // P2-1: bilinmeyen action YÜKLEMEDE reddedilir — eskiden dosya geçerli
+        // sayılıp hata ancak kural ilk tetiklendiğinde (create_action) patlıyordu;
+        // o noktada da tüm tick'i düşürüyordu. Burada yakalanınca mevcut
+        // rollback devreye girer ve rj_validate_rules (GUI import/profil
+        // doğrulaması) da bozuk dosyayı doğru şekilde reddeder.
+        if action_type_from_str(&rule.action).is_none() {
+            return Err(format!(
+                "Rule '{}' has unknown action: '{}'",
+                rule.id, rule.action
+            )
+            .into());
+        }
+    }
+
+    Ok(ParsedRules { rules, hysteresis_ms })
+}
+
 impl RuleEngine {
     /// Dosyasız test kurucusu — integration testlerinde kullanılır.
     #[doc(hidden)]
@@ -741,6 +761,39 @@ impl RuleEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Fuzz Faz 1 refactor'u: RuleEngine::new/hot_reload'un parse+doğrulama
+    // çekirdeği içerik-tabanlı `parse_rules_content` olarak dışa çıktı
+    // (dosya sistemi olmadan fuzz'lanabilsin). Davranış değişmez.
+    #[test]
+    fn parse_rules_content_accepts_valid_json() {
+        let parsed = parse_rules_content(
+            r#"{"hysteresis_ms": 250, "rules": [{"id": "r1", "condition": "cpu_load_pct > 80", "action": "log_only", "modes": ["auto-pilot"]}]}"#,
+        )
+        .expect("geçerli JSON kabul edilmeli");
+        assert_eq!(parsed.rules.len(), 1);
+        assert_eq!(parsed.rules[0].id, "r1");
+        assert_eq!(parsed.hysteresis_ms, 250);
+    }
+
+    #[test]
+    fn parse_rules_content_accepts_valid_toml() {
+        let parsed = parse_rules_content(
+            "[metadata]\nhysteresis_ms = 500\n\n[[rules]]\nid = \"r1\"\ncondition = \"cpu_load_pct > 80\"\naction = \"log_only\"\nmodes = [\"auto-pilot\"]\n",
+        )
+        .expect("geçerli TOML kabul edilmeli");
+        assert_eq!(parsed.rules.len(), 1);
+        assert_eq!(parsed.hysteresis_ms, 500);
+    }
+
+    #[test]
+    fn parse_rules_content_rejects_unknown_action() {
+        let err = parse_rules_content(
+            r#"{"rules": [{"id": "r1", "condition": "cpu_load_pct > 80", "action": "reduce_bitrate", "modes": ["auto-pilot"]}]}"#,
+        )
+        .expect_err("bilinmeyen action yüklemede reddedilmeli");
+        assert!(err.to_string().contains("reduce_bitrate"), "hata action adını taşımalı: {err}");
+    }
 
     #[test]
     fn test_load_rules_from_home() {
