@@ -1220,6 +1220,35 @@ mod tests {
         serde_json::from_str(&engine.snapshot_json()).expect("snapshot geçerli JSON olmalı")
     }
 
+    fn template_content() -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/config/rules.json.template");
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} okunamadı: {}", path.display(), e))
+    }
+
+    // Şablon kaynağı BOM'suz tutulur: BOM toleransı motor tarafında olsa da
+    // şablon "temiz JSON" kaynağıdır (qrc ile gömülür, kullanıcıya tohumlanır).
+    #[test]
+    fn template_has_no_utf8_bom() {
+        let content = template_content();
+        assert!(
+            !content.starts_with('\u{FEFF}'),
+            "docs/config/rules.json.template UTF-8 BOM ile başlıyor"
+        );
+    }
+
+    // Şablon, GUI'nin tohumladığı dosyanın kaynağıdır — motorun KENDİ parser'ıyla
+    // (parse_rules_content) yüklenmeli. QrcResourcesTest şablonu hiç parse etmiyor,
+    // profilleri de Qt'nin BOM-toleranslı QJsonDocument'ıyla ölçüyordu; motorun
+    // reddettiği bir şablon o testten geçebiliyordu.
+    #[test]
+    fn template_loads_with_engine_parser() {
+        let parsed = parse_rules_content(&template_content())
+            .unwrap_or_else(|e| panic!("şablon motor parser'ından geçmedi: {}", e));
+        assert!(!parsed.rules.is_empty(), "şablon boş kural üretti");
+    }
+
     #[test]
     fn all_three_profiles_parse_and_validate() {
         // Üç dosya da RuleEngine::new (=> hot_reload => şema doğrulaması) geçmeli.
