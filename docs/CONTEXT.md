@@ -1,7 +1,14 @@
 # Reji Studio — Proje Bağlamı
 
-**Son güncelleme:** 30 Temmuz 2026
-**Durum:** ISource wiring tamamlandı (CaptureSubsystem silindi, orkestratör
+**Son güncelleme:** 23 Eylül 2026
+**Son iş:** cargo-fuzz altyapısı (`src/orchestrator/fuzz/`, kök workspace
+dışında, CI'a girmez; Windows/MSVC tarifi README'de) + `rules.json`
+yükleme yolu sertleştirmesi: içerik-tabanlı `parse_rules_content`, UTF-8
+BOM toleransı, `{` ile başlayan içerikte JSON hatası (SB-11 kapandı),
+şablondan BOM kaldırıldı (a03ff0d'den beri tohumlanan varsayılan kural seti
+yüklenmiyordu — B1 defteri), QrcResourcesTest motorun parser'ına bağlandı.
+Ayrıntı: `TALIMAT_CARGO_FUZZ.md`, SESSION_NOTES 23 Eylül.
+**Durum (30 Temmuz):** ISource wiring tamamlandı (CaptureSubsystem silindi, orkestratör
 ExistingDesktopSource tutuyor). V10 bug planı (L1-L23, dört-model tarama)
 **TAMAMEN KAPANDI** — canlı GUI doğrulamaları dahil (30.07); L18 canlı
 doğrulaması bir ek bulgu çıkardı ve aynı gün kapatıldı (GpuScan WGC'de

@@ -19,6 +19,7 @@
 | weekly.ps1 tek başına clippy koşmuyordu | `6e93eed` 08-10 | `65c6dc5` 08-10 | saatler | kapsam çağrı yoluna bağlıydı: clippy script'te değil `just weekly: lint` zincirindeydi; script doğrudan çağrılınca sessizce atlanıyordu |
 | ECC clippy hook'u hiç çalışmadı | `949c2f7` 06-10 | `79ef519` 08-10 | **2 ay** | Claude Code'un okumadığı şema/konum (`.claude/hooks/hooks.json`, uydurma `"event": "*.rs"` alanı) — hook'lar settings.json `hooks` anahtarından okunur; kayıt yanlış yerde olduğu için hiç tetiklenmedi. Yerine çalışan `scripts/lint.ps1` kuruldu, dört yolu test edildi. |
 | **NVENC tek-kare VBV — CBR hedefin ~%12'sini üretiyordu** | `3fe1fbb` 05-21 | `8743a4f` 09-01 | **~3,4 ay** | ultra-low-latency reçetesi yanlış bağlamda kopyalanmış: "VBV = 1 kare" cloud-gaming/uzak-masaüstü tarifi streaming CBR yoluna, yorum satırı gerekçesiyle birlikte ("minimum buffering, maximum responsiveness") girmiş. `encode_nvenc.cpp`'nin İLK commit'inden beri vardı; her kare avg/fps bitine kilitli, keyframe'ler eziliyordu. Yerel loopback benchmark'ı yakalayamadı: Reji'nin bitrate metriği yapılandırılan hedefi rapor eder (`pipeline.cpp:970` — `s.bitrate_kbps.load()`), ölçülen çıkışı değil; BENCHMARK_RESULTS §2'deki kuşkulu düz "12000 kbps" buydu. Ancak canlı Twitch + Inspector (dış gözlemci) görünür kıldı. Defterin en uzun yaşayan kaydı. |
+| **rules.json.template UTF-8 BOM'lu — tohumlanan varsayılan kural seti hiç yüklenmiyordu** | `a03ff0d` 06-03 | `ce27cfb` + `2da1f58` 09-23 | **~3,7 ay** | **aynı yolun ikinci katmanı**: `72b4b09` (07-21) qrc kaydını düzeltip şablonun *okunmasını* açtı; BOM onun arkasında bekliyordu. `seedRulesFromTemplate` byte-aynen kopyalar, serde_json BOM'u değer saymaz, JSON hatası yutulup TOML'un "invalid key" hatası gösteriliyordu (SB-11 maskeleme aynı turda kapandı, `883a165`). Cetvel de yanlıştı: QrcResourcesTest profilleri Qt'nin BOM-toleranslı parser'ıyla ölçüyor, şablonu hiç parse etmiyordu — motorun reddettiği şablon testten geçiyordu. Bulan araç fuzzer değil, fuzz **seed corpus'u hazırlama** adımı (TALIMAT_CARGO_FUZZ Faz 0). Ders: bir yol açıldığında ("artık okunuyor") aynı yolun sonraki katmanı ("okunan şey motorun cetveliyle geçerli mi?") da uçtan uca doğrulanmalı. |
 
 **İlk desen tespiti (2026-08-10):** En uzun yaşayanlar Rust/C++
 sınırındaki "mekanizma var, son bağlantı eksik" sınıfı; UI-yakını
@@ -34,6 +35,50 @@ Ek ders: bug'ı içeriden hiçbir metrik yakalayamazdı çünkü ölçüm de ayn
 varsayımı paylaşıyordu (bitrate = hedef); dış gözlemci (Twitch
 Inspector) gerekti. Aylık gözden geçirmede sorulacak soru: "başka hangi
 parametre bir reçeteden geldi ve hangi bağlam için yazılmıştı?"
+
+---
+
+## Oturum: 23 Eylül 2026 — cargo-fuzz Faz 0 + Faz 1 (rules.json yükleme yolu sertleştirmesi)
+
+Talimat: `TALIMAT_CARGO_FUZZ.md`. Dal `feat/rules-content-parse-bom`, ff-only merge.
+
+- **Faz 0 — cargo-fuzz Windows/MSVC'de çalışıyor** (WSL'de yalnız docker-desktop
+  var, proptest'e gerek kalmadı). Dört koşul ölçüldü ve `src/orchestrator/fuzz/README.md`'de:
+  `cargo +nightly` (+ASan zorunlu, `-s none` linklenmez); ASan DLL'i yalnız
+  koşumda PATH'e (derlemede cl.exe görünürse cc-rs kırılır); `__fastfail`
+  yerine UCRT `abort()` panik kancası (yoksa crash-* yazılmaz, tmin çalışmaz);
+  kısa `--target-dir` (MAX_PATH). Kök workspace etkilenmez (boş `[workspace]`).
+- **Bulgu (fuzzer değil, seed corpus hazırlığı):** `rules.json.template` UTF-8
+  BOM'lu (`a03ff0d`, 06-03) → tohumlanan varsayılan kural seti hiç yüklenmiyordu,
+  hata TOML "invalid key" olarak görünüyordu. B1 defterine işlendi (~3,7 ay;
+  desen "aynı yolun ikinci katmanı"). Ayrıca `tests/baseline_metrics.txt` git'te
+  izleniyor (.gitignore:69 `!` istisnası) — talimat "asla commit edilmez" der;
+  bu turda dokunulmadı.
+- **Faz 1 (TDD, 8 commit):** `parse_rules_content(&str)` çıkarıldı (`bb110c4`,
+  davranış aynı); BOM toleransı içerik seviyesinde (`ce27cfb`; editör de BOM
+  ekleyebilir); şablondan BOM kaldırıldı + motor parser'ıyla şablon testi
+  (`2da1f58`); `{` ile başlayan içerikte JSON hatası, SB-11 DÜZELTİLDİ
+  (`883a165`, `28d4e3f`); QrcResourcesTest motorun cetveline bağlandı
+  (`b80222c`) — cevap: şablon hiç parse edilmiyordu, profiller Qt'nin
+  BOM-toleranslı QJsonDocument'ıyla ölçülüyordu (QtJsonParserToleratesBom
+  bunu kilitler; EngineRulerRejectsWhatQtAccepts cetvelin motor olduğunu
+  kanıtlar; FFI yol sözleşmesi UTF-8, `toLocal8Bit` "Çağlar" yolunda bozulur).
+  Rust: 157+6+37 test yeşil; ctest QrcResourcesTest 4/4.
+- **Fuzz altyapısı** (`d0c58fe`): hedefler `cond` ve `rules-content`
+  (invariantlar: roundtrip, evaluate asla panic etmez, snapshot_json yeniden
+  ayrıştırılır); seeds commit'li, corpus/artifacts değil; CI'a girmez.
+- **Kampanyalar (15 dk):**
+  - `cond`: 901 sn, 2.912.238 girdi, cov 536, **crash yok**.
+  - `rules-content` 1. koşum: 3. dakikada (#654730) roundtrip ihlali —
+    82 haneli `fps_limit` literal'i serde_json'da f64'e düşüp iki geçişte 1 ulp
+    farklı serileşiyor; kök neden serde_json `float_roundtrip`'siz doğru
+    yuvarlamıyor (std::parse ile ölçüldü). Ürün etkisi yok (SB-9: `as_i64` →
+    0). Harness ≤4 ulp toleranslı yapıldı (`e64d421`); ürün kararı açık.
+  - `rules-content` 2. koşum (toleranslı harness, önceki corpus'tan devam):
+    901 sn, 3.619.125 girdi, cov 6650, **crash yok**.
+- **Öneri/sonraki:** serde_json `float_roundtrip` özelliği (2× parse maliyeti,
+  kural dosyası için önemsiz) — onay bekliyor; `baseline_metrics.txt` gitignore
+  çelişkisi; Hedef 3 (FFI) bırakıldı — ham baytlar yol, içerik değil.
 
 ---
 
