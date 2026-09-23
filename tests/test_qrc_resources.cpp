@@ -14,42 +14,95 @@
 #include <gtest/gtest.h>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QString>
+#include <QTemporaryDir>
 
+#include "../src/ffi/ffi_bridge.h"  // rj_validate_rules — motorun kendi parser'ı
 #include "../src/ui/resource_init.h"
 
 namespace {
 
-void expectResourceReadableJson(const char* path) {
+// Cetvel düzeltmesi (fuzz Faz 0 / BOM bulgusu): bu yardımcı eskiden gömülü
+// kaynağı Qt'nin QJsonDocument'ıyla ölçüyordu, şablonu ise hiç parse
+// etmiyordu ("içeriği JSON olmayabilir"). Qt'nin parser'ı UTF-8 BOM'u tolere
+// eder (aşağıdaki QtJsonParserToleratesBom), motorun parser'ı o güne dek
+// etmiyordu — BOM'lu şablon bu testten geçip ~/.reji/rules.json olarak
+// tohumlanınca motor "TOML parse error ... invalid key" ile reddediyordu.
+// Doğru cetvel: kaynağı, tohumlandığı gibi diske yazıp motorun kendi
+// doğrulama yolundan (rj_validate_rules → parse_rules_content) geçirmek.
+void expectResourceValidByEngine(const QTemporaryDir& dir, const char* path) {
     QFile f(QString::fromLatin1(path));
     ASSERT_TRUE(f.open(QIODevice::ReadOnly))
         << path << " açılamadı: " << f.errorString().toStdString();
     const QByteArray data = f.readAll();
-    EXPECT_FALSE(data.isEmpty()) << path << " boş okundu";
-    QJsonParseError perr{};
-    QJsonDocument::fromJson(data, &perr);
-    EXPECT_EQ(perr.error, QJsonParseError::NoError)
-        << path << " geçerli JSON değil: " << perr.errorString().toStdString();
+    ASSERT_FALSE(data.isEmpty()) << path << " boş okundu";
+
+    // seedRulesFromTemplate/applyProfile ile aynı: byte-aynen diske yaz.
+    const QString tmpPath = dir.filePath(QString::fromLatin1(path).section('/', -1));
+    QFile out(tmpPath);
+    ASSERT_TRUE(out.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    ASSERT_EQ(out.write(data), data.size());
+    out.close();
+
+    // FFI sözleşmesi UTF-8 (main_window.cpp toUtf8 ile aynı) — toLocal8Bit
+    // ASCII-dışı kullanıcı yolunda (ör. "Çağlar") Rust tarafında bozulur.
+    const QByteArray native = QDir::toNativeSeparators(tmpPath).toUtf8();
+    EXPECT_EQ(rj_validate_rules(native.constData()), 1)
+        << path << " motorun parser'ından (rj_validate_rules) geçmedi";
 }
 
 }  // namespace
 
 // Üretim init'i çağrıldıktan sonra üç gömülü profil + kural şablonu okunabilir
-// olmalı — applyProfile/seedRulesFromTemplate'in kaynak tarafı.
+// VE motorun kendi parser'ıyla geçerli olmalı — applyProfile /
+// seedRulesFromTemplate'in kaynak tarafı, motorun tükettiği cetvelle.
 TEST(QrcResourcesTest, ProductionInitRegistersEmbeddedResources) {
     reji::ui::ensureResourcesRegistered();
 
-    expectResourceReadableJson(":/config/profiles/performance.json");
-    expectResourceReadableJson(":/config/profiles/stability.json");
-    expectResourceReadableJson(":/config/profiles/efficiency.json");
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    expectResourceValidByEngine(dir, ":/config/profiles/performance.json");
+    expectResourceValidByEngine(dir, ":/config/profiles/stability.json");
+    expectResourceValidByEngine(dir, ":/config/profiles/efficiency.json");
+    expectResourceValidByEngine(dir, ":/config/rules.json.template");
+}
 
-    // Şablonun içeriği JSON olmayabilir (template) — yalnız okunabilirlik.
-    QFile tpl(QStringLiteral(":/config/rules.json.template"));
-    EXPECT_TRUE(tpl.open(QIODevice::ReadOnly))
-        << "rules.json.template açılamadı: " << tpl.errorString().toStdString();
-    EXPECT_FALSE(tpl.readAll().isEmpty());
+// Cetvelin motor olduğunun kanıtı: Qt'nin "geçerli JSON" dediği ama motorun
+// reddettiği içerik (bilinmeyen action, RULES_SCHEMA SB-5) testten GEÇMEMELİ.
+// Eski yardımcı (QJsonDocument) bunu geçerli sayardı.
+TEST(QrcResourcesTest, EngineRulerRejectsWhatQtAccepts) {
+    const QByteArray data =
+        "{\"rules\": [{\"id\": \"x\", \"condition\": \"cpu_load_pct > 80\","
+        " \"action\": \"reduce_bitrate\", \"modes\": [\"auto-pilot\"]}]}";
+    QJsonParseError perr{};
+    QJsonDocument::fromJson(data, &perr);
+    ASSERT_EQ(perr.error, QJsonParseError::NoError) << "Qt cetveli: geçerli JSON";
+
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString tmpPath = dir.filePath(QStringLiteral("unknown_action.json"));
+    QFile out(tmpPath);
+    ASSERT_TRUE(out.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    ASSERT_EQ(out.write(data), data.size());
+    out.close();
+    const QByteArray native = QDir::toNativeSeparators(tmpPath).toUtf8();
+    EXPECT_EQ(rj_validate_rules(native.constData()), 0)
+        << "motor cetveli: bilinmeyen action reddedilmeli";
+}
+
+// Eski cetvelin neden yanlış olduğunun kaydı: Qt'nin JSON parser'ı UTF-8
+// BOM'u sessizce atlar. Motor da artık atlıyor (rules.rs parse_rules_content),
+// ama gömülü kaynakların geçerliliğine motor karar verir, Qt değil.
+TEST(QrcResourcesTest, QtJsonParserToleratesBom) {
+    const QByteArray withBom = QByteArray("\xEF\xBB\xBF") + "{\"rules\": []}";
+    QJsonParseError perr{};
+    QJsonDocument::fromJson(withBom, &perr);
+    EXPECT_EQ(perr.error, QJsonParseError::NoError)
+        << "Qt BOM'u reddediyorsa bu testin gerekçesi güncellenmeli: "
+        << perr.errorString().toStdString();
 }
 
 // Idempotenlik: MainWindow ctor'u + testler + gelecekteki çağıranlar art arda

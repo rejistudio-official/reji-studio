@@ -496,9 +496,16 @@ if(Qt6_FOUND)
     add_executable(test_qrc_resources
         test_qrc_resources.cpp
     )
+    # Cetvel düzeltmesi (BOM bulgusu): gömülü kaynaklar Qt'nin parser'ıyla
+    # değil motorun kendi doğrulama yolundan (rj_validate_rules) ölçülür —
+    # Rust lib + FFI + Windows runtime bağımlılıkları (HealingOverlayTest deseni;
+    # reji_orchestrator_tests imported hedefi aşağıda tanımlı, generate anında çözülür).
     target_link_libraries(test_qrc_resources
         gtest    # özel main() (QCoreApplication kurar) — gtest_main değil
         reji_ui
+        reji_ffi
+        reji_orchestrator_tests
+        ws2_32 bcrypt userenv ntdll
         Qt6::Core
     )
     add_test(NAME QrcResourcesTest COMMAND test_qrc_resources)
