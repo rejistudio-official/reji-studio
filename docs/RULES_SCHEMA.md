@@ -22,13 +22,24 @@ reddetmek yerine sessizce yok sayar.
 
 Yükleme sırası (`hot_reload`, `rules.rs:389`):
 
+Parse + doğrulama çekirdeği içerik-tabanlı `parse_rules_content(&str)`
+fonksiyonundadır (`bb110c4`; `hot_reload` dosyayı okuyup onu çağırır,
+`rj_validate_rules` de aynı yoldan geçer — cargo-fuzz Hedef 2 giriş noktası).
+
+0. İçeriğin başındaki **UTF-8 BOM (`\u{FEFF}`) atılır** (`ce27cfb`).
+   Şablon `a03ff0d`'den beri BOM'luydu ve tohumlanan dosya hiç
+   yüklenmiyordu; kullanıcının editörü de BOM ekleyebildiğinden tolerans
+   içerik seviyesindedir.
 1. Dosya içeriği önce **JSON** olarak denenir (`RuleFileJson`).
-2. JSON parse edilemezse **TOML** denenir (`RuleFileTOML`).
+2. JSON parse edilemezse: içerik `{` ile başlıyorsa JSON olduğu bellidir,
+   **serde_json'un konumlu hatası döner**, TOML denenmez (`883a165`,
+   SB-11 düzeltmesi). Aksi halde **TOML** denenir (`RuleFileTOML`).
 3. İkisi de başarısızsa hata döner; **eski kurallar bellekte kalır**
    (rollback — hatalı dosya aktif kural setini bozmaz).
-4. Doğrulama: her kuralda `id`, `condition`, `action` **boş olmamalı**.
-   Doğrulama bundan ibarettir — içerik geçerliliği (metrik adı, action
-   adı, mode adı) yükleme anında **kontrol edilmez** (bkz. Bölüm 8).
+4. Doğrulama: her kuralda `id`, `condition`, `action` **boş olmamalı**
+   ve `action` Bölüm 6'daki 7 değerden biri olmalı (SB-5, `86fada3`).
+   Doğrulama bundan ibarettir — metrik adı ve mode adı yükleme anında
+   **kontrol edilmez** (bkz. Bölüm 8).
 
 Hot-reload korumaları: son reload'dan <1 sn geçtiyse dosyaya hiç
 bakılmaz (`SkippedThrottled`); mtime değişmemişse okuma/parse atlanır
@@ -167,7 +178,7 @@ değildir.
 | SB-8 | `gpu_temp_c` geçen herhangi bir kural, GPU termal okuma stub'ken (metrik `0`) | Kural **tamamen atlanır** — substring kontrolü: bileşik koşulda (`cpu_load_pct > 80 && gpu_temp_c < 70`) diğer yapraklar da değerlendirilmez. Yalnız `debug!` log. Gerçek termal okuma gelince guard kendiliğinden kalkar. | `rules.rs:500-503` |
 | SB-9 | `params` değeri yanlış tipte (`"step_kbps": "500"` — string) | `as_i64()` → `None` → `param1 = 0` → aksiyon fiilen no-op'a yakın çalışır. `scale_factor` yanlış tipteyse sessizce `1.0`. | `rules.rs:564-578` |
 | SB-10 | Üst düzey/kural alan adında yazım hatası (`hystersis_ms`, `Modes`) | Bilinmeyen alan sessizce yok sayılır (`deny_unknown_fields` yok); alan varsayılanına düşer. `modes` gibi zorunlu alanda bu, parse hatası olarak yakalanır — opsiyonel alanlarda yakalanmaz. | `rules.rs:651-676` |
-| SB-11 | Bozuk JSON dosyası | Hata mesajı yanıltır: JSON parse hatası yutulup TOML denenir; kullanıcıya **TOML hatası** gösterilir ("Cannot parse rules as JSON or TOML: …"). JSON'daki asıl hata (eksik virgül vb.) mesajda görünmez. | `rules.rs:420-427` |
+| SB-11 | Bozuk JSON dosyası | **DÜZELTİLDİ (883a165).** Eski davranış: JSON parse hatası yutulup TOML denenir, kullanıcıya **TOML hatası** gösterilirdi ("Cannot parse rules as JSON or TOML: … invalid key"); asıl hata (eksik virgül vb.) görünmezdi. Yeni davranış: içerik `{` ile başlıyorsa JSON olduğu bellidir, serde_json'un konumlu hatası "Cannot parse rules as JSON: …" olarak döner, TOML denenmez. JSON'a benzemeyen içerik eski zincirden geçer. Aynı sınıfın ikinci örneği: BOM'lu dosya (`ce27cfb` ile içerik başındaki BOM atılır). | `rules.rs` (`parse_rules_content`) |
 | SB-12 | Doğrulamadan geçemeyen dosya ile tekrar `hot_reload` | **DÜZELTİLDİ (8401d8b).** Eski davranış: mtime doğrulamadan önce kaydedildiğinden, başarısız reload sonrası dosya değişmeden yapılan çağrılar `Ok(SkippedUnchanged)` dönerdi. Yeni davranış: mtime yalnız başarılı yüklemede güncellenir; tekrar deneme hatayı görünür tutar. **Nüans:** bu hata hiç canlı tetiklenmedi (latent) — tek üretim çağıranı `RuleEngine::new` idi ve `rj_reload_rules` her reload'da taze engine kurduğundan bayat mtime atılan engine'le ölüyordu. Gelecekteki watcher/periyodik çağıran için sertleştirme. | `rules.rs` (`hot_reload` mtime bloğu) |
 | SB-13 | `\|\|` koşulunda ikinci yaprak tetiklerken UI açıklaması | Açıklama her zaman **ilk yaprağın** metrik/eşiğini gösterir (Faz 1 kararı) — tetikleyen gerçek yaprak farklıysa açıklama yanıltıcı olabilir. | `rules.rs:229-238`, `rules.rs:257` |
 | SB-14 | `bitrate_recover` kuralı, kurtarılacak düşüş yokken tetiklenirse | Aksiyon sessizce düşürülür (kasıtlı — sahte healing banner'ı önlenir); yalnız `debug!` log. | `healing.rs:554-569` |
