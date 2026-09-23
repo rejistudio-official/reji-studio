@@ -718,6 +718,12 @@ pub fn parse_rules_content(content: &str) -> Result<ParsedRules, Box<dyn std::er
     // Try JSON first, then TOML
     let (rules, hysteresis_ms) = match serde_json::from_str::<RuleFileJson>(content) {
         Ok(rf) => (rf.rules, rf.hysteresis_ms),
+        // SB-11 düzeltmesi: içerik JSON olduğu belli ise (`{` ile başlıyor)
+        // asıl JSON hatası raporlanır — TOML denemesi ("invalid key") onu
+        // maskelemesin. Aksi halde eski zincir: TOML denenir, onun hatası döner.
+        Err(json_err) if content.trim_start().starts_with('{') => {
+            return Err(format!("Cannot parse rules as JSON: {}", json_err).into());
+        }
         Err(_) => {
             let toml_data = toml::from_str::<RuleFileTOML>(content)
                 .map_err(|e| format!("Cannot parse rules as JSON or TOML: {}", e))?;
@@ -809,6 +815,28 @@ mod tests {
         let content = "\u{FEFF}[[rules]]\nid = \"r1\"\ncondition = \"cpu_load_pct > 80\"\naction = \"log_only\"\nmodes = [\"auto-pilot\"]\n";
         let parsed = parse_rules_content(content).expect("BOM'lu TOML kabul edilmeli");
         assert_eq!(parsed.rules.len(), 1);
+    }
+
+    // RULES_SCHEMA SB-11: JSON olduğu belli olan (`{` ile başlayan) bozuk
+    // içerikte JSON hatası yutulup TOML'un "invalid key" hatası gösteriliyordu;
+    // kullanıcı eksik virgülü mesajdan göremiyordu.
+    #[test]
+    fn parse_rules_content_reports_json_error_for_json_looking_content() {
+        let err = parse_rules_content("{\"rules\": [ {\"id\": \"r1\" \"condition\": \"x\"} ]}")
+            .expect_err("bozuk JSON reddedilmeli")
+            .to_string();
+        assert!(err.contains("JSON"), "mesaj JSON hatası olmalı: {err}");
+        assert!(!err.contains("TOML parse error"), "TOML hatası JSON hatasını maskelememeli: {err}");
+        assert!(err.contains("line 1"), "serde_json konum bilgisi korunmalı: {err}");
+    }
+
+    // JSON'a benzemeyen içerik eski zincirden geçer: TOML hatası raporlanır.
+    #[test]
+    fn parse_rules_content_reports_toml_error_for_non_json_content() {
+        let err = parse_rules_content("[[rules]]\nid = \n")
+            .expect_err("bozuk TOML reddedilmeli")
+            .to_string();
+        assert!(err.contains("TOML parse error"), "mesaj TOML hatası olmalı: {err}");
     }
 
     #[test]
