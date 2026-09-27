@@ -137,7 +137,8 @@ powershell -ExecutionPolicy Bypass -File scripts\weekly.ps1
   → DOKUNMA dosyaları değişmiş mi? (metrics.rs, ffi_bridge.h)
   → Test sayısı düştü mü? (ctest 26, cargo 145+5+37 — sayılar
     özgün belgeden, kesinleşmedi)
-  → tests/baseline_metrics.txt yanlışlıkla commit'lenmiş mi?
+  → tests/baseline_metrics.txt gerekçesiz commit'lenmiş mi? (kasıtlı
+    davranış değişikliği + commit mesajında gerekçe dışında olmamalı)
   → [SendDiag] bütçe kontrolü: tot < 16.7ms mi?
     (5a816e5 preview düzeltmesinin regresyona uğramadığı)
   → kullanicida etiketli görev sayısı artıyor mu?

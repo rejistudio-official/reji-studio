@@ -68,6 +68,11 @@ src/
 - Root `CMakeLists.txt` — sadece zorunlu değişikliklerde, onay alarak
 - `src/pipeline/CMakeLists.txt` — SRT/NVENC stub mantığı hassas, dikkatli ol
 
+### Karakterizasyon Baseline'ı (`tests/baseline_metrics.txt`)
+- İzlenir. Test koşumunun ürettiği dalgalanma asla commit edilmez; yalnız
+  açıklanabilir, kasıtlı bir davranış değişikliğinde commit mesajında
+  gerekçesiyle güncellenir.
+
 ---
 
 ## 4. Build Komutları (Claude Code için)

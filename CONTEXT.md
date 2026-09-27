@@ -83,7 +83,7 @@
 
 `git status --porcelain` çıktısı (bu özet yazılırken):
 
-- `M tests/baseline_metrics.txt` — **kasıtlı olarak commit edilmiyor.** Karakterizasyon test artefaktı; `.gitignore`'da force-track edilmiş görünse de hafıza/çalışma kuralı gereği değişiklikleri commit'lenmez.
+- `M tests/baseline_metrics.txt` — **test koşumu dalgalanması, commit edilmiyor.** Karakterizasyon test artefaktı; izlenir (`.gitignore` `!` istisnası), ama koşumun ürettiği dalgalanma commit'lenmez — kural: `CLAUDE.md` §3 "Karakterizasyon Baseline'ı".
 - `?? docs/FAZ1_ASAMA1_TALIMAT.md` — takip edilmeyen (untracked) Faz 1 talimat dosyası.
 - `?? docs/FAZ1_CLAUDE_CODE_TALIMAT.md` — takip edilmeyen Faz 1 talimat dosyası.
 - `?? docs/FAZ1_OBS_WEBSOCKET_DESIGN.md` — takip edilmeyen Faz 1 tasarım dosyası.
@@ -272,6 +272,6 @@ Hiçbir acil/bloke eden iş yok. **I33+I11 (CoPilot onay kapısı) ve I8 (WS aut
 
 - Her commit küçük, mantıksal olarak bölünmüş, push öncesi onay bekleniyor.
 - Eski raporlara/varsayımlara körü körüne güvenilmiyor — her V8 maddesi talimat yazılmadan önce güncel master'a karşı yeniden doğrulanıyor. Bu disiplin defalarca gerçek fayda sağladı (I7 yinelenen çıktı, I29/I31 çürütüldü, WGC keşfi I2/I3'ü tamamen yeniden çerçeveledi).
-- `tests/baseline_metrics.txt` karakterizasyon test artefaktı — asla commit edilmiyor (hafıza kuralı).
+- `tests/baseline_metrics.txt` karakterizasyon test artefaktı — izlenir. Test koşumunun ürettiği dalgalanma asla commit edilmez; yalnız açıklanabilir, kasıtlı bir davranış değişikliğinde commit mesajında gerekçesiyle güncellenir (`CLAUDE.md` §3).
 - Donanım/GUI gerektiren testler kullanıcıya bırakılıyor, Claude Code otonom olarak zorlamıyor.
 - **Dürüstlük ilkesi:** "test edildi" ile "kod incelemesiyle doğrulandı" ile "muhakemeyle kabul edilebilir" arasındaki fark her zaman açıkça belirtiliyor.
