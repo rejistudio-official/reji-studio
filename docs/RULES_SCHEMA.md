@@ -124,13 +124,16 @@ tanınmaz. `metric_id` sütunu FFI kontratının parçasıdır
 | `bitrate_recover` | `step_kbps` (tamsayı) | `param1` = kbps adımı | Hayır |
 | `scale_resolution` | `scale_factor` (ondalık) | `param1` = faktör × 1000 (sabit nokta) | **Evet** |
 | `restore_resolution` | `scale_factor` (ondalık, vars. `1.0`) | `param1` = faktör × 1000 | Hayır |
-| `cap_fps` | `fps_limit` (tamsayı) | `param2` = FPS limiti | Hayır |
-| `restore_fps` | — | — | Hayır |
+| `cap_fps` | `fps_limit` (tamsayı) | `param2` = FPS limiti — **aktüatör `param1` okur, fiilen ölü (SB-16)** | Hayır |
+| `restore_fps` | — | — — **aktüatörde karşılığı yok (SB-17)** | Hayır |
 | `log_only` | — | yalnız log, aktüatöre gitmez | Hayır |
 
 Param kuralları:
 
 - `step_kbps` eksik veya sayı-dışıysa → `param1 = 0` (sessiz; SB-9).
+- Tamsayı param'lar **ondalık yazımı kabul etmez**: `500.0`, `5e2`, `30.0`
+  eksik sayılır → `0` (sessiz; SB-15). `scale_factor` bu tuzaktan muaf
+  (`as_f64` hem `0.5` hem `1` kabul eder).
 - `scale_factor` eksik veya sayı-dışıysa → `1.0` (tam çözünürlük).
 - `fps_limit` her aksiyonda `param2`'ye okunur ama yalnız `cap_fps`'te
   anlamlıdır.
@@ -176,12 +179,15 @@ değildir.
 | SB-6 | Geçersiz `modes` değeri (`"auto"`, `"co_pilot"`, büyük harf) veya boş `[]` | Kural o modda hiçbir zaman eşleşmez; uyarı yok. Doğrulama `modes` içeriğine bakmaz. | `rules.rs:466`, `rules.rs:430-434` |
 | SB-7 | `default_mode` alanını değiştirmek | **Hiçbir etkisi yok.** Alan her iki formatta da şemanın parçası ama kod okumuyor (`#[allow(dead_code)]`); aktif mod FFI'dan (`rj_set_healing_mode`) gelir. | `rules.rs:656-659`, `rules.rs:673-675` |
 | SB-8 | `gpu_temp_c` geçen herhangi bir kural, GPU termal okuma stub'ken (metrik `0`) | Kural **tamamen atlanır** — substring kontrolü: bileşik koşulda (`cpu_load_pct > 80 && gpu_temp_c < 70`) diğer yapraklar da değerlendirilmez. Yalnız `debug!` log. Gerçek termal okuma gelince guard kendiliğinden kalkar. | `rules.rs:500-503` |
-| SB-9 | `params` değeri yanlış tipte (`"step_kbps": "500"` — string) | `as_i64()` → `None` → `param1 = 0` → aksiyon fiilen no-op'a yakın çalışır. `scale_factor` yanlış tipteyse sessizce `1.0`. | `rules.rs:564-578` |
+| SB-9 | `params` değeri yanlış tipte (`"step_kbps": "500"` — string) | `as_i64()` → `None` → `param1 = 0` → bitrate aksiyonlarında C++ %15 fallback'e düşer (V10/L11 sonrası; eskiden no-op'a yakındı) — ondalık yazımda aynı yol, SB-15. `scale_factor` yanlış tipteyse sessizce `1.0`. | `rules.rs:564-578` |
 | SB-10 | Üst düzey/kural alan adında yazım hatası (`hystersis_ms`, `Modes`) | Bilinmeyen alan sessizce yok sayılır (`deny_unknown_fields` yok); alan varsayılanına düşer. `modes` gibi zorunlu alanda bu, parse hatası olarak yakalanır — opsiyonel alanlarda yakalanmaz. | `rules.rs:651-676` |
 | SB-11 | Bozuk JSON dosyası | **DÜZELTİLDİ (883a165).** Eski davranış: JSON parse hatası yutulup TOML denenir, kullanıcıya **TOML hatası** gösterilirdi ("Cannot parse rules as JSON or TOML: … invalid key"); asıl hata (eksik virgül vb.) görünmezdi. Yeni davranış: içerik `{` ile başlıyorsa JSON olduğu bellidir, serde_json'un konumlu hatası "Cannot parse rules as JSON: …" olarak döner, TOML denenmez. JSON'a benzemeyen içerik eski zincirden geçer. Aynı sınıfın ikinci örneği: BOM'lu dosya (`ce27cfb` ile içerik başındaki BOM atılır). | `rules.rs` (`parse_rules_content`) |
 | SB-12 | Doğrulamadan geçemeyen dosya ile tekrar `hot_reload` | **DÜZELTİLDİ (8401d8b).** Eski davranış: mtime doğrulamadan önce kaydedildiğinden, başarısız reload sonrası dosya değişmeden yapılan çağrılar `Ok(SkippedUnchanged)` dönerdi. Yeni davranış: mtime yalnız başarılı yüklemede güncellenir; tekrar deneme hatayı görünür tutar. **Nüans:** bu hata hiç canlı tetiklenmedi (latent) — tek üretim çağıranı `RuleEngine::new` idi ve `rj_reload_rules` her reload'da taze engine kurduğundan bayat mtime atılan engine'le ölüyordu. Gelecekteki watcher/periyodik çağıran için sertleştirme. | `rules.rs` (`hot_reload` mtime bloğu) |
 | SB-13 | `\|\|` koşulunda ikinci yaprak tetiklerken UI açıklaması | Açıklama her zaman **ilk yaprağın** metrik/eşiğini gösterir (Faz 1 kararı) — tetikleyen gerçek yaprak farklıysa açıklama yanıltıcı olabilir. | `rules.rs:229-238`, `rules.rs:257` |
 | SB-14 | `bitrate_recover` kuralı, kurtarılacak düşüş yokken tetiklenirse | Aksiyon sessizce düşürülür (kasıtlı — sahte healing banner'ı önlenir); yalnız `debug!` log. | `healing.rs:554-569` |
+| SB-15 | Tamsayı param ondalık yazılmış (`"step_kbps": 500.0`, `"fps_limit": 30.0`, `5e2`; TOML'da `step_kbps = 500.0`) | serde_json/toml bunu **float** saklar, `as_i64()` float'ta `None` döner → değer **eksik** sayılır → `0`. Yüklemede hata yok. Sonuç aksiyona göre: `bitrate_reduce`/`recover` → `param1=0` → C++ `reduce/recover_step_bitrate` **%15 fallback**'e düşer (profilin adım ayrımı sessizce kaybolur, aksiyon yine çalışır); `cap_fps` → `param2=0` (bkz. SB-16 — zaten ölü). Ölçüm: 2026-09-27 geçici sonda, gerçek dosya yükleme yolu (`RuleEngine::new` + `evaluate`): `500`→500, `500.0`→0, `5e2`→0, TOML `500.0`→0, `fps_limit 30`→param2 30, `30.0`→0. Aynı noktada ikinci sessiz yol: `as i32` kesmesi — `"step_kbps": 5000000000` → `param1 = 705032704` (sarma); REDUCE'ta akım−adım → 0 → `min_bitrate_kbps` tabanına çakılır. Negatif (`-500`) → `param1=-500` → C++ `<= 0` → %15 fallback. | `rules.rs` (`create_action`: `.as_i64().unwrap_or(0) as i32`), `bitrate_policy.h` (`reduce_step_bitrate`) |
+| SB-16 | Herhangi bir `cap_fps` kuralı (tamsayı `fps_limit` ile bile) | **Aksiyon hiçbir zaman FPS kısmaz.** `create_action` `fps_limit`'i `param2`'ye, `step_kbps`'i (cap_fps kuralında yok → `0`) `param1`'e koyar; `Pipeline::apply_action` ve frame handler `CAP_FPS`'te **`param1`** okur → `set_fps_limit(0)` → `fps < 1` reddi, `false` döner, dönüş `(void)` ile atılır — log yok. `0` ne "sınırsız" ne "sıfıra kıs": **no-op**. UI olay satırı da `param1` gösterir → "FPS sınırlanıyor → 0 fps". Etkilenen: `rules.json.template` `cpu_load_high`, üç profilde `cap_fps` kuralları (verimlilik profilinin GPU-yükü stratejisi dahil). Köken: `a03ff0d` (Rust `param2`) ↔ `5dbac31` (C++ `param1`) — hiç çalışmadı, testi yok. | `rules.rs` (`create_action` param2), `pipeline.cpp` (`apply_action` + frame cmd `CAP_FPS`), `encode_nvenc.cpp` (`set_fps_limit`), `main_window.cpp` (olay metni) |
+| SB-17 | `restore_fps` kuralı | Rust aksiyonu üretir, FFI'dan geçer; `Pipeline::apply_action`'da `RJ_ACTION_RESTORE_FPS` case'i yok → `default` → `unknown action_type` debug log + `false`. SB-16 düzelince görünür hale gelir: FPS kısılır ama hiç geri açılmaz. | `pipeline.cpp` (`apply_action` switch) |
 
 ## 9. Çalışma zamanı davranışı (şemayı etkileyen)
 
